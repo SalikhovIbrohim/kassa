@@ -189,6 +189,50 @@ describe("protecting the login from password guessing", { timeout: 30_000 }, () 
       expect(sixth.status).toBe(429);
     });
 
+    it("never lets a spelling the database reads as the same account open it while it is blocked", async () => {
+      const started = await startedApp();
+      await wrongAttempts(started, 5);
+
+      // "İvan" (dotted capital I) is "ivan" to PostgreSQL's lower() with some locales and a
+      // different text to JavaScript's. Where the database reads it as the same account it
+      // must share the counter; where it does not, there is no such account.
+      const alias = await attempt(started, "İvan", "correct horse");
+      const aliasTwice = await attempt(started, "İVAN", "correct horse");
+
+      expect(alias.status).not.toBe(200);
+      expect(aliasTwice.status).not.toBe(200);
+      expect(alias.headers.getSetCookie()).toEqual([]);
+    });
+
+    it("does not make the wait longer when the application's clock is set back", async () => {
+      const started = await startedApp();
+      await wrongAttempts(started, 5);
+
+      started.setNow(after(START, -10 * MINUTE));
+      const blocked = await refusal(await attempt(started, "ivan", "wrong horse"));
+      started.setNow(after(START, -10 * MINUTE + 30 * SECOND));
+      const afterTheWait = await attempt(started, "ivan", "wrong horse");
+
+      expect(blocked.body.retryAfterSeconds).toBe(30);
+      expect(afterTheWait.status).toBe(401);
+    });
+
+    it("does not charge a right password to the person when the database fails after checking it", async () => {
+      const started = await startedApp();
+      await wrongAttempts(started, 4);
+      await started.execute("ALTER TABLE sessions RENAME TO sessions_away");
+
+      const failed = await attempt(started, "ivan", "correct horse");
+      await started.execute("ALTER TABLE sessions_away RENAME TO sessions");
+      const fifth = await attempt(started, "ivan", "wrong horse");
+      const sixth = await attempt(started, "ivan", "wrong horse");
+
+      expect(failed.status).toBe(500);
+      // Four wrong guesses so far, the failed login was not one: this is the fifth, free.
+      expect(fifth.status).toBe(401);
+      expect(sixth.status).toBe(429);
+    });
+
     it("does not hold back anyone else: another login is not affected", async () => {
       const started = await startedApp();
       await wrongAttempts(started, 6);
@@ -301,6 +345,60 @@ describe("protecting the login from password guessing", { timeout: 30_000 }, () 
       expect(next.status).toBe(429);
     });
 
+    it("holds to the allowance when the guesses arrive all at once", async () => {
+      const started = await startedApp(proxy);
+
+      const burst = await Promise.all(
+        Array.from({ length: 30 }, (_, i) => attempt(started, `guess-${i}`, "password123", "203.0.113.7")),
+      );
+
+      const statuses = burst.map((response) => response.status).sort();
+      expect(statuses).toEqual([...Array(20).fill(401), ...Array(10).fill(429)]);
+    });
+
+    it("does not make an address wait longer because attempts kept arriving during the wait", async () => {
+      const started = await startedApp(proxy);
+      for (let i = 0; i < 20; i++) await attempt(started, `guess-${i}`, "password123", "203.0.113.7");
+      for (let i = 0; i < 10; i++) {
+        expect((await attempt(started, `more-${i}`, "password123", "203.0.113.7")).status).toBe(429);
+      }
+
+      started.setNow(after(START, 30 * SECOND));
+      const afterTheWait = await attempt(started, "guess-x", "password123", "203.0.113.7");
+      const next = await refusal(await attempt(started, "guess-y", "password123", "203.0.113.7"));
+
+      expect(afterTheWait.status).toBe(401);
+      expect(next.body.retryAfterSeconds).toBe(60);
+    });
+
+    it("forgets an address by itself after thirty quiet minutes", async () => {
+      const started = await startedApp(proxy);
+      for (let i = 0; i < 21; i++) await attempt(started, `guess-${i}`, "password123", "203.0.113.7");
+
+      started.setNow(after(START, 30 * MINUTE));
+      const fresh: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        fresh.push((await attempt(started, `again-${i}`, "password123", "203.0.113.7")).status);
+      }
+      const next = await attempt(started, "again-x", "password123", "203.0.113.7");
+
+      expect(fresh).toEqual(Array(20).fill(401));
+      expect(next.status).toBe(429);
+    });
+
+    it("remembers a bounded number of addresses, forgetting the least recently seen", async () => {
+      const started = await startedApp({ ...proxy, loginProtection: { maxTracked: 3 } });
+      for (let i = 0; i < 20; i++) await attempt(started, `guess-${i}`, "password123", "203.0.113.7");
+
+      // Three other addresses push the first one out of a table that holds three.
+      for (const other of ["198.51.100.1", "198.51.100.2", "198.51.100.3"]) {
+        await attempt(started, "guess-other", "password123", other);
+      }
+      const forgotten = await attempt(started, "guess-again", "password123", "203.0.113.7");
+
+      expect(forgotten.status).toBe(401);
+    });
+
     it("counts an IPv6 client by its /64 network, so moving within it does not start over", async () => {
       const started = await startedApp(proxy);
 
@@ -358,6 +456,43 @@ describe("protecting the login from password guessing", { timeout: 30_000 }, () 
 
       const afterwards = await attempt(started, "ivan", "correct horse", "198.51.100.200");
       expect(afterwards.status).toBe(200);
+    });
+
+    it("with the real limits, refuses the surplus of a large burst and recovers", async () => {
+      const started = await startedApp({ trustProxy: "127.0.0.1" });
+
+      const burst = await Promise.all(
+        Array.from({ length: 60 }, (_, i) => attempt(started, `user-${i}`, "password123", `198.51.100.${i}`)),
+      );
+      const statuses = burst.map((response) => response.status);
+
+      expect(statuses.every((status) => status === 401 || status === 503)).toBe(true);
+      // Four run and sixteen wait: a burst of sixty cannot all be served at once.
+      expect(statuses.filter((status) => status === 503).length).toBeGreaterThanOrEqual(10);
+      expect(statuses.filter((status) => status === 401).length).toBeGreaterThanOrEqual(4);
+      expect((await attempt(started, "ivan", "correct horse", "198.51.100.200")).status).toBe(200);
+    });
+
+    it("does not count a refused attempt against the address it came from", async () => {
+      const started = await startedApp({
+        trustProxy: "127.0.0.1",
+        loginProtection: { passwordChecks: { running: 1, waiting: 0 } },
+      });
+      const burst = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => attempt(started, `user-${i}`, "password123", "203.0.113.7")),
+      );
+      const served = burst.filter((response) => response.status === 401).length;
+      expect(burst.filter((response) => response.status === 503).length).toBeGreaterThan(0);
+
+      // Only the served attempts used up the address's twenty.
+      const rest: number[] = [];
+      for (let i = 0; i < 20 - served; i++) {
+        rest.push((await attempt(started, `later-${i}`, "password123", "203.0.113.7")).status);
+      }
+      const one = await attempt(started, "later-x", "password123", "203.0.113.7");
+
+      expect(rest).toEqual(Array(20 - served).fill(401));
+      expect(one.status).toBe(429);
     });
 
     it("does not count a refused attempt against the person who sent it", async () => {

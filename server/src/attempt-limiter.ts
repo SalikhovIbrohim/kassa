@@ -12,7 +12,8 @@ export type AttemptLimiterOptions = {
 
 type Entry = { attempts: number; lastAttemptAt: number };
 
-const SWEEP_EVERY_MS = 60_000;
+/** What `reserve` hands back, so that `refund` can put the key exactly as it was. */
+export type Reservation = { previousLastAttemptAt: number | undefined };
 
 /**
  * Slows down guessing without ever locking anyone out for good. Each key (a login, an
@@ -23,11 +24,11 @@ const SWEEP_EVERY_MS = 60_000;
  * An attempt is counted when it arrives (`reserve`), before anyone knows whether the
  * password is right, so a burst of parallel guesses cannot slip past the limit. A right
  * password then calls `reset` or `refund`. The table lives in memory: it starts empty
- * after a restart of the server.
+ * after a restart of the server. Quiet keys are dropped when they are next looked at, and
+ * the table never holds more than `maxTracked`, so a flood of made-up keys cannot grow it.
  */
 export class AttemptLimiter {
   private readonly entries = new Map<string, Entry>();
-  private lastSweepAt = 0;
 
   constructor(private readonly options: AttemptLimiterOptions) {}
 
@@ -35,6 +36,9 @@ export class AttemptLimiter {
   waitMs(key: string, nowMs: number): number {
     const entry = this.entries.get(key);
     if (!entry) return 0;
+    // The clock went back (a correction of the server's time): count from now, never from a
+    // moment in the future, or the wait would grow by the size of the step.
+    if (nowMs < entry.lastAttemptAt) entry.lastAttemptAt = nowMs;
     if (nowMs - entry.lastAttemptAt >= this.options.forgetAfterMs) {
       this.entries.delete(key);
       return 0;
@@ -46,9 +50,11 @@ export class AttemptLimiter {
   }
 
   /** Counts an attempt for `key` from now on. Call only when `waitMs` said zero. */
-  reserve(key: string, nowMs: number): void {
-    this.sweep(nowMs);
-    const entry = this.entries.get(key) ?? { attempts: 0, lastAttemptAt: nowMs };
+  reserve(key: string, nowMs: number): Reservation {
+    let existing = this.entries.get(key);
+    if (existing && nowMs - existing.lastAttemptAt >= this.options.forgetAfterMs) existing = undefined;
+    const reservation = { previousLastAttemptAt: existing?.lastAttemptAt };
+    const entry = existing ?? { attempts: 0, lastAttemptAt: nowMs };
     entry.attempts += 1;
     entry.lastAttemptAt = nowMs;
     // Re-insert so the Map's order is least recently tried first.
@@ -59,27 +65,24 @@ export class AttemptLimiter {
       if (oldest === undefined) break;
       this.entries.delete(oldest);
     }
+    return reservation;
   }
 
-  /** Takes one reserved attempt back: it was not a wrong guess (it worked, or never ran). */
-  refund(key: string): void {
+  /**
+   * Takes one reserved attempt back: it was not a wrong guess (it worked, or never ran). The
+   * time of the last attempt goes back too, so an attempt that was never really made does not
+   * start a new wait.
+   */
+  refund(key: string, reservation: Reservation): void {
     const entry = this.entries.get(key);
     if (!entry) return;
     entry.attempts -= 1;
     if (entry.attempts <= 0) this.entries.delete(key);
+    else if (reservation.previousLastAttemptAt !== undefined) entry.lastAttemptAt = reservation.previousLastAttemptAt;
   }
 
   /** Forgets `key` altogether. */
   reset(key: string): void {
     this.entries.delete(key);
-  }
-
-  /** Drops keys that have been quiet long enough to be forgotten, at most once a minute. */
-  private sweep(nowMs: number): void {
-    if (nowMs - this.lastSweepAt < SWEEP_EVERY_MS) return;
-    this.lastSweepAt = nowMs;
-    for (const [key, entry] of this.entries) {
-      if (nowMs - entry.lastAttemptAt >= this.options.forgetAfterMs) this.entries.delete(key);
-    }
   }
 }

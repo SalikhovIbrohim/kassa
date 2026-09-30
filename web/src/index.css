@@ -356,9 +356,10 @@ select:focus-visible {
 }
 
 .filters summary {
-  display: flex;
-  align-items: center;
+  /* list-item keeps the little triangle that tells people this folds open; 44px is a finger. */
+  display: list-item;
   min-height: 44px;
+  line-height: 44px;
   font-weight: 600;
   cursor: pointer;
 }

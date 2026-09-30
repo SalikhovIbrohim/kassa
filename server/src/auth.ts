@@ -34,6 +34,8 @@ export type AuthOptions = {
   sessionDays: number;
   secureCookies: boolean;
   loginProtection?: LoginProtectionOptions;
+  /** A reverse proxy is trusted (TRUST_PROXY is set), so X-Forwarded-For says who the client is. */
+  proxyTrusted?: boolean;
 };
 
 // Slowing down password guessing (ticket 26). After FREE_ATTEMPTS wrong passwords in a row
@@ -80,6 +82,15 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
   const byAddress = new AttemptLimiter({ ...limits, freeAttempts: ADDRESS_FREE_ATTEMPTS });
   const passwordChecks = options.loginProtection?.passwordChecks ?? DEFAULT_PASSWORD_CHECKS;
   const passwordGate = new ConcurrencyGate(passwordChecks.running, passwordChecks.waiting);
+  let warnedAboutProxy = false;
+
+  function tooManyAttempts(reply: FastifyReply, waitMs: number) {
+    const retryAfterSeconds = Math.ceil(waitMs / 1000);
+    return reply
+      .code(429)
+      .header("Retry-After", String(retryAfterSeconds))
+      .send({ error: "too_many_attempts", retryAfterSeconds });
+  }
   // Extend at most once a day, but often enough that a short lifetime still slides.
   const refreshAfterMs = Math.min(DAY_MS, (sessionDays * DAY_MS) / 4);
 
@@ -172,35 +183,51 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       },
     },
     async (request, reply) => {
-      // Same key for a login that exists and one that does not, so the answers tell nothing.
-      const loginKey = request.body.login.trim().toLowerCase();
       const addressKey = clientNetwork(request.ip);
-      const attemptAt = now().getTime();
+      const typedLogin = request.body.login.trim();
 
-      // Turn the person away before any work is done for them: no database, no password check.
-      const waitMs = Math.max(byLogin.waitMs(loginKey, attemptAt), byAddress.waitMs(addressKey, attemptAt));
-      if (waitMs > 0) {
-        const retryAfterSeconds = Math.ceil(waitMs / 1000);
-        return reply
-          .code(429)
-          .header("Retry-After", String(retryAfterSeconds))
-          .send({ error: "too_many_attempts", retryAfterSeconds });
+      // Forgetting TRUST_PROXY behind a reverse proxy makes every client look like one
+      // address, so a single outsider could use up the allowance of everybody. Say so once.
+      if (!options.proxyTrusted && !warnedAboutProxy && request.headers["x-forwarded-for"] && isLoopback(request.socket.remoteAddress)) {
+        warnedAboutProxy = true;
+        request.log.warn(
+          "Login requests arrive through a proxy (X-Forwarded-For on a local connection) but TRUST_PROXY is not set: " +
+            "all clients are counted as one address. Set TRUST_PROXY to the proxy's address (see .env.example).",
+        );
       }
 
-      // Count the attempt now, before it is known to be wrong, so that guesses sent all at
-      // once cannot get past the limit. A right password takes its attempt back below.
-      byLogin.reserve(loginKey, attemptAt);
-      byAddress.reserve(addressKey, attemptAt);
+      // A client that is already over its limit is turned away before any database work.
+      const earlyWaitMs = byAddress.waitMs(addressKey, now().getTime());
+      if (earlyWaitMs > 0) return tooManyAttempts(reply, earlyWaitMs);
 
-      let user: UserRow | undefined;
+      // Who the typed text is. The database decides: its lower() folds case its own way, which
+      // JavaScript does not always match ("İvan" is "ivan" to PostgreSQL), so the counter of
+      // a login follows the account it opens, never the spelling. Text that opens no account
+      // is counted as typed, the same way for every such text.
+      const found = await pool.query<UserRow>(
+        `SELECT id, login, display_name, password_hash, role
+           FROM users WHERE lower(login) = lower($1) AND active`,
+        [typedLogin],
+      );
+      const user = found.rows[0];
+      const loginKey = user ? `account:${user.id}` : `typed:${typedLogin.toLowerCase()}`;
+
+      // No await between checking the limits and counting the attempt: parallel guesses
+      // cannot all pass the check before any of them is counted.
+      const attemptAt = now().getTime();
+      const waitMs = Math.max(byLogin.waitMs(loginKey, attemptAt), byAddress.waitMs(addressKey, attemptAt));
+      if (waitMs > 0) return tooManyAttempts(reply, waitMs);
+
+      // Counted now, before it is known to be wrong. A right password takes its attempt back.
+      const loginReservation = byLogin.reserve(loginKey, attemptAt);
+      const addressReservation = byAddress.reserve(addressKey, attemptAt);
+      const giveBack = () => {
+        byLogin.refund(loginKey, loginReservation);
+        byAddress.refund(addressKey, addressReservation);
+      };
+
       let passwordMatches: boolean;
       try {
-        const result = await pool.query<UserRow>(
-          `SELECT id, login, display_name, password_hash, role
-             FROM users WHERE lower(login) = lower($1) AND active`,
-          [request.body.login.trim()],
-        );
-        user = result.rows[0];
         // Spend the same time whether or not the login exists, so response time
         // does not reveal which logins are real.
         passwordMatches = await passwordGate.run(async () => {
@@ -208,9 +235,8 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
           return verifyPassword(request.body.password, passwordHash);
         });
       } catch (error) {
-        // Whatever went wrong here was not a wrong guess: do not charge it to the person.
-        byLogin.refund(loginKey);
-        byAddress.refund(addressKey);
+        // No password was checked: this was not a wrong guess, do not charge it to the person.
+        giveBack();
         if (error instanceof GateFullError) {
           return reply
             .code(503)
@@ -226,30 +252,36 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
 
       const token = randomBytes(32).toString("base64url");
       const started = now();
-      // Only if the account is still active and the password is still the one we just
-      // checked: a reset or revoke that raced with this login must not be outlived by it.
-      const created = await pool.query(
-        `INSERT INTO sessions (user_id, token_hash, created_at, last_seen_at, expires_at)
-         SELECT id, $2, $3, $3, $4 FROM users
-          WHERE id = $1 AND active AND password_hash = $5`,
-        [
-          user.id,
-          hashToken(token),
-          started,
-          new Date(started.getTime() + sessionDays * DAY_MS),
-          user.password_hash,
-        ],
-      );
-      if (created.rowCount === 0) {
-        return reply.code(401).send({ error: "invalid_credentials" });
+      try {
+        // Only if the account is still active and the password is still the one we just
+        // checked: a reset or revoke that raced with this login must not be outlived by it.
+        const created = await pool.query(
+          `INSERT INTO sessions (user_id, token_hash, created_at, last_seen_at, expires_at)
+           SELECT id, $2, $3, $3, $4 FROM users
+            WHERE id = $1 AND active AND password_hash = $5`,
+          [
+            user.id,
+            hashToken(token),
+            started,
+            new Date(started.getTime() + sessionDays * DAY_MS),
+            user.password_hash,
+          ],
+        );
+        if (created.rowCount === 0) {
+          return reply.code(401).send({ error: "invalid_credentials" });
+        }
+        // Housekeeping: expired sessions are useless, drop them as people log in.
+        await pool.query("DELETE FROM sessions WHERE expires_at <= $1", [started]);
+      } catch (error) {
+        // The password was right and the database failed: not the person's fault.
+        giveBack();
+        throw error;
       }
-      // Housekeeping: expired sessions are useless, drop them as people log in.
-      await pool.query("DELETE FROM sessions WHERE expires_at <= $1", [started]);
 
       // A login that worked starts from zero. An address only gets this attempt back: a
       // guesser must not be able to wipe its count by logging in to an account of its own.
       byLogin.reset(loginKey);
-      byAddress.refund(addressKey);
+      byAddress.refund(addressKey, addressReservation);
 
       setSessionCookie(reply, token);
       return {
@@ -257,6 +289,10 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       };
     },
   );
+}
+
+function isLoopback(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
 let unknownUserHashPromise: Promise<string> | undefined;

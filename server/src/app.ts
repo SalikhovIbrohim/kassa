@@ -64,6 +64,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     sessionDays: options.sessionDays ?? 90,
     secureCookies: options.secureCookies ?? false,
     loginProtection: options.loginProtection,
+    proxyTrusted: options.trustProxy !== undefined,
   });
 
   await registerOperations(app, {
