@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { Balances } from "./Balances";
 import { EntryScreen } from "./EntryScreen";
+import { Journal } from "./Journal";
 import { LoginScreen } from "./LoginScreen";
 
 type State =
@@ -146,7 +147,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           onSessionExpired={onLoggedOut}
         />
       ) : (
-        <p className="hint">Вы смотрящий: остатки доступны, вносить операции нельзя.</p>
+        <Journal mode="viewer" onSessionExpired={onLoggedOut} onRefresh={loadBalances} />
       )}
     </main>
   );

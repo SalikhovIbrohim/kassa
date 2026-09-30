@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { getBalances } from "./balances.js";
+import { getBalances, type Balance } from "./balances.js";
 import type { ExpenseCategory } from "./categories.js";
 import type { Currency } from "./money.js";
 
@@ -51,9 +51,10 @@ export type NewOperation = {
 };
 
 export type RecordResult =
-  | { status: "created"; row: OperationRow }
+  /** `balances` are read in the same transaction, so the answer cannot fail after the commit. */
+  | { status: "created"; row: OperationRow; balances: Balance[] }
   /** The same entry was sent before: nothing was added, here is what is stored. */
-  | { status: "replayed"; row: OperationRow }
+  | { status: "replayed"; row: OperationRow; balances: Balance[] }
   /** The id belongs to a different entry. */
   | { status: "id_conflict" }
   /** The cash desk holds less of that currency than the expense takes out. */
@@ -69,9 +70,9 @@ async function findOperation(db: pg.ClientBase, id: string): Promise<OperationRo
   return found.rows[0];
 }
 
-/** The same author sending the same content again is a retry; anything else is a clash. */
-function answerForExistingId(stored: OperationRow, wanted: NewOperation): RecordResult {
-  const sameEntry =
+/** Whether the stored entry is the one being sent again: same author, same content. */
+function isSameEntry(stored: OperationRow, wanted: NewOperation): boolean {
+  return (
     stored.author_id === wanted.authorId &&
     stored.kind === wanted.kind &&
     Number(stored.amount_minor) === wanted.amountMinor &&
@@ -79,8 +80,8 @@ function answerForExistingId(stored: OperationRow, wanted: NewOperation): Record
     stored.category === wanted.category &&
     stored.recipient === wanted.recipient &&
     stored.client_code === wanted.clientCode &&
-    stored.comment === wanted.comment;
-  return sameEntry ? { status: "replayed", row: stored } : { status: "id_conflict" };
+    stored.comment === wanted.comment
+  );
 }
 
 /**
@@ -100,6 +101,12 @@ function answerForExistingId(stored: OperationRow, wanted: NewOperation): Record
  */
 export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
   const client = await pool.connect();
+  // A connection lost while it is checked out reports itself as an 'error' event on the
+  // client. With nobody listening, Node would end the whole process; we are already
+  // handling the failure through the rejected query.
+  const ignoreConnectionError = () => {};
+  client.on("error", ignoreConnectionError);
+  let failed = false;
   try {
     await client.query("BEGIN");
 
@@ -107,55 +114,65 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`kassa.balance.${wanted.currency}`]);
     }
 
-    const existing = await findOperation(client, wanted.id);
-    if (existing) {
-      await client.query("COMMIT");
-      return answerForExistingId(existing, wanted);
-    }
+    // The entry may be stored already: a retry, or a clash of ids.
+    let stored = await findOperation(client, wanted.id);
+    let created = false;
 
-    if (wanted.kind === "expense") {
-      const balance = (await getBalances(client)).find((item) => item.currency === wanted.currency);
-      const availableMinor = balance?.amountMinor ?? 0;
-      if (availableMinor < wanted.amountMinor) {
-        await client.query("ROLLBACK");
-        return { status: "insufficient_balance", availableMinor };
+    if (!stored) {
+      if (wanted.kind === "expense") {
+        // This reads every operation of the currency. Fine for one cash desk (tens of
+        // thousands of rows take tens of milliseconds); with far more, keep a running total.
+        const balance = (await getBalances(client)).find((item) => item.currency === wanted.currency);
+        const availableMinor = balance?.amountMinor ?? 0;
+        if (availableMinor < wanted.amountMinor) {
+          await client.query("ROLLBACK");
+          return { status: "insufficient_balance", availableMinor };
+        }
       }
+
+      const inserted = await client.query(
+        `INSERT INTO operations
+           (id, kind, amount_minor, currency, category, recipient, client_code,
+            client_code_key, comment, author_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          wanted.id,
+          wanted.kind,
+          wanted.amountMinor,
+          wanted.currency,
+          wanted.category,
+          wanted.recipient,
+          wanted.clientCode,
+          wanted.clientCode?.toLowerCase() ?? null,
+          wanted.comment,
+          wanted.authorId,
+          wanted.createdAt,
+        ],
+      );
+      created = inserted.rowCount === 1;
+      // Zero rows: another request with this id got in between our look and our insert (an
+      // income takes no lock, and an expense in the other currency takes another one). The
+      // insert waited for it to finish, so its row is visible now.
+      stored = await findOperation(client, wanted.id);
     }
 
-    const inserted = await client.query(
-      `INSERT INTO operations
-         (id, kind, amount_minor, currency, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        wanted.id,
-        wanted.kind,
-        wanted.amountMinor,
-        wanted.currency,
-        wanted.category,
-        wanted.recipient,
-        wanted.clientCode,
-        wanted.clientCode?.toLowerCase() ?? null,
-        wanted.comment,
-        wanted.authorId,
-        wanted.createdAt,
-      ],
-    );
-
-    // Zero rows: another request with this id got in between our look and our insert (an
-    // income takes no lock, and an expense in the other currency takes another one). The
-    // insert waited for it to finish, so its row is visible now.
-    const stored = await findOperation(client, wanted.id);
     if (!stored) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
+    if (!created && !isSameEntry(stored, wanted)) {
+      await client.query("COMMIT");
+      return { status: "id_conflict" };
+    }
+
+    const balances = await getBalances(client);
     await client.query("COMMIT");
-    return inserted.rowCount === 1
-      ? { status: "created", row: stored }
-      : answerForExistingId(stored, wanted);
+    return { status: created ? "created" : "replayed", row: stored, balances };
   } catch (error) {
+    failed = true;
     await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
-    client.release();
+    client.removeListener("error", ignoreConnectionError);
+    // After a failure the connection may be half dead: throw it away instead of reusing it.
+    client.release(failed);
   }
 }

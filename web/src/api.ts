@@ -165,3 +165,44 @@ export async function createOperation(input: OperationInput): Promise<OperationR
   }
   return { ok: false, reason: "rejected" };
 }
+
+// ---- Journal ----
+
+export type Cashier = { login: string; displayName: string };
+
+export type JournalFilters = {
+  /** Moscow calendar days, YYYY-MM-DD, both included. */
+  from: string;
+  to: string;
+  currency?: Currency;
+  type?: "income" | "expense";
+  category?: string;
+  clientCode?: string;
+  author?: string;
+};
+
+export type JournalPage = { operations: Operation[]; nextCursor: string | null };
+
+/** One page of the journal. Empty filters are left out; `cursor` asks for the page after a known one. */
+export async function fetchJournal(filters: JournalFilters, cursor?: string): Promise<JournalPage> {
+  const params = new URLSearchParams();
+  for (const [name, value] of Object.entries({ ...filters, cursor })) {
+    if (value) params.set(name, value);
+  }
+  const response = await request(`/api/operations?${params}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/operations`);
+  const body = (await response.json()) as JournalPage;
+  return { operations: body.operations, nextCursor: body.nextCursor };
+}
+
+/** Cashiers for the viewer's filter. Never throws: the filter just has fewer choices. */
+export async function fetchCashiers(): Promise<Cashier[]> {
+  try {
+    const response = await request("/api/cashiers");
+    if (!response.ok) return [];
+    return ((await response.json()) as { cashiers: Cashier[] }).cashiers;
+  } catch {
+    return [];
+  }
+}

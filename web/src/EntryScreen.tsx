@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { fetchDefaultCurrency, type Balance } from "./api";
 import { ExpenseForm } from "./ExpenseForm";
 import { IncomeForm } from "./IncomeForm";
+import { Journal } from "./Journal";
 import type { Currency } from "./money";
 
 type Props = {
@@ -10,11 +11,14 @@ type Props = {
   onSessionExpired: () => void;
 };
 
-type Mode = "income" | "expense";
+type Form = "income" | "expense";
 
-/** The cashier's working screen: income or expense, sharing the currency choice. */
+/** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
 export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Props) {
-  const [mode, setMode] = useState<Mode>("income");
+  // The form being filled stays alive, only hidden, while the journal is open: a cashier who
+  // peeks at the journal in the middle of an entry must find their typing where they left it.
+  const [form, setForm] = useState<Form>("income");
+  const [journalOpen, setJournalOpen] = useState(false);
   const [currency, setCurrency] = useState<Currency>("RUB");
   const currencyTouched = useRef(false);
   const entryId = useRef(crypto.randomUUID());
@@ -42,26 +46,41 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
 
   return (
     <>
-      <div className="tabs" role="group" aria-label="Тип операции">
+      <div className="tabs" role="group" aria-label="Раздел">
         <button
           type="button"
-          className={mode === "income" ? "tab active" : "tab"}
-          aria-pressed={mode === "income"}
-          onClick={() => setMode("income")}
+          className={!journalOpen && form === "income" ? "tab active" : "tab"}
+          aria-pressed={!journalOpen && form === "income"}
+          onClick={() => {
+            setForm("income");
+            setJournalOpen(false);
+          }}
         >
           Приход
         </button>
         <button
           type="button"
-          className={mode === "expense" ? "tab active" : "tab"}
-          aria-pressed={mode === "expense"}
-          onClick={() => setMode("expense")}
+          className={!journalOpen && form === "expense" ? "tab active" : "tab"}
+          aria-pressed={!journalOpen && form === "expense"}
+          onClick={() => {
+            setForm("expense");
+            setJournalOpen(false);
+          }}
         >
           Расход
         </button>
+        <button
+          type="button"
+          className={journalOpen ? "tab active" : "tab"}
+          aria-pressed={journalOpen}
+          onClick={() => setJournalOpen(true)}
+        >
+          Журнал
+        </button>
       </div>
 
-      {mode === "income" ? <IncomeForm {...shared} /> : <ExpenseForm {...shared} />}
+      <div hidden={journalOpen}>{form === "income" ? <IncomeForm {...shared} /> : <ExpenseForm {...shared} />}</div>
+      {journalOpen && <Journal mode="cashier" onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} />}
     </>
   );
 }

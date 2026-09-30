@@ -120,6 +120,8 @@ describe("income and balances", () => {
       ["an unsupported operation type", { type: "expense" }],
       ["an id that is not a uuid", { id: "12345" }],
       ["an unknown field", { surprise: true }],
+      ["a client code with a NUL character", { clientCode: "K\u00001" }],
+      ["a comment with a NUL character", { comment: "a\u0000b" }],
     ];
 
     it.each(badBodies)("%s", async (_name, overrides) => {
@@ -285,6 +287,14 @@ describe("income and balances", () => {
       const response = await get(started, `/api/client-codes${query}`, cookie);
       return (await response.json()).codes;
     }
+
+    it("refuses a prefix with a NUL character instead of failing inside the database", async () => {
+      const { started, cookie } = await cashierApp();
+
+      const response = await get(started, "/api/client-codes?prefix=a%00b", cookie);
+
+      expect(response.status).toBe(400);
+    });
 
     it("offers earlier codes that start with what was typed, most recently used first", async () => {
       const { started, cookie } = await cashierApp();

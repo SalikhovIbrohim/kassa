@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { EXPENSE_CATEGORY_CODES } from "../src/categories.js";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 
@@ -109,17 +110,23 @@ describe("expenses", () => {
     });
 
     it("refuses an expense above the balance, says how much there is, and saves nothing", async () => {
-      const { started, cookie } = await cashierApp({ RUB: "1000" });
+      const { started, cookie } = await cashierApp({ RUB: "1000", USD: "10" });
 
-      const response = await postJson(started, "/api/operations", expense({ amountMinor: 100_001 }), cookie);
+      const response = await postJson(
+        started,
+        "/api/operations",
+        expense({ currency: "USD", amountMinor: 1_001 }),
+        cookie,
+      );
 
       expect(response.status).toBe(422);
-      expect(await response.json()).toEqual(refusal("RUB", 100_000, 100_001));
+      expect(await response.json()).toEqual(refusal("USD", 1_000, 1_001));
       expect(await balances(started, cookie)).toEqual([
         { currency: "RUB", amountMinor: 100_000 },
-        { currency: "USD", amountMinor: 0 },
+        { currency: "USD", amountMinor: 1_000 },
       ]);
-      // A refused expense leaves no trace: it is not "the last currency used" either.
+      // A refused expense leaves no trace: had it been saved, dollars would be "the last
+      // currency used" (the answer is rubles while this cashier has no operation at all).
       const defaults = await (await get(started, "/api/operations/defaults", cookie)).json();
       expect(defaults).toEqual({ currency: "RUB" });
     });
@@ -169,7 +176,7 @@ describe("expenses", () => {
       expect(await second.json()).toEqual(refusal("RUB", 20_000, 30_000));
     });
 
-    it.each(["owner_handover", "client_refund", "salaries", "other"])(
+    it.each(EXPENSE_CATEGORY_CODES)(
       "applies to a %s expense too",
       async (category) => {
         const { started, cookie } = await cashierApp({ RUB: "10" });
@@ -360,6 +367,8 @@ describe("expenses", () => {
       ["a refund with a blank client code", { category: "client_refund", clientCode: "   " }],
       ["a refund with an empty client code", { category: "client_refund", clientCode: "" }],
       ["an unknown field", { surprise: true }],
+      ["a comment with a NUL character", { comment: "a\u0000b" }],
+      ["a recipient with a NUL character", { recipient: "a\u0000b" }],
     ];
 
     it.each(badBodies)("%s", async (_name, overrides) => {

@@ -30,6 +30,13 @@ export type TestApp = {
   /** Changes after restart(), so read it fresh for every request. */
   readonly baseUrl: string;
   readonly admin: TestAdmin;
+  /** The throwaway database, for tests that need a second connection of their own. */
+  readonly databaseUrl: string;
+  /**
+   * Runs SQL directly. Only for data the public API cannot produce (a timestamp finer than
+   * a millisecond, say); never to check what the API did.
+   */
+  execute(sql: string, params?: unknown[]): Promise<void>;
   /** Moves the application's clock (sessions expire by it). */
   setNow(date: Date): void;
   /** Stops and starts the server again on the same database. */
@@ -68,16 +75,39 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
   }
   const url = databaseUrl;
 
+  // Dropping with FORCE would also try to stop PostgreSQL's own background workers (autovacuum
+  // may be looking at the database) and the test role may not: "permission denied to
+  // terminate process", at random. So wait for our own connections to be really gone, then drop
+  // plainly, which cancels autovacuum by itself. FORCE stays as the last resort.
   const dropDatabase = async () => {
-    if (databaseName) {
-      await runAdmin(`DROP DATABASE ${databaseName} WITH (FORCE)`);
+    if (!databaseName) return;
+    const name = databaseName;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const others = await queryAdmin(
+        `SELECT count(*)::int AS n FROM pg_stat_activity
+          WHERE datname = $1 AND backend_type = 'client backend'`,
+        [name],
+      );
+      if (others === 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        await runAdmin(`DROP DATABASE ${name}`);
+        return;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    await runAdmin(`DROP DATABASE ${name} WITH (FORCE)`);
   };
 
   let clock = new Date();
   let app: Awaited<ReturnType<typeof buildApp>> | undefined;
   let baseUrl = "";
   const adminPool = new pg.Pool({ connectionString: url });
+  // An idle connection cut by the server (a restart, a drop) must not crash the test run.
+  adminPool.on("error", () => {});
 
   const start = async () => {
     app = await buildApp({
@@ -116,6 +146,12 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
     get baseUrl() {
       return baseUrl;
     },
+    get databaseUrl() {
+      return url;
+    },
+    async execute(sql, params) {
+      await adminPool.query(sql, params);
+    },
     admin: {
       createUser: (input) => adminUsers.createUser(adminPool, input),
       revokeUser: (login) => adminUsers.revokeUser(adminPool, login),
@@ -153,6 +189,16 @@ function withDatabase(url: string, databaseName: string): string {
   const parsed = new URL(url);
   parsed.pathname = `/${databaseName}`;
   return parsed.toString();
+}
+
+async function queryAdmin(statement: string, params: unknown[]): Promise<number> {
+  const client = new pg.Client({ connectionString: adminUrl });
+  await client.connect();
+  try {
+    return (await client.query(statement, params)).rows[0].n;
+  } finally {
+    await client.end();
+  }
 }
 
 async function runAdmin(statement: string): Promise<void> {

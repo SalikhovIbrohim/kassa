@@ -9,6 +9,7 @@ import {
 } from "./categories.js";
 import { recordOperation, toOperation } from "./ledger.js";
 import { MAX_AMOUNT_MINOR } from "./money.js";
+import { NO_NUL } from "./schemas.js";
 
 const MAX_SUGGESTIONS = 8;
 
@@ -39,7 +40,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         querystring: {
           type: "object",
           additionalProperties: false,
-          properties: { prefix: { type: "string", maxLength: 64 } },
+          properties: { prefix: { type: "string", maxLength: 64, pattern: NO_NUL } },
         },
       },
     },
@@ -82,10 +83,10 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     id: { type: "string", format: "uuid" },
     amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
     currency: { type: "string", enum: ["RUB", "USD"] },
-    comment: { type: "string", maxLength: 500 },
+    comment: { type: "string", maxLength: 500, pattern: NO_NUL },
   } as const;
 
-  const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64 } as const;
+  const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
 
   app.post<{ Body: IncomeBody | ExpenseBody }>(
     "/api/operations",
@@ -113,7 +114,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
                 ...commonProperties,
                 type: { type: "string", const: "expense" },
                 category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
-                recipient: { type: "string", maxLength: 100 },
+                recipient: { type: "string", maxLength: 100, pattern: NO_NUL },
                 clientCode: clientCodeProperty,
               },
             },
@@ -163,7 +164,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         case "replayed":
           return reply.code(recorded.status === "created" ? 201 : 200).send({
             operation: toOperation(recorded.row),
-            balances: await getBalances(pool),
+            balances: recorded.balances,
           });
         case "id_conflict":
           return reply.code(409).send({ error: "operation_id_conflict" });

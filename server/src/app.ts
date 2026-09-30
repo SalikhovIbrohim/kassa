@@ -1,8 +1,9 @@
 import { extname, relative, sep } from "node:path";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { registerAuth } from "./auth.js";
 import { createDatabase } from "./db.js";
+import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
@@ -27,6 +28,15 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
   const database = createDatabase(options.databaseUrl);
 
+  // Mistakes of the client keep Fastify's standard answer. Anything unexpected is logged here
+  // and answered with fixed words: a database error must never travel to the browser.
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const statusCode = error.statusCode ?? 500;
+    if (statusCode < 500) return reply.send(error);
+    request.log.error(error);
+    return reply.code(500).send({ statusCode: 500, error: "Internal Server Error", message: "Internal error" });
+  });
+
   app.addHook("onClose", async () => {
     await database.close();
   });
@@ -46,6 +56,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   await registerOperations(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
+  });
+
+  await registerJournal(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
   });

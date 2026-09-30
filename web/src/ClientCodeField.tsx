@@ -4,10 +4,12 @@ import { fetchClientCodes } from "./api";
 type Props = {
   value: string;
   onChange: (value: string) => void;
+  /** An entry needs a client code; a filter does not. */
+  required?: boolean;
 };
 
 /** The client code input, with codes typed before offered as suggestions. */
-export function ClientCodeField({ value, onChange }: Props) {
+export function ClientCodeField({ value, onChange, required = true }: Props) {
   const listId = useId();
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -30,7 +32,7 @@ export function ClientCodeField({ value, onChange }: Props) {
         autoCorrect="off"
         spellCheck={false}
         enterKeyHint="next"
-        required
+        required={required}
         maxLength={64}
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -153,12 +153,15 @@ h2 {
 
 .balances {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .balance {
   display: grid;
+  align-content: start;
+  min-width: 0;
+  container-type: inline-size;
   gap: 4px;
   padding: 14px;
   background: #ffffff;
@@ -172,7 +175,9 @@ h2 {
 }
 
 .balance-amount {
-  font-size: 1.3rem;
+  /* The amount scales with the width of its card and the number of characters, so that a
+     six- or seven-figure balance stays on one line on a phone (see Balances.tsx). */
+  font-size: max(0.8rem, min(1.3rem, calc(100cqw / (var(--chars, 12) * 0.78))));
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -279,4 +284,291 @@ fieldset.categories .choice {
   text-align: center;
   line-height: 1.2;
   min-height: 56px;
+}
+
+/* ---- Journal ---- */
+
+.tabs:has(> :nth-child(3)) {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  font-size: 1rem;
+  font-family: inherit;
+  border: 1px solid #94a3b8;
+  border-radius: 10px;
+  background: #ffffff;
+  color: inherit;
+}
+
+select:focus-visible {
+  outline: 3px solid #5eead4;
+  outline-offset: 2px;
+}
+
+/* A journal wants room on a laptop; the entry forms stay a phone-sized column. */
+.page:has(.journal) {
+  max-width: 1040px;
+}
+
+.page:has(.journal) .balances {
+  max-width: 480px;
+}
+
+.journal {
+  display: grid;
+  gap: 12px;
+  /* A grid item never shrinks below its content unless told it may: without this the
+     date fields pushed the whole section past the right margin of a phone. */
+  min-width: 0;
+}
+
+.journal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.day-picker {
+  display: flex;
+  gap: 8px;
+  max-width: 480px;
+}
+
+.day-picker input {
+  flex: 1;
+  min-width: 0;
+}
+
+.day-picker button {
+  min-width: 52px;
+}
+
+.filters {
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.filters summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.period {
+  margin: 0;
+  font-weight: 600;
+  color: #334155;
+}
+
+button.link {
+  min-height: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  background: none;
+}
+
+/* Two date fields side by side do not fit a narrow phone: one under the other. */
+@media (max-width: 419px) {
+  .filter-grid label:has(input[type="date"]) {
+    grid-column: 1 / -1;
+  }
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.filter-grid > * {
+  min-width: 0;
+}
+
+.filter-grid .reset {
+  grid-column: 1 / -1;
+}
+
+.journal-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.journal-table tbody.stale {
+  opacity: 0.55;
+}
+
+.money-in {
+  color: #166534;
+}
+
+.money-out {
+  color: #991b1b;
+}
+
+/* Phone: every operation is a small card. The header row stays for screen readers only. */
+.journal-table,
+.journal-table tbody {
+  display: block;
+}
+
+.journal-table thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.journal-table tr {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.journal-table td {
+  padding: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.journal-table tr:focus {
+  outline: 3px solid #5eead4;
+  outline-offset: 2px;
+}
+
+.journal-table td:empty {
+  display: none;
+}
+
+.c-time {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.c-who {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 0.85rem;
+  color: #475569;
+  text-align: right;
+}
+
+.c-what {
+  grid-column: 1;
+  grid-row: 2;
+  font-weight: 700;
+}
+
+.c-amount {
+  grid-column: 2;
+  grid-row: 2;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.c-details {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+.c-comment {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  color: #475569;
+}
+
+/* Laptop: a real table, money in a right-aligned column. */
+@media (min-width: 720px) {
+  .filter-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .filter-grid .reset {
+    grid-column: auto;
+  }
+
+  .journal-table {
+    display: table;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+
+  .journal-table tbody {
+    display: table-row-group;
+  }
+
+  .journal-table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    display: table-header-group;
+  }
+
+  .journal-table tr {
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .journal-table th,
+  .journal-table td {
+    display: table-cell;
+    overflow-wrap: break-word;
+    padding: 10px 14px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .journal-table td:empty {
+    display: table-cell;
+  }
+
+  .journal-table th {
+    font-size: 0.85rem;
+    color: #475569;
+    background: #f1f5f9;
+  }
+
+  .journal-table th.amount,
+  .journal-table td.c-amount {
+    text-align: right;
+  }
+
+  .journal-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .c-time {
+    white-space: nowrap;
+  }
 }
