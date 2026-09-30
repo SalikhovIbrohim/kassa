@@ -7,6 +7,7 @@ import {
   REFUND_CATEGORY,
   type ExpenseCategory,
 } from "./categories.js";
+import { recordOperation, toOperation } from "./ledger.js";
 import { MAX_AMOUNT_MINOR } from "./money.js";
 
 const MAX_SUGGESTIONS = 8;
@@ -16,38 +17,9 @@ export type OperationsOptions = {
   now: () => Date;
 };
 
-type OperationRow = {
-  id: string;
-  kind: "income" | "expense";
-  amount_minor: string;
-  currency: "RUB" | "USD";
-  category: ExpenseCategory | null;
-  recipient: string | null;
-  client_code: string | null;
-  comment: string | null;
-  created_at: Date;
-  author_login: string;
-  author_display_name: string;
-};
-
 /** Makes %, _ and \\ in what a person typed ordinary characters in a LIKE pattern. */
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
-function toOperation(row: OperationRow) {
-  return {
-    id: row.id,
-    type: row.kind,
-    amountMinor: Number(row.amount_minor),
-    currency: row.currency,
-    category: row.category,
-    recipient: row.recipient,
-    clientCode: row.client_code,
-    comment: row.comment,
-    author: { login: row.author_login, displayName: row.author_display_name },
-    createdAt: row.created_at.toISOString(),
-  };
 }
 
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
@@ -173,66 +145,36 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         }
       }
 
-      const values = [
-        body.id,
-        body.type,
-        body.amountMinor,
-        body.currency,
+      const recorded = await recordOperation(pool, {
+        id: body.id,
+        kind: body.type,
+        amountMinor: body.amountMinor,
+        currency: body.currency,
         category,
         recipient,
         clientCode,
-        clientCode?.toLowerCase() ?? null,
         comment,
-        request.user!.id,
-        now(),
-      ];
-
-      // The id is the primary key, so two requests with the same id can never both insert.
-      const inserted = await pool.query<OperationRow>(
-        `WITH new_operation AS (
-           INSERT INTO operations
-             (id, kind, amount_minor, currency, category, recipient, client_code,
-              client_code_key, comment, author_id, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-           ON CONFLICT (id) DO NOTHING
-           RETURNING *
-         )
-         SELECT o.*, u.login AS author_login, u.display_name AS author_display_name
-           FROM new_operation o JOIN users u ON u.id = o.author_id`,
-        values,
-      );
-      if (inserted.rows[0]) {
-        return reply.code(201).send({
-          operation: toOperation(inserted.rows[0]),
-          balances: await getBalances(pool),
-        });
-      }
-
-      // The id exists already. Same author and same content means a retry: answer as before.
-      const existing = await pool.query<OperationRow & { author_id: string }>(
-        `SELECT o.*, u.login AS author_login, u.display_name AS author_display_name
-           FROM operations o JOIN users u ON u.id = o.author_id
-          WHERE o.id = $1`,
-        [body.id],
-      );
-      const stored = existing.rows[0];
-      const sameRequest =
-        stored !== undefined &&
-        stored.author_id === request.user!.id &&
-        stored.kind === body.type &&
-        Number(stored.amount_minor) === body.amountMinor &&
-        stored.currency === body.currency &&
-        stored.category === category &&
-        stored.recipient === recipient &&
-        stored.client_code === clientCode &&
-        stored.comment === comment;
-      if (!sameRequest) {
-        return reply.code(409).send({ error: "operation_id_conflict" });
-      }
-      return reply.code(200).send({
-        operation: toOperation(stored),
-        balances: await getBalances(pool),
+        authorId: request.user!.id,
+        createdAt: now(),
       });
+
+      switch (recorded.status) {
+        case "created":
+        case "replayed":
+          return reply.code(recorded.status === "created" ? 201 : 200).send({
+            operation: toOperation(recorded.row),
+            balances: await getBalances(pool),
+          });
+        case "id_conflict":
+          return reply.code(409).send({ error: "operation_id_conflict" });
+        case "insufficient_balance":
+          return reply.code(422).send({
+            error: "insufficient_balance",
+            currency: body.currency,
+            availableMinor: recorded.availableMinor,
+            requestedMinor: body.amountMinor,
+          });
+      }
     },
   );
 }

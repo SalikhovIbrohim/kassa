@@ -132,7 +132,9 @@ export type OperationInput =
 
 export type OperationResult =
   | { ok: true; operation: Operation; balances: Balance[] }
-  | { ok: false; reason: "session-expired" | "forbidden" | "conflict" | "rejected" };
+  | { ok: false; reason: "session-expired" | "forbidden" | "conflict" | "rejected" }
+  /** An expense above what the cash desk holds: the server says how much there is. */
+  | { ok: false; reason: "insufficient-balance"; currency: Currency; availableMinor: number };
 
 export async function createOperation(input: OperationInput): Promise<OperationResult> {
   const response = await request("/api/operations", {
@@ -147,5 +149,19 @@ export async function createOperation(input: OperationInput): Promise<OperationR
   if (response.status === 401) return { ok: false, reason: "session-expired" };
   if (response.status === 403) return { ok: false, reason: "forbidden" };
   if (response.status === 409) return { ok: false, reason: "conflict" };
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => null)) as {
+      currency?: Currency;
+      availableMinor?: number;
+    } | null;
+    if (body?.currency && typeof body.availableMinor === "number") {
+      return {
+        ok: false,
+        reason: "insufficient-balance",
+        currency: body.currency,
+        availableMinor: body.availableMinor,
+      };
+    }
+  }
   return { ok: false, reason: "rejected" };
 }

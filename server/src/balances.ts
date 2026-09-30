@@ -3,9 +3,12 @@ import { CURRENCIES, type Currency } from "./money.js";
 
 export type Balance = { currency: Currency; amountMinor: number };
 
+/** A pool, or one connection checked out of it (inside a transaction). */
+export type Queryable = Pick<pg.Pool, "query">;
+
 /** Opening balance plus incomes minus expenses, per currency, always all currencies. */
-export async function getBalances(pool: pg.Pool): Promise<Balance[]> {
-  const result = await pool.query<{ currency: Currency; amount_minor: string }>(
+export async function getBalances(db: Queryable): Promise<Balance[]> {
+  const result = await db.query<{ currency: Currency; amount_minor: string }>(
     `SELECT c.currency,
             COALESCE(o.amount_minor, 0)
               + COALESCE(SUM(CASE op.kind WHEN 'income' THEN op.amount_minor ELSE -op.amount_minor END), 0)

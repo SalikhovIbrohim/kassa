@@ -6,6 +6,7 @@ import {
   type Operation,
   type OperationInput,
 } from "./api";
+import { formatMoney } from "./money";
 
 type Options = {
   /**
@@ -54,6 +55,15 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired }
         entryId.current = crypto.randomUUID();
         // The earlier entry is on the server but the screen may not know it yet.
         onBalancesStale();
+      }
+      if (result.reason === "insufficient-balance") {
+        // The screen may have shown more money than there is: bring it up to date.
+        onBalancesStale();
+        setError(
+          `В кассе не хватает денег: сейчас ${formatMoney(result.availableMinor, result.currency)}. ` +
+            "Проверьте сумму. Если деньги уже выданы, сначала внесите недостающий приход.",
+        );
+        return false;
       }
       setError(
         {

@@ -13,7 +13,8 @@ describe("expenses", () => {
     app = undefined;
   });
 
-  async function cashierApp() {
+  /** Money in the cash desk to start with, as typed by the developer: { RUB: "5000" }. */
+  async function cashierApp(opening: { RUB?: string; USD?: string } = {}) {
     const started = await startTestApp();
     started.setNow(NOW);
     await started.admin.createUser({
@@ -22,6 +23,9 @@ describe("expenses", () => {
       role: "cashier",
       displayName: "Иван",
     });
+    for (const [currency, amount] of Object.entries(opening)) {
+      await started.admin.setOpeningBalance(currency, amount);
+    }
     const cookie = await loginAs(started, "ivan", "correct horse");
     app = started;
     return { started, cookie };
@@ -96,14 +100,174 @@ describe("expenses", () => {
     ]);
   });
 
-  it("lets the balance go negative instead of refusing the expense", async () => {
-    const { started, cookie } = await cashierApp();
-    await started.admin.setOpeningBalance("RUB", "100");
+  describe("the cash desk never pays out more than it holds", () => {
+    const refusal = (currency: string, availableMinor: number, requestedMinor: number) => ({
+      error: "insufficient_balance",
+      currency,
+      availableMinor,
+      requestedMinor,
+    });
 
-    const response = await postJson(started, "/api/operations", expense({ amountMinor: 120_050 }), cookie);
+    it("refuses an expense above the balance, says how much there is, and saves nothing", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
 
-    expect(response.status).toBe(201);
-    expect((await response.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: -110_050 });
+      const response = await postJson(started, "/api/operations", expense({ amountMinor: 100_001 }), cookie);
+
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual(refusal("RUB", 100_000, 100_001));
+      expect(await balances(started, cookie)).toEqual([
+        { currency: "RUB", amountMinor: 100_000 },
+        { currency: "USD", amountMinor: 0 },
+      ]);
+      // A refused expense leaves no trace: it is not "the last currency used" either.
+      const defaults = await (await get(started, "/api/operations/defaults", cookie)).json();
+      expect(defaults).toEqual({ currency: "RUB" });
+    });
+
+    it("allows an expense that takes exactly everything, leaving zero", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
+
+      const response = await postJson(started, "/api/operations", expense({ amountMinor: 100_000 }), cookie);
+
+      expect(response.status).toBe(201);
+      expect((await response.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: 0 });
+    });
+
+    it("refuses any expense from an empty cash desk", async () => {
+      const { started, cookie } = await cashierApp();
+
+      const response = await postJson(started, "/api/operations", expense({ amountMinor: 1 }), cookie);
+
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual(refusal("RUB", 0, 1));
+    });
+
+    it("counts each currency on its own: dollars cannot cover a ruble expense", async () => {
+      const { started, cookie } = await cashierApp({ USD: "1000" });
+
+      const rubles = await postJson(started, "/api/operations", expense({ amountMinor: 100 }), cookie);
+      const dollars = await postJson(
+        started,
+        "/api/operations",
+        expense({ amountMinor: 100, currency: "USD" }),
+        cookie,
+      );
+
+      expect(rubles.status).toBe(422);
+      expect(dollars.status).toBe(201);
+    });
+
+    it("counts income as it comes in, and refuses again once that money is spent", async () => {
+      const { started, cookie } = await cashierApp();
+      await postJson(started, "/api/operations", income({ amountMinor: 50_000 }), cookie);
+
+      const first = await postJson(started, "/api/operations", expense({ amountMinor: 30_000 }), cookie);
+      const second = await postJson(started, "/api/operations", expense({ amountMinor: 30_000 }), cookie);
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(422);
+      expect(await second.json()).toEqual(refusal("RUB", 20_000, 30_000));
+    });
+
+    it.each(["owner_handover", "client_refund", "salaries", "other"])(
+      "applies to a %s expense too",
+      async (category) => {
+        const { started, cookie } = await cashierApp({ RUB: "10" });
+        const clientCode = category === "client_refund" ? { clientCode: "K17" } : {};
+
+        const response = await postJson(
+          started,
+          "/api/operations",
+          expense({ category, amountMinor: 1_001, ...clientCode }),
+          cookie,
+        );
+
+        expect(response.status).toBe(422);
+      },
+    );
+
+    it("looks at the shape of the request first: a malformed expense is a 400, not a 422", async () => {
+      const { started, cookie } = await cashierApp();
+
+      const response = await postJson(
+        started,
+        "/api/operations",
+        expense({ category: "client_refund" }),
+        cookie,
+      );
+
+      expect(response.status).toBe(400);
+    });
+
+    it("answers a retry of an accepted expense as before, even though the money is gone now", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
+      const body = expense({ amountMinor: 100_000 });
+
+      const first = await postJson(started, "/api/operations", body, cookie);
+      const again = await postJson(started, "/api/operations", body, cookie);
+
+      expect(first.status).toBe(201);
+      expect(again.status).toBe(200);
+      expect((await again.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: 0 });
+    });
+
+    it("keeps reporting an id clash as a clash, not as a shortage of money", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
+      const body = expense({ amountMinor: 100_000 });
+      await postJson(started, "/api/operations", body, cookie);
+
+      const response = await postJson(started, "/api/operations", { ...body, amountMinor: 900_000 }, cookie);
+
+      expect(response.status).toBe(409);
+    });
+
+    it("lets the same id be tried again after a refusal, once there is enough money", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "100" });
+      const body = expense({ amountMinor: 15_000 });
+
+      const refused = await postJson(started, "/api/operations", body, cookie);
+      await postJson(started, "/api/operations", income({ amountMinor: 10_000 }), cookie);
+      const retried = await postJson(started, "/api/operations", body, cookie);
+
+      expect(refused.status).toBe(422);
+      expect(retried.status).toBe(201);
+      expect((await retried.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: 5_000 });
+    });
+
+    it("cannot be beaten by two cashiers spending the same money at the same moment", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
+      await started.admin.createUser({ login: "petr", password: "another good one", role: "cashier" });
+      const petr = await loginAs(started, "petr", "another good one");
+
+      // Six requests of 400 against 1000: however they interleave, two fit and four do not.
+      const answers = await Promise.all(
+        Array.from({ length: 6 }, (_, index) =>
+          postJson(started, "/api/operations", expense({ amountMinor: 40_000 }), index % 2 === 0 ? cookie : petr),
+        ),
+      );
+
+      const statuses = answers.map((answer) => answer.status).sort();
+      expect(statuses).toEqual([201, 201, 422, 422, 422, 422]);
+      expect(await balances(started, cookie)).toEqual([
+        { currency: "RUB", amountMinor: 20_000 },
+        { currency: "USD", amountMinor: 0 },
+      ]);
+    });
+
+    it("lets the same expense be sent twice at the same moment and counts it once", async () => {
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
+      const body = expense({ amountMinor: 60_000 });
+
+      const answers = await Promise.all(
+        Array.from({ length: 4 }, () => postJson(started, "/api/operations", body, cookie)),
+      );
+
+      expect(answers.map((answer) => answer.status).sort()).toEqual([200, 200, 200, 201]);
+      expect(await balances(started, cookie)).toEqual([
+        { currency: "RUB", amountMinor: 40_000 },
+        { currency: "USD", amountMinor: 0 },
+      ]);
+    });
   });
 
   describe("categories", () => {
@@ -133,7 +297,7 @@ describe("expenses", () => {
       "owner_handover",
       "other",
     ])("accepts %s without a client code", async (category) => {
-      const { started, cookie } = await cashierApp();
+      const { started, cookie } = await cashierApp({ RUB: "5000" });
 
       const response = await postJson(started, "/api/operations", expense({ category }), cookie);
 
@@ -142,7 +306,7 @@ describe("expenses", () => {
     });
 
     it("keeps a handover to the owner recognisable in the data, apart from ordinary expenses", async () => {
-      const { started, cookie } = await cashierApp();
+      const { started, cookie } = await cashierApp({ RUB: "5000" });
 
       const handover = await postJson(
         started,
@@ -159,7 +323,7 @@ describe("expenses", () => {
 
   describe("client refunds", () => {
     it("records a refund with the client it goes back to, and suggests that code later", async () => {
-      const { started, cookie } = await cashierApp();
+      const { started, cookie } = await cashierApp({ RUB: "1000" });
 
       const response = await postJson(
         started,
@@ -222,7 +386,7 @@ describe("expenses", () => {
   });
 
   it("trims the recipient and treats a blank one as none", async () => {
-    const { started, cookie } = await cashierApp();
+    const { started, cookie } = await cashierApp({ RUB: "5000" });
 
     const trimmed = await postJson(started, "/api/operations", expense({ recipient: "  Азамат " }), cookie);
     const blank = await postJson(started, "/api/operations", expense({ recipient: "   " }), cookie);
@@ -233,7 +397,7 @@ describe("expenses", () => {
 
   describe("sending the same expense again", () => {
     it("answers with the stored expense and counts it once", async () => {
-      const { started, cookie } = await cashierApp();
+      const { started, cookie } = await cashierApp({ RUB: "5000" });
       const body = expense({ recipient: "Азамат" });
 
       const first = await postJson(started, "/api/operations", body, cookie);
@@ -244,7 +408,7 @@ describe("expenses", () => {
       expect(again.status).toBe(200);
       expect((await again.json()).operation).toEqual((await first.json()).operation);
       expect(await balances(started, cookie)).toEqual([
-        { currency: "RUB", amountMinor: -120_050 },
+        { currency: "RUB", amountMinor: 379_950 },
         { currency: "USD", amountMinor: 0 },
       ]);
     });
@@ -255,7 +419,7 @@ describe("expenses", () => {
       ["another amount", { amountMinor: 1 }],
       ["an income with the same id", { type: "income", category: undefined, recipient: undefined, clientCode: "K17" }],
     ])("refuses the same id with %s", async (_name, changes) => {
-      const { started, cookie } = await cashierApp();
+      const { started, cookie } = await cashierApp({ RUB: "5000" });
       const body = expense({ recipient: "Азамат" });
       await postJson(started, "/api/operations", body, cookie);
 
@@ -263,7 +427,7 @@ describe("expenses", () => {
 
       expect(response.status).toBe(409);
       expect(await balances(started, cookie)).toEqual([
-        { currency: "RUB", amountMinor: -120_050 },
+        { currency: "RUB", amountMinor: 379_950 },
         { currency: "USD", amountMinor: 0 },
       ]);
     });
@@ -296,7 +460,7 @@ describe("expenses", () => {
   });
 
   it("makes the currency of an expense the default for the next entry", async () => {
-    const { started, cookie } = await cashierApp();
+    const { started, cookie } = await cashierApp({ USD: "5000" });
     await postJson(started, "/api/operations", expense({ currency: "USD" }), cookie);
 
     const response = await get(started, "/api/operations/defaults", cookie);
