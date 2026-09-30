@@ -12,6 +12,8 @@ export type Config = {
   secureCookies: boolean;
   /** How many days a session lives without use. */
   sessionDays: number;
+  /** Reverse proxies whose X-Forwarded-For is believed; undefined when none is trusted. */
+  trustProxy: string[] | undefined;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -40,6 +42,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ? env.COOKIE_SECURE === "true"
     : env.NODE_ENV === "production";
 
+  const trustedProxies = (env.TRUST_PROXY ?? "")
+    .split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
+
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
   return {
@@ -49,5 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDistDir: existsSync(webDistDir) ? webDistDir : undefined,
     secureCookies,
     sessionDays,
+    trustProxy: trustedProxies.length > 0 ? trustedProxies : undefined,
   };
 }

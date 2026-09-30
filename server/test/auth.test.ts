@@ -121,6 +121,14 @@ describe("login", () => {
     expect(wrongTypes.status).toBe(400);
   });
 
+  it("rejects a login with a NUL character instead of failing inside the database", async () => {
+    app = await startTestApp();
+
+    const response = await postJson(app, "/api/login", { login: "iv\u0000an", password: "whatever12" });
+
+    expect(response.status).toBe(400);
+  });
+
   it("ends the session on logout, so the old cookie stops working", async () => {
     app = await startTestApp();
     await app.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier" });

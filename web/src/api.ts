@@ -31,7 +31,9 @@ export async function fetchCurrentUser(): Promise<User | null> {
 
 export type LoginResult =
   | { ok: true; user: User }
-  | { ok: false; reason: "wrong-credentials" | "failed" };
+  | { ok: false; reason: "wrong-credentials" | "failed" }
+  /** Too many wrong passwords, or the server is busy: try again after this many seconds. */
+  | { ok: false; reason: "too-many-attempts" | "busy"; retryAfterSeconds: number };
 
 export async function logIn(login: string, password: string): Promise<LoginResult> {
   const response = await request("/api/login", {
@@ -42,6 +44,14 @@ export async function logIn(login: string, password: string): Promise<LoginResul
   if (response.ok) {
     const body = (await response.json()) as { user: User };
     return { ok: true, user: body.user };
+  }
+  if (response.status === 429 || response.status === 503) {
+    const body = (await response.json().catch(() => null)) as { retryAfterSeconds?: number } | null;
+    return {
+      ok: false,
+      reason: response.status === 429 ? "too-many-attempts" : "busy",
+      retryAfterSeconds: body?.retryAfterSeconds ?? Number(response.headers.get("retry-after") ?? 30),
+    };
   }
   return { ok: false, reason: response.status === 401 ? "wrong-credentials" : "failed" };
 }

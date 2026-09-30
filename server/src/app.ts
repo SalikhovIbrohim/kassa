@@ -1,11 +1,13 @@
 import { extname, relative, sep } from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
-import { registerAuth } from "./auth.js";
+import { registerAuth, type LoginProtectionOptions } from "./auth.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
 import { isApiPath, pathnameOf } from "./paths.js";
+
+export type { LoginProtectionOptions };
 
 export type AppOptions = {
   databaseUrl: string;
@@ -18,11 +20,19 @@ export type AppOptions = {
   secureCookies?: boolean;
   /** How long a session lives without use. */
   sessionDays?: number;
+  /**
+   * Addresses of reverse proxies (e.g. "127.0.0.1" for Caddy on the same machine) whose
+   * X-Forwarded-For header is believed when working out who a client is. Unset: the
+   * header is ignored and the address of the connection is used.
+   */
+  trustProxy?: string | string[];
+  loginProtection?: LoginProtectionOptions;
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? false,
+    trustProxy: options.trustProxy ?? false,
     // A wrong type or an unexpected field is a bad request, never quietly "fixed".
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
@@ -53,6 +63,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     now: options.now ?? (() => new Date()),
     sessionDays: options.sessionDays ?? 90,
     secureCookies: options.secureCookies ?? false,
+    loginProtection: options.loginProtection,
   });
 
   await registerOperations(app, {

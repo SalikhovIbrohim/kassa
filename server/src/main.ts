@@ -15,6 +15,7 @@ const app = await buildApp({
   webDistDir: config.webDistDir,
   secureCookies: config.secureCookies,
   sessionDays: config.sessionDays,
+  trustProxy: config.trustProxy,
   logger: true,
 });
 

@@ -2,7 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import fastifyCookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
+import { AttemptLimiter } from "./attempt-limiter.js";
+import { clientNetwork } from "./client-network.js";
+import { ConcurrencyGate, GateFullError } from "./concurrency-gate.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { NO_NUL } from "./schemas.js";
 
 export const SESSION_COOKIE = "kassa_session";
 
@@ -17,12 +21,33 @@ export type SessionUser = {
   role: Role;
 };
 
+export type LoginProtectionOptions = {
+  /** How many password checks may run at once, and how many more may wait their turn. */
+  passwordChecks?: { running: number; waiting: number };
+  /** How many logins, and how many addresses, are remembered at most. */
+  maxTracked?: number;
+};
+
 export type AuthOptions = {
   pool: pg.Pool;
   now: () => Date;
   sessionDays: number;
   secureCookies: boolean;
+  loginProtection?: LoginProtectionOptions;
 };
+
+// Slowing down password guessing (ticket 26). After FREE_ATTEMPTS wrong passwords in a row
+// a login must wait 30 s, then 1 min, 2 min, ... up to 15 min; after 30 quiet minutes it is
+// forgotten. An address gets a larger allowance, since a whole office may share one.
+const LOGIN_FREE_ATTEMPTS = 5;
+const ADDRESS_FREE_ATTEMPTS = 20;
+const BASE_WAIT_MS = 30 * 1000;
+const MAX_WAIT_MS = 15 * 60 * 1000;
+const FORGET_AFTER_MS = 30 * 60 * 1000;
+const DEFAULT_MAX_TRACKED = 10_000;
+// A password check takes about 100 ms and 32 MB: a few at a time is all the memory allows.
+const DEFAULT_PASSWORD_CHECKS = { running: 4, waiting: 16 };
+const BUSY_RETRY_AFTER_SECONDS = 2;
 
 type UserRow = {
   id: string;
@@ -49,6 +74,12 @@ declare module "fastify" {
 
 export async function registerAuth(app: FastifyInstance, options: AuthOptions): Promise<void> {
   const { pool, now, sessionDays, secureCookies } = options;
+  const maxTracked = options.loginProtection?.maxTracked ?? DEFAULT_MAX_TRACKED;
+  const limits = { baseWaitMs: BASE_WAIT_MS, maxWaitMs: MAX_WAIT_MS, forgetAfterMs: FORGET_AFTER_MS, maxTracked };
+  const byLogin = new AttemptLimiter({ ...limits, freeAttempts: LOGIN_FREE_ATTEMPTS });
+  const byAddress = new AttemptLimiter({ ...limits, freeAttempts: ADDRESS_FREE_ATTEMPTS });
+  const passwordChecks = options.loginProtection?.passwordChecks ?? DEFAULT_PASSWORD_CHECKS;
+  const passwordGate = new ConcurrencyGate(passwordChecks.running, passwordChecks.waiting);
   // Extend at most once a day, but often enough that a short lifetime still slides.
   const refreshAfterMs = Math.min(DAY_MS, (sessionDays * DAY_MS) / 4);
 
@@ -134,23 +165,61 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
           required: ["login", "password"],
           additionalProperties: false,
           properties: {
-            login: { type: "string", minLength: 1, maxLength: 64 },
+            login: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             password: { type: "string", minLength: 1, maxLength: 256 },
           },
         },
       },
     },
     async (request, reply) => {
-      const result = await pool.query<UserRow>(
-        `SELECT id, login, display_name, password_hash, role
-           FROM users WHERE lower(login) = lower($1) AND active`,
-        [request.body.login.trim()],
-      );
-      const user = result.rows[0];
-      // Spend the same time whether or not the login exists, so response time
-      // does not reveal which logins are real.
-      const passwordHash = user?.password_hash ?? (await unknownUserHash());
-      const passwordMatches = await verifyPassword(request.body.password, passwordHash);
+      // Same key for a login that exists and one that does not, so the answers tell nothing.
+      const loginKey = request.body.login.trim().toLowerCase();
+      const addressKey = clientNetwork(request.ip);
+      const attemptAt = now().getTime();
+
+      // Turn the person away before any work is done for them: no database, no password check.
+      const waitMs = Math.max(byLogin.waitMs(loginKey, attemptAt), byAddress.waitMs(addressKey, attemptAt));
+      if (waitMs > 0) {
+        const retryAfterSeconds = Math.ceil(waitMs / 1000);
+        return reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSeconds))
+          .send({ error: "too_many_attempts", retryAfterSeconds });
+      }
+
+      // Count the attempt now, before it is known to be wrong, so that guesses sent all at
+      // once cannot get past the limit. A right password takes its attempt back below.
+      byLogin.reserve(loginKey, attemptAt);
+      byAddress.reserve(addressKey, attemptAt);
+
+      let user: UserRow | undefined;
+      let passwordMatches: boolean;
+      try {
+        const result = await pool.query<UserRow>(
+          `SELECT id, login, display_name, password_hash, role
+             FROM users WHERE lower(login) = lower($1) AND active`,
+          [request.body.login.trim()],
+        );
+        user = result.rows[0];
+        // Spend the same time whether or not the login exists, so response time
+        // does not reveal which logins are real.
+        passwordMatches = await passwordGate.run(async () => {
+          const passwordHash = user?.password_hash ?? (await unknownUserHash());
+          return verifyPassword(request.body.password, passwordHash);
+        });
+      } catch (error) {
+        // Whatever went wrong here was not a wrong guess: do not charge it to the person.
+        byLogin.refund(loginKey);
+        byAddress.refund(addressKey);
+        if (error instanceof GateFullError) {
+          return reply
+            .code(503)
+            .header("Retry-After", String(BUSY_RETRY_AFTER_SECONDS))
+            .send({ error: "busy", retryAfterSeconds: BUSY_RETRY_AFTER_SECONDS });
+        }
+        throw error;
+      }
+
       if (!user || !passwordMatches) {
         return reply.code(401).send({ error: "invalid_credentials" });
       }
@@ -176,6 +245,11 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       }
       // Housekeeping: expired sessions are useless, drop them as people log in.
       await pool.query("DELETE FROM sessions WHERE expires_at <= $1", [started]);
+
+      // A login that worked starts from zero. An address only gets this attempt back: a
+      // guesser must not be able to wipe its count by logging in to an account of its own.
+      byLogin.reset(loginKey);
+      byAddress.refund(addressKey);
 
       setSessionCookie(reply, token);
       return {

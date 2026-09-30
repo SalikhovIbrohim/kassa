@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import pg from "pg";
-import { buildApp } from "../../src/app.js";
+import { buildApp, type LoginProtectionOptions } from "../../src/app.js";
 import { migrate } from "../../src/migrate.js";
 import * as adminUsers from "../../src/admin/users.js";
 import * as adminBalances from "../../src/admin/opening-balances.js";
@@ -56,6 +56,9 @@ type StartOptions = {
   webDistDir?: string;
   secureCookies?: boolean;
   sessionDays?: number;
+  /** Addresses of reverse proxies whose X-Forwarded-For header is believed. */
+  trustProxy?: string | string[];
+  loginProtection?: LoginProtectionOptions;
 };
 
 /**
@@ -115,6 +118,8 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       webDistDir: options.webDistDir,
       secureCookies: options.secureCookies,
       sessionDays: options.sessionDays,
+      trustProxy: options.trustProxy,
+      loginProtection: options.loginProtection,
       now: () => clock,
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
