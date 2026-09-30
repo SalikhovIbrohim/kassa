@@ -177,7 +177,7 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-fieldset.currency {
+fieldset.choices {
   margin: 0;
   padding: 0;
   border: 0;
@@ -186,7 +186,7 @@ fieldset.currency {
   gap: 10px;
 }
 
-fieldset.currency legend {
+fieldset.choices legend {
   padding: 0;
   margin-bottom: 6px;
   font-weight: 600;
@@ -240,4 +240,43 @@ fieldset.currency legend {
 .success .when {
   color: #475569;
   white-space: nowrap;
+}
+
+.balance-amount.negative {
+  color: #b91c1c;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  background: #e2e8f0;
+  border-radius: 14px;
+}
+
+.tab {
+  min-height: 48px;
+  color: #334155;
+  background: transparent;
+  border-radius: 10px;
+}
+
+.tab.active {
+  color: #ffffff;
+  background: #0f766e;
+}
+
+fieldset.categories {
+  grid-template-columns: 1fr 1fr;
+}
+
+fieldset.categories legend {
+  grid-column: 1 / -1;
+}
+
+fieldset.categories .choice {
+  text-align: center;
+  line-height: 1.2;
+  min-height: 56px;
 }

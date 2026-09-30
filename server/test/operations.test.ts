@@ -51,6 +51,8 @@ describe("income and balances", () => {
         type: "income",
         amountMinor: 150_000,
         currency: "RUB",
+        category: null,
+        recipient: null,
         clientCode: "K17",
         comment: "за рейс в Ташкент",
         author: { login: "ivan", displayName: "Иван" },

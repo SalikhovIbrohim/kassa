@@ -9,7 +9,7 @@ import {
   type User,
 } from "./api";
 import { Balances } from "./Balances";
-import { IncomeForm } from "./IncomeForm";
+import { EntryScreen } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
 
 type State =
@@ -140,7 +140,11 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       <Balances balances={balances} onRetry={loadBalances} />
 
       {user.role === "cashier" ? (
-        <IncomeForm onSaved={showSavedBalances} onSessionExpired={onLoggedOut} />
+        <EntryScreen
+          onSaved={showSavedBalances}
+          onBalancesStale={loadBalances}
+          onSessionExpired={onLoggedOut}
+        />
       ) : (
         <p className="hint">Вы смотрящий: остатки доступны, вносить операции нельзя.</p>
       )}

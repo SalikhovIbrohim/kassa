@@ -1,119 +1,60 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import {
-  createIncome,
-  fetchClientCodes,
-  fetchDefaultCurrency,
-  NetworkError,
-  type Balance,
-  type Operation,
-} from "./api";
-import {
-  CURRENCIES,
-  CURRENCY_NAME,
-  formatMoney,
-  formatMoscowTime,
-  parseAmountInput,
-  type Currency,
-} from "./money";
+import { useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import type { Balance } from "./api";
+import { ClientCodeField } from "./ClientCodeField";
+import { CurrencyPicker } from "./CurrencyPicker";
+import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
+import { useEntry } from "./useEntry";
 
 type Props = {
+  entryId: MutableRefObject<string>;
+  currency: Currency;
+  onCurrencyChange: (currency: Currency) => void;
   onSaved: (balances: Balance[]) => void;
+  onBalancesStale: () => void;
   onSessionExpired: () => void;
 };
 
-export function IncomeForm({ onSaved, onSessionExpired }: Props) {
-  const [currency, setCurrency] = useState<Currency>("RUB");
+export function IncomeForm({
+  entryId,
+  currency,
+  onCurrencyChange,
+  onSaved,
+  onBalancesStale,
+  onSessionExpired,
+}: Props) {
   const [amount, setAmount] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [comment, setComment] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<Operation | null>(null);
-
   const amountInput = useRef<HTMLInputElement>(null);
-  // One id per entry, kept while the entry is retried, renewed after it is saved.
-  const entryId = useRef(crypto.randomUUID());
-  const currencyTouched = useRef(false);
-
-  useEffect(() => {
-    fetchDefaultCurrency().then(
-      (last) => {
-        if (!currencyTouched.current) setCurrency(last);
-      },
-      () => {},
-    );
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchClientCodes(clientCode.trim()).then(setSuggestions);
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [clientCode]);
+  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (busy) return;
 
     const amountMinor = parseAmountInput(amount);
     if (amountMinor === null) {
-      setError("Введите сумму больше нуля, например 1500 или 1500,50.");
+      entry.setError("Введите сумму больше нуля, например 1500 или 1500,50.");
       return;
     }
     const code = clientCode.trim();
     if (code === "") {
-      setError("Введите код клиента.");
+      entry.setError("Введите код клиента.");
       return;
     }
 
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await createIncome({
-        id: entryId.current,
-        amountMinor,
-        currency,
-        clientCode: code,
-        comment: comment.trim() || undefined,
-      });
-
-      if (result.ok) {
-        entryId.current = crypto.randomUUID();
-        setSaved(result.operation);
-        setAmount("");
-        setClientCode("");
-        setComment("");
-        onSaved(result.balances);
-        amountInput.current?.focus();
-        return;
-      }
-
-      if (result.reason === "session-expired") {
-        onSessionExpired();
-        return;
-      }
-      if (result.reason === "conflict") {
-        // This id is taken by an entry that was saved before. Whatever is typed now is
-        // a new entry, so it must not keep colliding with the old one.
-        entryId.current = crypto.randomUUID();
-      }
-      setError(
-        {
-          forbidden: "У вас нет права вносить операции.",
-          conflict:
-            "Этот приход уже записан раньше, возможно с другой суммой. Проверьте остаток.",
-          rejected: "Проверьте данные и попробуйте ещё раз.",
-        }[result.reason],
-      );
-    } catch (caught) {
-      setError(
-        caught instanceof NetworkError
-          ? "Нет связи. Приход не записан. Нажмите «Записать» ещё раз, когда появится интернет."
-          : "Не получилось записать. Попробуйте ещё раз.",
-      );
-    } finally {
-      setBusy(false);
+    const saved = await entry.send((id) => ({
+      type: "income",
+      id,
+      amountMinor,
+      currency,
+      clientCode: code,
+      comment: comment.trim() || undefined,
+    }));
+    if (saved) {
+      setAmount("");
+      setClientCode("");
+      setComment("");
+      amountInput.current?.focus();
     }
   }
 
@@ -121,31 +62,14 @@ export function IncomeForm({ onSaved, onSessionExpired }: Props) {
     <form className="card" onSubmit={submit}>
       <h2>Приход</h2>
 
-      {saved && (
+      {entry.saved?.type === "income" && (
         <p className="success" role="status">
-          Записано: {formatMoney(saved.amountMinor, saved.currency)}, клиент {saved.clientCode}.{" "}
-          <span className="when">{formatMoscowTime(saved.createdAt)} (МСК)</span>
+          Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}, клиент{" "}
+          {entry.saved.clientCode}. <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
         </p>
       )}
 
-      <fieldset className="currency">
-        <legend>Валюта</legend>
-        {CURRENCIES.map((code) => (
-          <label key={code} className={code === currency ? "choice chosen" : "choice"}>
-            <input
-              type="radio"
-              name="currency"
-              value={code}
-              checked={code === currency}
-              onChange={() => {
-                currencyTouched.current = true;
-                setCurrency(code);
-              }}
-            />
-            {CURRENCY_NAME[code]}
-          </label>
-        ))}
-      </fieldset>
+      <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
       <label>
         Сумма
@@ -164,28 +88,7 @@ export function IncomeForm({ onSaved, onSessionExpired }: Props) {
         />
       </label>
 
-      <label>
-        Код клиента
-        <input
-          name="clientCode"
-          type="text"
-          list="client-codes"
-          autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          enterKeyHint="next"
-          required
-          maxLength={64}
-          value={clientCode}
-          onChange={(event) => setClientCode(event.target.value)}
-        />
-        <datalist id="client-codes">
-          {suggestions.map((code) => (
-            <option key={code} value={code} />
-          ))}
-        </datalist>
-      </label>
+      <ClientCodeField value={clientCode} onChange={setClientCode} />
 
       <label>
         <span>
@@ -202,14 +105,14 @@ export function IncomeForm({ onSaved, onSessionExpired }: Props) {
         />
       </label>
 
-      {error && (
+      {entry.error && (
         <p className="error" role="alert">
-          {error}
+          {entry.error}
         </p>
       )}
 
-      <button type="submit" disabled={busy}>
-        {busy ? "Записываем…" : "Записать приход"}
+      <button type="submit" disabled={entry.busy}>
+        {entry.busy ? "Записываем…" : "Записать приход"}
       </button>
     </form>
   );

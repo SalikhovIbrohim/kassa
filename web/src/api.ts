@@ -64,14 +64,22 @@ export type Balance = { currency: Currency; amountMinor: number };
 
 export type Operation = {
   id: string;
-  type: "income";
+  type: "income" | "expense";
   amountMinor: number;
   currency: Currency;
-  clientCode: string;
+  /** Only expenses have a category. */
+  category: string | null;
+  recipient: string | null;
+  clientCode: string | null;
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
 };
+
+export type Category = { code: string; label: string };
+
+/** The one category that needs a client code. */
+export const REFUND_CATEGORY = "client_refund";
 
 export async function fetchBalances(): Promise<Balance[]> {
   const response = await request("/api/balances");
@@ -97,24 +105,40 @@ export async function fetchClientCodes(prefix: string): Promise<string[]> {
   }
 }
 
-export type IncomeInput = {
+export async function fetchCategories(): Promise<Category[]> {
+  const response = await request("/api/categories");
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/categories`);
+  return ((await response.json()) as { categories: Category[] }).categories;
+}
+
+type EntryBase = {
   /** Made once per entry and kept across retries, so a retry can never count twice. */
   id: string;
   amountMinor: number;
   currency: Currency;
-  clientCode: string;
   comment?: string;
 };
 
-export type IncomeResult =
+export type OperationInput =
+  | (EntryBase & { type: "income"; clientCode: string })
+  | (EntryBase & {
+      type: "expense";
+      category: string;
+      recipient?: string;
+      /** Only for a client refund. */
+      clientCode?: string;
+    });
+
+export type OperationResult =
   | { ok: true; operation: Operation; balances: Balance[] }
   | { ok: false; reason: "session-expired" | "forbidden" | "conflict" | "rejected" };
 
-export async function createIncome(input: IncomeInput): Promise<IncomeResult> {
+export async function createOperation(input: OperationInput): Promise<OperationResult> {
   const response = await request("/api/operations", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: "income", ...input }),
+    body: JSON.stringify(input),
   });
   if (response.ok) {
     const body = (await response.json()) as { operation: Operation; balances: Balance[] };

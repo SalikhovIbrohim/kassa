@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
+import {
+  EXPENSE_CATEGORIES,
+  EXPENSE_CATEGORY_CODES,
+  REFUND_CATEGORY,
+  type ExpenseCategory,
+} from "./categories.js";
 import { MAX_AMOUNT_MINOR } from "./money.js";
 
 const MAX_SUGGESTIONS = 8;
@@ -12,10 +18,12 @@ export type OperationsOptions = {
 
 type OperationRow = {
   id: string;
-  kind: "income";
+  kind: "income" | "expense";
   amount_minor: string;
   currency: "RUB" | "USD";
-  client_code: string;
+  category: ExpenseCategory | null;
+  recipient: string | null;
+  client_code: string | null;
   comment: string | null;
   created_at: Date;
   author_login: string;
@@ -33,6 +41,8 @@ function toOperation(row: OperationRow) {
     type: row.kind,
     amountMinor: Number(row.amount_minor),
     currency: row.currency,
+    category: row.category,
+    recipient: row.recipient,
     clientCode: row.client_code,
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
@@ -92,67 +102,98 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 
-  app.post<{
-    Body: {
-      id: string;
-      type: "income";
-      amountMinor: number;
-      currency: "RUB" | "USD";
-      clientCode: string;
-      comment?: string;
-    };
-  }>(
+  app.get("/api/categories", { onRequest: app.authenticate }, async () => ({
+    categories: EXPENSE_CATEGORIES,
+  }));
+
+  const commonProperties = {
+    id: { type: "string", format: "uuid" },
+    amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
+    currency: { type: "string", enum: ["RUB", "USD"] },
+    comment: { type: "string", maxLength: 500 },
+  } as const;
+
+  const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64 } as const;
+
+  app.post<{ Body: IncomeBody | ExpenseBody }>(
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
       onRequest: [app.authenticate, app.requireRole("cashier")],
       schema: {
         body: {
-          type: "object",
-          required: ["id", "type", "amountMinor", "currency", "clientCode"],
-          additionalProperties: false,
-          properties: {
-            id: { type: "string", format: "uuid" },
-            type: { type: "string", enum: ["income"] },
-            amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
-            currency: { type: "string", enum: ["RUB", "USD"] },
-            clientCode: { type: "string", minLength: 1, maxLength: 64 },
-            comment: { type: "string", maxLength: 500 },
-          },
+          oneOf: [
+            {
+              type: "object",
+              required: ["id", "type", "amountMinor", "currency", "clientCode"],
+              additionalProperties: false,
+              properties: {
+                ...commonProperties,
+                type: { type: "string", const: "income" },
+                clientCode: clientCodeProperty,
+              },
+            },
+            {
+              type: "object",
+              required: ["id", "type", "amountMinor", "currency", "category"],
+              additionalProperties: false,
+              properties: {
+                ...commonProperties,
+                type: { type: "string", const: "expense" },
+                category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
+                recipient: { type: "string", maxLength: 100 },
+                clientCode: clientCodeProperty,
+              },
+            },
+          ],
         },
       },
     },
     async (request, reply) => {
       const body = request.body;
-      const clientCode = body.clientCode.trim();
-      if (clientCode === "") {
-        return reply.code(400).send({
-          statusCode: 400,
-          error: "Bad Request",
-          message: "body/clientCode must not be blank",
-        });
-      }
+      const badRequest = (message: string) =>
+        reply.code(400).send({ statusCode: 400, error: "Bad Request", message });
+
       const comment = body.comment?.trim() || null;
-      const clientCodeKey = clientCode.toLowerCase();
+      let category: ExpenseCategory | null = null;
+      let recipient: string | null = null;
+      let clientCode: string | null = null;
+
+      if (body.type === "income") {
+        clientCode = body.clientCode.trim();
+        if (clientCode === "") return badRequest("body/clientCode must not be blank");
+      } else {
+        category = body.category;
+        recipient = body.recipient?.trim() || null;
+        if (category === REFUND_CATEGORY) {
+          clientCode = body.clientCode?.trim() ?? "";
+          if (clientCode === "") return badRequest("body/clientCode is required for a client refund");
+        } else if (body.clientCode !== undefined) {
+          return badRequest("body/clientCode is only allowed for a client refund");
+        }
+      }
 
       const values = [
         body.id,
         body.type,
         body.amountMinor,
         body.currency,
+        category,
+        recipient,
         clientCode,
+        clientCode?.toLowerCase() ?? null,
         comment,
         request.user!.id,
         now(),
-        clientCodeKey,
       ];
 
       // The id is the primary key, so two requests with the same id can never both insert.
       const inserted = await pool.query<OperationRow>(
         `WITH new_operation AS (
            INSERT INTO operations
-             (id, kind, amount_minor, currency, client_code, comment, author_id, created_at, client_code_key)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             (id, kind, amount_minor, currency, category, recipient, client_code,
+              client_code_key, comment, author_id, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
            ON CONFLICT (id) DO NOTHING
            RETURNING *
          )
@@ -181,6 +222,8 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         stored.kind === body.type &&
         Number(stored.amount_minor) === body.amountMinor &&
         stored.currency === body.currency &&
+        stored.category === category &&
+        stored.recipient === recipient &&
         stored.client_code === clientCode &&
         stored.comment === comment;
       if (!sameRequest) {
@@ -193,3 +236,23 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 }
+
+type IncomeBody = {
+  id: string;
+  type: "income";
+  amountMinor: number;
+  currency: "RUB" | "USD";
+  clientCode: string;
+  comment?: string;
+};
+
+type ExpenseBody = {
+  id: string;
+  type: "expense";
+  amountMinor: number;
+  currency: "RUB" | "USD";
+  category: ExpenseCategory;
+  recipient?: string;
+  clientCode?: string;
+  comment?: string;
+};

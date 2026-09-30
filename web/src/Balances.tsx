@@ -28,7 +28,10 @@ export function Balances({ balances, onRetry }: Props) {
         return (
           <div className="balance" key={currency}>
             <span className="balance-name">{CURRENCY_NAME[currency]}</span>
-            <strong className="balance-amount" data-currency={currency}>
+            <strong
+              className={balance && balance.amountMinor < 0 ? "balance-amount negative" : "balance-amount"}
+              data-currency={currency}
+            >
               {balance ? formatMoney(balance.amountMinor, currency) : "…"}
             </strong>
           </div>
