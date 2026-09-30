@@ -1,21 +1,47 @@
 import { extname, relative, sep } from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerAuth } from "./auth.js";
 import { createDatabase } from "./db.js";
+import { isApiPath, pathnameOf } from "./paths.js";
 
 export type AppOptions = {
   databaseUrl: string;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
   logger?: boolean;
+  /** The application's clock. Sessions expire by it, so tests can move it. */
+  now?: () => Date;
+  /** Sends the session cookie only over HTTPS. Turn off for plain-HTTP development. */
+  secureCookies?: boolean;
+  /** How long a session lives without use. */
+  sessionDays?: number;
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({
+    logger: options.logger ?? false,
+    // Do not quietly turn numbers or arrays into strings: a wrong type is a bad request.
+    ajv: { customOptions: { coerceTypes: false } },
+  });
   const database = createDatabase(options.databaseUrl);
 
   app.addHook("onClose", async () => {
     await database.close();
+  });
+
+  // API answers are personal and live: never let a browser or proxy keep them.
+  app.addHook("onSend", async (request, reply) => {
+    if (isApiPath(pathnameOf(request.url))) {
+      reply.header("Cache-Control", "no-store");
+    }
+  });
+
+  await registerAuth(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
+    sessionDays: options.sessionDays ?? 90,
+    secureCookies: options.secureCookies ?? false,
   });
 
   app.get("/api/health", async (_request, reply) => {
@@ -44,9 +70,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     // Deep links belong to the client-side router: answer them with the shell.
     // API routes and missing files (anything with an extension) stay real 404s.
     app.setNotFoundHandler((request, reply) => {
-      const { pathname } = new URL(request.url, "http://localhost");
-      const isApi = pathname === "/api" || pathname.startsWith("/api/");
-      const wantsShell = request.method === "GET" && !isApi && !extname(pathname);
+      const pathname = pathnameOf(request.url);
+      const wantsShell =
+        request.method === "GET" && !isApiPath(pathname) && !extname(pathname);
       if (wantsShell) {
         return reply.sendFile("index.html");
       }

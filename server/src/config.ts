@@ -8,6 +8,10 @@ export type Config = {
   databaseUrl: string;
   /** Folder with the built web app, or undefined when there is none. */
   webDistDir: string | undefined;
+  /** Session cookie only over HTTPS. On in production, off for plain-HTTP development. */
+  secureCookies: boolean;
+  /** How many days a session lives without use. */
+  sessionDays: number;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -24,6 +28,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`PORT must be a valid port number, got "${env.PORT}"`);
   }
 
+  const sessionDays = env.SESSION_DAYS ? Number(env.SESSION_DAYS) : 90;
+  if (!Number.isInteger(sessionDays) || sessionDays < 1 || sessionDays > 3650) {
+    throw new Error(`SESSION_DAYS must be a whole number of days, got "${env.SESSION_DAYS}"`);
+  }
+
+  if (env.COOKIE_SECURE && env.COOKIE_SECURE !== "true" && env.COOKIE_SECURE !== "false") {
+    throw new Error(`COOKIE_SECURE must be "true" or "false", got "${env.COOKIE_SECURE}"`);
+  }
+  const secureCookies = env.COOKIE_SECURE
+    ? env.COOKIE_SECURE === "true"
+    : env.NODE_ENV === "production";
+
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
   return {
@@ -31,5 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     databaseUrl,
     webDistDir: existsSync(webDistDir) ? webDistDir : undefined,
+    secureCookies,
+    sessionDays,
   };
 }

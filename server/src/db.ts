@@ -1,6 +1,7 @@
 import pg from "pg";
 
 export type Database = {
+  pool: pg.Pool;
   /** True when the database answers a trivial query, false otherwise. Never throws. */
   ping(): Promise<boolean>;
   close(): Promise<void>;
@@ -16,6 +17,7 @@ export function createDatabase(connectionString: string): Database {
   pool.on("error", () => {});
 
   return {
+    pool,
     async ping() {
       try {
         await pool.query("SELECT 1");

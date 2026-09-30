@@ -1,10 +1,20 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { migrateDatabase } from "./migrate.js";
 
 const config = loadConfig();
+
+// Fail fast if the database is down or a migration breaks: the process manager restarts us.
+const applied = await migrateDatabase(config.databaseUrl);
+if (applied.length > 0) {
+  console.log(`Applied migrations: ${applied.join(", ")}`);
+}
+
 const app = await buildApp({
   databaseUrl: config.databaseUrl,
   webDistDir: config.webDistDir,
+  secureCookies: config.secureCookies,
+  sessionDays: config.sessionDays,
   logger: true,
 });
 

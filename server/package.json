@@ -8,9 +8,12 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "admin": "node dist/admin/cli.js",
+    "admin:dev": "tsx src/admin/cli.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.2",
     "@fastify/static": "^10.1.5",
     "fastify": "^5.12.5",
     "pg": "^8.23.1"
