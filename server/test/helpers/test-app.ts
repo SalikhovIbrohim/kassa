@@ -3,6 +3,7 @@ import pg from "pg";
 import { buildApp } from "../../src/app.js";
 import { migrate } from "../../src/migrate.js";
 import * as adminUsers from "../../src/admin/users.js";
+import * as adminBalances from "../../src/admin/opening-balances.js";
 
 const adminUrl =
   process.env.TEST_DATABASE_URL ??
@@ -21,6 +22,8 @@ export type TestAdmin = {
   revokeUser(login: string): Promise<void>;
   restoreUser(login: string): Promise<void>;
   resetPassword(login: string, newPassword: string): Promise<void>;
+  /** Amount as the developer types it, e.g. "1000.50". */
+  setOpeningBalance(currency: string, amount: string): Promise<void>;
 };
 
 export type TestApp = {
@@ -119,6 +122,9 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       restoreUser: (login) => adminUsers.restoreUser(adminPool, login),
       resetPassword: (login, newPassword) =>
         adminUsers.resetPassword(adminPool, login, newPassword),
+      setOpeningBalance: async (currency, amount) => {
+        await adminBalances.setOpeningBalance(adminPool, currency, amount);
+      },
     },
     setNow(date) {
       clock = date;

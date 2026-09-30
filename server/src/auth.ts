@@ -38,8 +38,12 @@ declare module "fastify" {
     user?: SessionUser;
   }
   interface FastifyInstance {
-    /** preHandler that answers 401 unless the request carries a valid session. */
+    /** `onRequest` hook that answers 401 unless the request carries a valid session. */
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    /** `onRequest` hook for routes only some roles may use. List it after `authenticate`. */
+    requireRole(
+      ...roles: Role[]
+    ): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
@@ -83,6 +87,12 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
     }
   });
 
+  app.decorate("requireRole", (...roles: Role[]) => async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user || !roles.includes(request.user.role)) {
+      return reply.code(403).send({ error: "forbidden" });
+    }
+  });
+
   async function findSession(
     token: string,
   ): Promise<{ id: string; lastSeenAt: Date; user: SessionUser } | undefined> {
@@ -101,7 +111,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
     };
   }
 
-  app.get("/api/me", { preHandler: app.authenticate }, async (request) => {
+  app.get("/api/me", { onRequest: app.authenticate }, async (request) => {
     const { login, displayName, role } = request.user!;
     return { user: { login, displayName, role } };
   });

@@ -3,6 +3,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAuth } from "./auth.js";
 import { createDatabase } from "./db.js";
+import { registerOperations } from "./operations.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
 export type AppOptions = {
@@ -21,8 +22,8 @@ export type AppOptions = {
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: options.logger ?? false,
-    // Do not quietly turn numbers or arrays into strings: a wrong type is a bad request.
-    ajv: { customOptions: { coerceTypes: false } },
+    // A wrong type or an unexpected field is a bad request, never quietly "fixed".
+    ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
   const database = createDatabase(options.databaseUrl);
 
@@ -42,6 +43,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     now: options.now ?? (() => new Date()),
     sessionDays: options.sessionDays ?? 90,
     secureCookies: options.secureCookies ?? false,
+  });
+
+  await registerOperations(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
   });
 
   app.get("/api/health", async (_request, reply) => {

@@ -1,6 +1,9 @@
 import { parseArgs } from "node:util";
 import pg from "pg";
+import { getBalances } from "../balances.js";
+import { formatAmount } from "../money.js";
 import { migrate } from "../migrate.js";
+import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
   createUser,
@@ -19,6 +22,9 @@ Commands:
   revoke-user    --login <login>      block access and end all sessions
   restore-user   --login <login>      give access back (the user logs in again)
   reset-password --login <login>      set a new password and end all sessions
+  set-opening-balance --currency <RUB|USD> --amount <1000.50>
+                                      the amount a currency's balance starts from
+  balances                            current balance per currency (opening balance + income)
 
 Settings come from the environment: DATABASE_URL is required.
 Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.`;
@@ -36,6 +42,8 @@ async function main(): Promise<void> {
       login: { type: "string" },
       role: { type: "string" },
       name: { type: "string" },
+      currency: { type: "string" },
+      amount: { type: "string" },
     },
   });
 
@@ -81,6 +89,19 @@ async function main(): Promise<void> {
         const login = required(values.login, "--login");
         await resetPassword(pool, login, await readPassword(true));
         console.log(`Password changed for "${login}"; all their sessions are closed.`);
+        break;
+      }
+      case "set-opening-balance": {
+        const currency = required(values.currency, "--currency");
+        const amount = required(values.amount, "--amount");
+        const minor = await setOpeningBalance(pool, currency, amount);
+        console.log(`Opening balance for ${currency.trim().toUpperCase()} set to ${formatAmount(minor)}.`);
+        break;
+      }
+      case "balances": {
+        for (const balance of await getBalances(pool)) {
+          console.log(`${balance.currency}  ${formatAmount(balance.amountMinor)}`);
+        }
         break;
       }
       default:
@@ -143,8 +164,12 @@ function promptHidden(question: string): Promise<string> {
 }
 
 main().catch((error: unknown) => {
+  const code = (error as { code?: string }).code;
   if (error instanceof AdminError) {
     console.error(`Error: ${error.message}`);
+  } else if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
+    // Bad command-line options: show the message, not a stack trace.
+    console.error(`Error: ${(error as Error).message}\n\n${USAGE}`);
   } else {
     console.error(error);
   }

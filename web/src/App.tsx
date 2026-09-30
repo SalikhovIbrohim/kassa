@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
-import { fetchCurrentUser, logOut, type Role, type User } from "./api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  fetchBalances,
+  fetchCurrentUser,
+  logOut,
+  SessionExpiredError,
+  type Balance,
+  type Role,
+  type User,
+} from "./api";
+import { Balances } from "./Balances";
+import { IncomeForm } from "./IncomeForm";
 import { LoginScreen } from "./LoginScreen";
 
 type State =
@@ -25,6 +35,9 @@ export function App() {
   }, []);
 
   useEffect(load, [load]);
+
+  // Stable identity: SignedIn reloads its balances when this changes.
+  const showLoggedOut = useCallback(() => setState({ kind: "logged-out" }), []);
 
   if (state.kind === "loading") {
     return (
@@ -54,11 +67,40 @@ export function App() {
     return <LoginScreen onLoggedIn={(user) => setState({ kind: "logged-in", user })} />;
   }
 
-  return <SignedIn user={state.user} onLoggedOut={() => setState({ kind: "logged-out" })} />;
+  return <SignedIn user={state.user} onLoggedOut={showLoggedOut} />;
 }
 
 function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }) {
   const [error, setError] = useState<string | null>(null);
+  // null: loading, undefined: failed to load.
+  const [balances, setBalances] = useState<Balance[] | null | undefined>(null);
+
+  // Numbers the answers we are waiting for: only the newest one may update the screen,
+  // so a slow older answer cannot replace a fresher balance.
+  const newest = useRef(0);
+
+  const loadBalances = useCallback(() => {
+    const mine = ++newest.current;
+    setBalances(null);
+    fetchBalances().then(
+      (loaded) => {
+        if (mine === newest.current) setBalances(loaded);
+      },
+      (caught: unknown) => {
+        if (mine !== newest.current) return;
+        // A dead session means the login screen, not an error message about balances.
+        if (caught instanceof SessionExpiredError) onLoggedOut();
+        else setBalances(undefined);
+      },
+    );
+  }, [onLoggedOut]);
+
+  const showSavedBalances = useCallback((fresh: Balance[]) => {
+    newest.current++;
+    setBalances(fresh);
+  }, []);
+
+  useEffect(loadBalances, [loadBalances]);
 
   async function leave() {
     setError(null);
@@ -75,22 +117,33 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   }
 
   return (
-    <main className="screen">
-      <div className="card">
-        <h1>Касса</h1>
-        <p className="who">
-          {user.displayName}
-          <span className="role">{ROLE_LABEL[user.role]}</span>
-        </p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
+    <main className="page">
+      <header className="topbar">
+        <div>
+          <h1>Касса</h1>
+          <p className="who">
+            {user.displayName}
+            <span className="role">{ROLE_LABEL[user.role]}</span>
           </p>
-        )}
-        <button type="button" className="secondary" onClick={leave}>
+        </div>
+        <button type="button" className="secondary small" onClick={leave}>
           Выйти
         </button>
-      </div>
+      </header>
+
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <Balances balances={balances} onRetry={loadBalances} />
+
+      {user.role === "cashier" ? (
+        <IncomeForm onSaved={showSavedBalances} onSessionExpired={onLoggedOut} />
+      ) : (
+        <p className="hint">Вы смотрящий: остатки доступны, вносить операции нельзя.</p>
+      )}
     </main>
   );
 }
