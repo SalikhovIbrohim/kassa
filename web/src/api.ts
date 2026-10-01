@@ -295,6 +295,35 @@ export async function fetchCashiers(): Promise<Cashier[]> {
   }
 }
 
+// ---- Totals of a period (the viewer) ----
+
+export type CurrencyTotals = {
+  currency: Currency;
+  /** The balance when the first day begins, and when the last day ends. */
+  openingMinor: number;
+  closingMinor: number;
+  incomeMinor: number;
+  /** Everything paid out except the money handed to the owner, and where it went. */
+  expenseMinor: number;
+  expenseByCategory: Array<{ category: string; amountMinor: number }>;
+  handoverMinor: number;
+};
+
+export type Totals = { from: string; to: string; currencies: CurrencyTotals[] };
+
+/** The totals of a period (Moscow days, both included), each currency on its own. */
+export async function fetchTotals(from: string, to: string): Promise<Totals> {
+  const response = await request(`/api/summary?${new URLSearchParams({ from, to })}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/summary`);
+  const body = (await response.json()) as Totals;
+  // An answer of another shape (a page of a proxy that said 200) is not totals: never show it as zeros.
+  if (!Array.isArray(body.currencies) || typeof body.from !== "string" || typeof body.to !== "string") {
+    throw new Error("The answer of /api/summary is not the totals of a period");
+  }
+  return body;
+}
+
 // ---- Corrections and history ----
 
 export type Snapshot = {

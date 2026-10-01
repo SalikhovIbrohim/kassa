@@ -12,12 +12,12 @@ import {
 } from "./api";
 import { Balances, type BalancesState } from "./Balances";
 import { EntryScreen } from "./EntryScreen";
-import { Journal } from "./Journal";
 import { LoginScreen } from "./LoginScreen";
 import { plural } from "./plural";
 import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
+import { ViewerScreen } from "./ViewerScreen";
 
 type State =
   | { kind: "loading" }
@@ -289,7 +289,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           onSessionExpired={onLoggedOut}
         />
       ) : (
-        <Journal mode="viewer" onSessionExpired={onLoggedOut} onRefresh={loadBalances} />
+        <ViewerScreen onSessionExpired={onLoggedOut} onRefresh={loadBalances} />
       )}
 
       {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}

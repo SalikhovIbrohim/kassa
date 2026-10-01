@@ -928,3 +928,121 @@ button.danger {
 .queue {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* ---- Totals of a period (the viewer) ---- */
+
+.totals {
+  display: grid;
+  gap: 12px;
+  /* A grid item never shrinks below its content unless told it may. */
+  min-width: 0;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.presets button.chosen {
+  color: #ffffff;
+  background: #0f766e;
+  border-color: #0f766e;
+}
+
+.totals .filter-grid {
+  /* Two fields, whatever the width (the journal's filters have four columns on a laptop). */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 480px;
+  margin-top: 0;
+}
+
+.totals .period {
+  margin: 0;
+  font-weight: 600;
+}
+
+.totals-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.total-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+}
+
+.total-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.total-card dl {
+  margin: 0;
+}
+
+.total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid #f1f5f9;
+}
+
+.total-row dt {
+  min-width: 0;
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
+.total-row dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.total-row.income dd {
+  color: #166534;
+}
+
+.total-row.expense dd {
+  color: #991b1b;
+}
+
+/* Where the expense went: under the line it adds up to. */
+.total-row.sub {
+  padding: 5px 0 5px 14px;
+  border-top: 0;
+  font-size: 0.95rem;
+}
+
+.total-row.sub dt {
+  color: #64748b;
+}
+
+.total-row.sub dd {
+  color: #7f1d1d;
+  font-weight: 500;
+}
+
+.total-row.closing {
+  margin-top: 4px;
+  border-top: 2px solid #94a3b8;
+  font-size: 1.05rem;
+}
+
+/* Nothing in it: no colour of its own, so that a zero does not look like a loss. */
+.total-row.zero dd {
+  color: #64748b;
+  font-weight: 500;
+}

@@ -42,3 +42,22 @@ export function formatMoscowShort(iso: string): string {
   const at = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return `${at("day")}.${at("month")} ${at("hour")}:${at("minute")}`;
 }
+
+export type PeriodPreset = "today" | "yesterday" | "week" | "month";
+
+/** The first and the last Moscow day of a quick choice of period, `today` being the Moscow day it is now. */
+export function presetPeriod(preset: PeriodPreset, today: string): { from: string; to: string } {
+  switch (preset) {
+    case "today":
+      return { from: today, to: today };
+    case "yesterday": {
+      const day = shiftDay(today, -1);
+      return { from: day, to: day };
+    }
+    case "week":
+      // Seven days, today included.
+      return { from: shiftDay(today, -6), to: today };
+    case "month":
+      return { from: `${today.slice(0, 7)}-01`, to: today };
+  }
+}
