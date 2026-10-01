@@ -19,6 +19,12 @@
   The public address, without https://, e.g. 203-0-113-5.sslip.io (the server's public IP with dashes),
   or a real domain.
 
+.PARAMETER NoProxy
+  For a machine where ports 80 and 443 are already used by another web server or proxy (IIS, another Caddy).
+  Installs only the service KassaApp, which listens on this machine only (the PORT of the settings file), and
+  does not touch ports 80 and 443 or the firewall. At the end it prints the few lines to add to the
+  Caddyfile of the proxy that is there; -Site is then the name that proxy will serve Kassa under.
+
 .PARAMETER WinSW
   Another WinSW executable than <Root>\tools\WinSW-x64.exe (the one download-tools.ps1 fetches).
   It is copied under the name of each service.
@@ -38,6 +44,7 @@ param(
     [string]$WinSW,
     [string]$Root = 'C:\kassa',
     [string]$Caddy,
+    [switch]$NoProxy,
     [string]$PostgresService,
     [ValidateSet('VirtualAccount', 'LocalSystem')][string]$ServiceAccount = 'VirtualAccount'
 )
@@ -63,7 +70,7 @@ Invoke-Main {
         (Resolve-Path -LiteralPath $path).Path
     }
     $winswSource = Resolve-Tool -Given $WinSW -Default ([IO.Path]::Combine($layout.Tools, 'WinSW-x64.exe')) -Name 'WinSW'
-    $caddyPath = Resolve-Tool -Given $Caddy -Default ([IO.Path]::Combine($layout.Tools, 'caddy.exe')) -Name 'Caddy'
+    $caddyPath = if ($NoProxy) { $null } else { Resolve-Tool -Given $Caddy -Default ([IO.Path]::Combine($layout.Tools, 'caddy.exe')) -Name 'Caddy' }
 
     foreach ($required in @($layout.Settings, [IO.Path]::Combine($layout.App, 'server', 'dist', 'main.js'), [IO.Path]::Combine($layout.App, 'web', 'dist', 'index.html'))) {
         if (-not (Test-Path -LiteralPath $required)) { throw "$required is missing. Run setup.ps1 (or build.ps1) first." }
@@ -116,49 +123,56 @@ Invoke-Main {
         Invoke-Native -File 'icacls.exe' -Arguments @($Path, '/grant', (Get-Grant $Sid $Rights))
     }
 
-    Write-Step 'Writing the Caddyfile'
-    New-Item -ItemType Directory -Force -Path $layout.Config, $layout.Logs, $layout.CaddyData | Out-Null
-    $caddyfile = ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, 'Caddyfile.template'))).Replace('__SITE__', $Site).Replace('__PORT__', [string](Get-AppPort -Layout $layout)).Replace('__LOGS__', $layout.Logs.Replace('\', '/'))
-    if ((Test-Path -LiteralPath $layout.Caddyfile) -and ([IO.File]::ReadAllText($layout.Caddyfile) -ne $caddyfile)) {
-        $backup = "$($layout.Caddyfile).$(Get-Date -Format 'yyyyMMdd-HHmmss').bak"
-        Copy-Item -LiteralPath $layout.Caddyfile -Destination $backup
-        Write-Host "The Caddyfile was changed: the one that was there is kept as $backup"
+    if (-not $NoProxy) {
+        Write-Step 'Writing the Caddyfile'
+        New-Item -ItemType Directory -Force -Path $layout.Config, $layout.Logs, $layout.CaddyData | Out-Null
+        $caddyfile = ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, 'Caddyfile.template'))).Replace('__SITE__', $Site).Replace('__PORT__', [string](Get-AppPort -Layout $layout)).Replace('__LOGS__', $layout.Logs.Replace('\', '/'))
+        if ((Test-Path -LiteralPath $layout.Caddyfile) -and ([IO.File]::ReadAllText($layout.Caddyfile) -ne $caddyfile)) {
+            $backup = "$($layout.Caddyfile).$(Get-Date -Format 'yyyyMMdd-HHmmss').bak"
+            Copy-Item -LiteralPath $layout.Caddyfile -Destination $backup
+            Write-Host "The Caddyfile was changed: the one that was there is kept as $backup"
+        }
+        Write-Utf8File -Path $layout.Caddyfile -Text $caddyfile
+        Write-Host "Wrote $($layout.Caddyfile) for https://$Site"
     }
-    Write-Utf8File -Path $layout.Caddyfile -Text $caddyfile
-    Write-Host "Wrote $($layout.Caddyfile) for https://$Site"
 
     Write-Step 'Installing the services'
     $appXml = Fill-Template -TemplateName 'KassaApp.xml.template' -Values @{
         NODE = $node; SETTINGS = $layout.Settings; APP = $layout.App; POSTGRES = $postgres; LOGS = $layout.Logs
     }
-    $proxyXml = Fill-Template -TemplateName 'KassaProxy.xml.template' -Values @{
-        CADDY = $caddyPath; CADDYFILE = $layout.Caddyfile; CADDYDATA = $layout.CaddyData; LOGS = $layout.Logs
-    }
     Install-WinSwService -Id 'KassaApp' -Xml $appXml
-    Install-WinSwService -Id 'KassaProxy' -Xml $proxyXml
+    if (-not $NoProxy) {
+        $proxyXml = Fill-Template -TemplateName 'KassaProxy.xml.template' -Values @{
+            CADDY = $caddyPath; CADDYFILE = $layout.Caddyfile; CADDYDATA = $layout.CaddyData; LOGS = $layout.Logs
+        }
+        Install-WinSwService -Id 'KassaProxy' -Xml $proxyXml
+    }
 
     if ($ServiceAccount -eq 'VirtualAccount') {
         Write-Step 'Letting each service in where it needs to be (a minute, for the packages)'
         $app = Get-ServiceSid -Name 'KassaApp'
-        $proxy = Get-ServiceSid -Name 'KassaProxy'
         # The application: its program, its settings (the only account but the administrators that has the password), its log.
         Grant-Access -Path $layout.App -Sid $app -Rights '(OI)(CI)RX'
         Grant-Access -Path $layout.Settings -Sid $app -Rights 'R'
         Grant-Access -Path ([IO.Path]::Combine($layout.Services, 'KassaApp')) -Sid $app -Rights '(OI)(CI)RX'
-        # The proxy: its program, its Caddyfile, and the place where it keeps the certificates and their keys.
-        Grant-Access -Path $caddyPath -Sid $proxy -Rights 'RX'
-        Grant-Access -Path $layout.Caddyfile -Sid $proxy -Rights 'R'
-        Grant-Access -Path ([IO.Path]::Combine($layout.Services, 'KassaProxy')) -Sid $proxy -Rights '(OI)(CI)RX'
-        Grant-Access -Path $layout.CaddyData -Sid $proxy -Rights '(OI)(CI)M'
-        # Both write their logs.
         Grant-Access -Path $layout.Logs -Sid $app -Rights '(OI)(CI)M'
-        Grant-Access -Path $layout.Logs -Sid $proxy -Rights '(OI)(CI)M'
+        if (-not $NoProxy) {
+            $proxy = Get-ServiceSid -Name 'KassaProxy'
+            # The proxy: its program, its Caddyfile, and the place where it keeps the certificates and their keys.
+            Grant-Access -Path $caddyPath -Sid $proxy -Rights 'RX'
+            Grant-Access -Path $layout.Caddyfile -Sid $proxy -Rights 'R'
+            Grant-Access -Path ([IO.Path]::Combine($layout.Services, 'KassaProxy')) -Sid $proxy -Rights '(OI)(CI)RX'
+            Grant-Access -Path $layout.CaddyData -Sid $proxy -Rights '(OI)(CI)M'
+            Grant-Access -Path $layout.Logs -Sid $proxy -Rights '(OI)(CI)M'
+        }
     }
 
-    Write-Step 'Opening ports 80 and 443 in the Windows firewall'
-    foreach ($rule in $script:FirewallRules) {
-        Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-        New-NetFirewallRule -DisplayName $rule.Name -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow -Profile Any | Out-Null
+    if (-not $NoProxy) {
+        Write-Step 'Opening ports 80 and 443 in the Windows firewall'
+        foreach ($rule in $script:FirewallRules) {
+            Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+            New-NetFirewallRule -DisplayName $rule.Name -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow -Profile Any | Out-Null
+        }
     }
 
     # If PostgreSQL stops (an update of it, a crash), start it again by itself: three tries, a minute apart.
@@ -166,11 +180,25 @@ Invoke-Main {
 
     Write-Step 'Starting the services'
     Start-Service -Name 'KassaApp'
-    Start-Service -Name 'KassaProxy'
+    if (-not $NoProxy) { Start-Service -Name 'KassaProxy' }
 
     Write-Step 'Checking that the application answers'
     if (-not (Wait-Application -Layout $layout)) {
         throw "The application does not answer (the check above says why). Its log: $($layout.Logs)\KassaApp.err.log (docs/deploy-windows.md, the section on problems)."
+    }
+
+    if ($NoProxy) {
+        $port = Get-AppPort -Layout $layout
+        Write-Host ''
+        Write-Host "KassaApp is installed and answers on 127.0.0.1:$port (this machine only). Nothing is public yet." -ForegroundColor Green
+        Write-Host 'Add this to the Caddyfile of the proxy that faces the internet, check it and reload it (docs/deploy-windows.md, section 3.1):'
+        Write-Host ''
+        Write-Host "$Site {"
+        Write-Host "    reverse_proxy 127.0.0.1:$port"
+        Write-Host '}'
+        Write-Host ''
+        Write-Host "Then, from a phone (not from this server), open https://$Site"
+        return
     }
 
     Write-Step 'Checking that the proxy listens on ports 80 and 443'

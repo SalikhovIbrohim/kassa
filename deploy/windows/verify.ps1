@@ -18,6 +18,10 @@
 .PARAMETER PostgresService
   The name of the PostgreSQL service when it cannot be found by itself.
 
+.PARAMETER NoProxy
+  The machine has its own proxy on ports 80 and 443 (install-services.ps1 -NoProxy): the service KassaProxy, the
+  firewall rules for 80 and 443 and the certificate are not looked for.
+
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
 #>
@@ -25,6 +29,7 @@
 param(
     [string]$Root = 'C:\kassa',
     [string]$Site,
+    [switch]$NoProxy,
     [string]$PostgresService
 )
 
@@ -63,7 +68,7 @@ Invoke-Main {
         else { Write-Report 'FAIL' 'PostgreSQL' "$name is $($service.Status)" }
     }
 
-    foreach ($id in @('KassaApp', 'KassaProxy')) {
+    foreach ($id in $(if ($NoProxy) { @('KassaApp') } else { @('KassaApp', 'KassaProxy') })) {
         Test-Part "service $id" {
             $service = Get-Service -Name $id -ErrorAction SilentlyContinue
             if (-not $service) { Write-Report 'FAIL' $id 'is not installed (install-services.ps1)'; return }
@@ -82,7 +87,7 @@ Invoke-Main {
 
     Test-Part 'ports' {
         $listening = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
-        foreach ($port in @(80, 443)) {
+        foreach ($port in $(if ($NoProxy) { @() } else { @(80, 443) })) {
             if (@($listening | Where-Object { $_.LocalPort -eq $port }).Count -gt 0) { Write-Report 'ok' "port $port" 'the proxy listens' }
             else { Write-Report 'FAIL' "port $port" "nothing listens (another program may hold it: Get-NetTCPConnection -LocalPort $port)" }
         }
@@ -107,7 +112,7 @@ Invoke-Main {
         }
         if ($open.Count -gt 0) { Write-Report 'FAIL' 'firewall' ("inbound rules open port $appPort (the application) or 5432 (the database) to the network: " + ($open -join ', ')) }
         else { Write-Report 'ok' 'firewall' "no rule opens the application ($appPort) or the database (5432) to the network" }
-        foreach ($rule in $script:FirewallRules) {
+        foreach ($rule in $(if ($NoProxy) { @() } else { $script:FirewallRules })) {
             if (Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue) { Write-Report 'ok' "firewall $($rule.Port)" "the rule '$($rule.Name)' is there" }
             else { Write-Report 'FAIL' "firewall $($rule.Port)" "the rule '$($rule.Name)' is missing (install-services.ps1)" }
         }
@@ -137,13 +142,13 @@ Invoke-Main {
         else { Write-Report 'FAIL' 'application' "does not answer as it should: node $checker $address says why" }
     }
 
-    Test-Part 'certificate' {
+    if (-not $NoProxy) { Test-Part 'certificate' {
         $log = [IO.Path]::Combine($layout.Logs, 'KassaProxy.err.log')
         if (-not (Test-Path -LiteralPath $log)) { Write-Report 'info' 'certificate' 'the proxy has not written a log yet'; return }
         $found = @(Select-String -LiteralPath $log -Pattern 'certificate obtained successfully' -SimpleMatch)
         if ($found.Count -gt 0) { Write-Report 'ok' 'certificate' 'the proxy log says a certificate was obtained' }
         else { Write-Report 'WARN' 'certificate' "no certificate obtained yet, or the log has rolled over: read $log" }
-    }
+    } }
 
     if ($Site) {
         Test-Part 'public address' {
