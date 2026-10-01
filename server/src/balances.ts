@@ -6,7 +6,10 @@ export type Balance = { currency: Currency; amountMinor: number };
 /** A pool, or one connection checked out of it (inside a transaction). */
 export type Queryable = Pick<pg.Pool, "query">;
 
-/** Opening balance plus incomes minus expenses, per currency, always all currencies. */
+/**
+ * Opening balance plus incomes minus expenses, per currency, always all currencies. A deleted
+ * operation counts for nothing.
+ */
 export async function getBalances(db: Queryable): Promise<Balance[]> {
   const result = await db.query<{ currency: Currency; amount_minor: string }>(
     `SELECT c.currency,
@@ -15,7 +18,7 @@ export async function getBalances(db: Queryable): Promise<Balance[]> {
               AS amount_minor
        FROM unnest($1::text[]) AS c(currency)
        LEFT JOIN opening_balances o ON o.currency = c.currency
-       LEFT JOIN operations op ON op.currency = c.currency
+       LEFT JOIN operations op ON op.currency = c.currency AND op.deleted_at IS NULL
       GROUP BY c.currency, o.amount_minor
       ORDER BY c.currency`,
     [CURRENCIES],

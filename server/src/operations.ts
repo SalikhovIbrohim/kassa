@@ -1,14 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
-import {
-  EXPENSE_CATEGORIES,
-  EXPENSE_CATEGORY_CODES,
-  REFUND_CATEGORY,
-  type ExpenseCategory,
-} from "./categories.js";
+import { EXPENSE_CATEGORIES } from "./categories.js";
+import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation } from "./ledger.js";
-import { MAX_AMOUNT_MINOR } from "./money.js";
 import { NO_NUL } from "./schemas.js";
 
 const MAX_SUGGESTIONS = 8;
@@ -30,8 +25,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     balances: await getBalances(pool),
   }));
 
-  // Codes people typed before, to save typing: every code ever used, most recently used
-  // first, matched on the lower-cased key so letter case works for Cyrillic too.
+  // Codes people typed before, to save typing: every code in use, most recently used first,
+  // matched on the lower-cased key so letter case works for Cyrillic too. A deleted
+  // operation offers none.
   app.get<{ Querystring: { prefix?: string } }>(
     "/api/client-codes",
     {
@@ -50,7 +46,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         `SELECT client_code FROM (
            SELECT DISTINCT ON (client_code_key) client_code, created_at
              FROM operations
-            WHERE client_code_key LIKE $1 ESCAPE '\\'
+            WHERE client_code_key LIKE $1 ESCAPE '\\' AND deleted_at IS NULL
             ORDER BY client_code_key, created_at DESC
          ) latest
          ORDER BY created_at DESC, client_code
@@ -67,7 +63,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     { onRequest: app.authenticate },
     async (request) => {
       const last = await pool.query<{ currency: "RUB" | "USD" }>(
-        `SELECT currency FROM operations WHERE author_id = $1
+        `SELECT currency FROM operations WHERE author_id = $1 AND deleted_at IS NULL
           ORDER BY created_at DESC LIMIT 1`,
         [request.user!.id],
       );
@@ -79,82 +75,27 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     categories: EXPENSE_CATEGORIES,
   }));
 
-  const commonProperties = {
-    id: { type: "string", format: "uuid" },
-    amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
-    currency: { type: "string", enum: ["RUB", "USD"] },
-    comment: { type: "string", maxLength: 500, pattern: NO_NUL },
-  } as const;
-
-  const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
-
-  app.post<{ Body: IncomeBody | ExpenseBody }>(
+  app.post<{ Body: Entry & { id: string } }>(
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
       onRequest: [app.authenticate, app.requireRole("cashier")],
       schema: {
-        body: {
-          oneOf: [
-            {
-              type: "object",
-              required: ["id", "type", "amountMinor", "currency", "clientCode"],
-              additionalProperties: false,
-              properties: {
-                ...commonProperties,
-                type: { type: "string", const: "income" },
-                clientCode: clientCodeProperty,
-              },
-            },
-            {
-              type: "object",
-              required: ["id", "type", "amountMinor", "currency", "category"],
-              additionalProperties: false,
-              properties: {
-                ...commonProperties,
-                type: { type: "string", const: "expense" },
-                category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
-                recipient: { type: "string", maxLength: 100, pattern: NO_NUL },
-                clientCode: clientCodeProperty,
-              },
-            },
-          ],
-        },
+        // The id is made by the client, so that sending the same entry twice stores it once.
+        body: entrySchema({ properties: { id: { type: "string", format: "uuid" } }, required: ["id"] }),
       },
     },
     async (request, reply) => {
       const body = request.body;
-      const badRequest = (message: string) =>
-        reply.code(400).send({ statusCode: 400, error: "Bad Request", message });
-
-      const comment = body.comment?.trim() || null;
-      let category: ExpenseCategory | null = null;
-      let recipient: string | null = null;
-      let clientCode: string | null = null;
-
-      if (body.type === "income") {
-        clientCode = body.clientCode.trim();
-        if (clientCode === "") return badRequest("body/clientCode must not be blank");
-      } else {
-        category = body.category;
-        recipient = body.recipient?.trim() || null;
-        if (category === REFUND_CATEGORY) {
-          clientCode = body.clientCode?.trim() ?? "";
-          if (clientCode === "") return badRequest("body/clientCode is required for a client refund");
-        } else if (body.clientCode !== undefined) {
-          return badRequest("body/clientCode is only allowed for a client refund");
-        }
+      const normalized = normalizeEntry(body);
+      if ("error" in normalized) {
+        return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
 
       const recorded = await recordOperation(pool, {
         id: body.id,
-        kind: body.type,
-        amountMinor: body.amountMinor,
-        currency: body.currency,
-        category,
-        recipient,
-        clientCode,
-        comment,
+        kind: normalized.kind,
+        ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
       });
@@ -179,23 +120,3 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 }
-
-type IncomeBody = {
-  id: string;
-  type: "income";
-  amountMinor: number;
-  currency: "RUB" | "USD";
-  clientCode: string;
-  comment?: string;
-};
-
-type ExpenseBody = {
-  id: string;
-  type: "expense";
-  amountMinor: number;
-  currency: "RUB" | "USD";
-  category: ExpenseCategory;
-  recipient?: string;
-  clientCode?: string;
-  comment?: string;
-};

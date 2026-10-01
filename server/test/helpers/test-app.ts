@@ -37,6 +37,11 @@ export type TestApp = {
    * a millisecond, say); never to check what the API did.
    */
   execute(sql: string, params?: unknown[]): Promise<void>;
+  /**
+   * Reads rows directly. Only for properties of the storage that cannot be seen over HTTP
+   * (that a deleted operation is still in its table); never to check what the API did.
+   */
+  query<Row = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<Row[]>;
   /** Moves the application's clock (sessions expire by it). */
   setNow(date: Date): void;
   /** Stops and starts the server again on the same database. */
@@ -156,6 +161,9 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
     },
     async execute(sql, params) {
       await adminPool.query(sql, params);
+    },
+    async query<Row>(sql: string, params?: unknown[]) {
+      return (await adminPool.query(sql, params)).rows as Row[];
     },
     admin: {
       createUser: (input) => adminUsers.createUser(adminPool, input),

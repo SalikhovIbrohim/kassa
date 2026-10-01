@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
 import { EXPENSE_CATEGORY_CODES } from "./categories.js";
-import { OPERATION_SELECT, toOperation, type OperationRow } from "./ledger.js";
+import { OPERATION_FROM, OPERATION_SELECT, toOperation, type OperationRow } from "./ledger.js";
 import { CURRENCIES } from "./money.js";
 import { NO_NUL } from "./schemas.js";
 
@@ -22,6 +22,7 @@ type JournalQuery = {
   category?: string;
   clientCode?: string;
   author?: string;
+  deleted?: "exclude" | "include" | "only";
   limit?: string;
   cursor?: string;
 };
@@ -79,6 +80,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
+            // Deleted operations: left out (the default), shown among the others, or only them.
+            deleted: { type: "string", enum: ["exclude", "include", "only"] },
             // Query strings arrive as text and this server does not guess types.
             limit: { type: "string", pattern: "^[0-9]{1,3}$" },
             cursor: { type: "string", minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9_-]+$" },
@@ -111,8 +114,15 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       if (user.role === "cashier" && query.author !== undefined && query.author.toLowerCase() !== user.login.toLowerCase()) {
         return reply.code(403).send({ error: "forbidden" });
       }
+      // A deleted operation disappears for cashiers; only the viewer can look at them.
+      const deleted = query.deleted ?? "exclude";
+      if (user.role === "cashier" && deleted !== "exclude") {
+        return reply.code(403).send({ error: "forbidden" });
+      }
 
       const conditions = ["o.created_at >= $1", "o.created_at < $2"];
+      if (deleted === "exclude") conditions.push("o.deleted_at IS NULL");
+      if (deleted === "only") conditions.push("o.deleted_at IS NOT NULL");
       const values: unknown[] = [cashDayStart(from), cashDayEnd(to)];
       const add = (condition: (placeholder: string) => string, value: unknown) => {
         values.push(value);
@@ -137,7 +147,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       const found = await pool.query<OperationRow & { created_at_cursor: string }>(
         `SELECT ${OPERATION_SELECT},
                 to_char(o.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
-           FROM operations o JOIN users u ON u.id = o.author_id
+           FROM ${OPERATION_FROM}
           WHERE ${conditions.join(" AND ")}
           ORDER BY o.created_at DESC, o.id DESC
           LIMIT $${values.length}`,

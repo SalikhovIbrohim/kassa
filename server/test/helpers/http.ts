@@ -10,6 +10,26 @@ export function postJson(app: TestApp, path: string, body: unknown, cookie?: str
   });
 }
 
+export function putJson(app: TestApp, path: string, body: unknown, cookie?: string) {
+  return fetch(`${app.baseUrl}${path}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+/** A DELETE, with a JSON body only when there is something to say (a reason). */
+export function deleteRequest(app: TestApp, path: string, cookie?: string, body?: unknown) {
+  return fetch(`${app.baseUrl}${path}`, {
+    method: "DELETE",
+    headers: {
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+      ...(cookie ? { cookie } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
 export function get(app: TestApp, path: string, cookie?: string) {
   return fetch(`${app.baseUrl}${path}`, { headers: cookie ? { cookie } : {} });
 }

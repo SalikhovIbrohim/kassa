@@ -2,6 +2,7 @@ import { extname, relative, sep } from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { registerAuth, type LoginProtectionOptions } from "./auth.js";
+import { registerCorrections } from "./corrections.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
@@ -68,6 +69,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   await registerOperations(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
+  });
+
+  await registerCorrections(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
   });
