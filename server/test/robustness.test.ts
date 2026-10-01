@@ -1,8 +1,49 @@
 import { randomUUID } from "node:crypto";
+import { Writable } from "node:stream";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+
+describe("what an unexpected failure leaves in the log", () => {
+  let app: TestApp | undefined;
+
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
+
+  it("names the failure, but not the row of the entry that was being saved", async () => {
+    let log = "";
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        log += chunk.toString();
+        done();
+      },
+    });
+    const started = await startTestApp({ logStream: stream });
+    app = started;
+    await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier" });
+    const cookie = await loginAs(started, "ivan", "correct horse");
+    // A database fault that quotes the row, the way a constraint violation does in its "detail".
+    await started.execute(`
+      CREATE FUNCTION fail_with_the_row() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'the database refused this' USING DETAIL = 'Failing row contains (' || NEW.client_code || ')'; END
+      $$;
+      CREATE TRIGGER fail_with_the_row BEFORE INSERT ON operations FOR EACH ROW EXECUTE FUNCTION fail_with_the_row();`);
+
+    const answer = await postJson(
+      started,
+      "/api/operations",
+      { id: randomUUID(), type: "income", amountMinor: 1_000, currency: "RUB", clientCode: "K-SECRET-17" },
+      cookie,
+    );
+
+    expect(answer.status).toBe(500);
+    expect(log).toContain("the database refused this");
+    expect(log).not.toContain("K-SECRET-17");
+  });
+});
 
 describe("when the database misbehaves", () => {
   let app: TestApp | undefined;

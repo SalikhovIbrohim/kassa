@@ -14,7 +14,8 @@ export type AppOptions = {
   databaseUrl: string;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
-  logger?: boolean;
+  /** `true` logs to the console; a stream gets the log lines (for tests that read them). */
+  logger?: boolean | { stream: NodeJS.WritableStream };
   /** The application's clock. Sessions expire by it, so tests can move it. */
   now?: () => Date;
   /** Sends the session cookie only over HTTPS. Turn off for plain-HTTP development. */
@@ -32,7 +33,7 @@ export type AppOptions = {
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: typeof options.logger === "object" ? { stream: options.logger.stream } : (options.logger ?? false),
     trustProxy: options.trustProxy ?? false,
     // A wrong type or an unexpected field is a bad request, never quietly "fixed".
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
@@ -54,7 +55,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.setErrorHandler((error: FastifyError, request, reply) => {
     const statusCode = error.statusCode ?? 500;
     if (statusCode < 500) return reply.send(error);
-    request.log.error(error);
+    // PostgreSQL's "detail" quotes the failing row (client code, comment, amount): it stays out of the log.
+    const { detail: _row, ...loggable } = error as FastifyError & { detail?: unknown };
+    request.log.error(Object.assign(new Error(error.message), loggable, { stack: error.stack }));
     return reply.code(500).send({ statusCode: 500, error: "Internal Server Error", message: "Internal error" });
   });
 

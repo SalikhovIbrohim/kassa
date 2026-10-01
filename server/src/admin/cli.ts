@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
 import { formatAmount } from "../money.js";
-import { migrate } from "../migrate.js";
+import { DatabaseSetupError, migrate } from "../migrate.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
   try {
     // Makes the first admin command work on a brand-new database too.
-    const applied = await migrate(pool);
+    const applied = await migrate(pool, { allowNewerSchema: process.env.ALLOW_NEWER_SCHEMA === "1" });
 
     switch (command) {
       case "migrate":
@@ -102,6 +102,13 @@ async function main(): Promise<void> {
         const amount = required(values.amount, "--amount");
         const minor = await setOpeningBalance(pool, currency, amount);
         console.log(`Opening balance for ${currency.trim().toUpperCase()} set to ${formatAmount(minor)}.`);
+        const entered = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM operations")).rows[0]!.n;
+        if (entered > 0) {
+          console.log(
+            `Note: ${entered} operation(s) are in the book already. The new opening balance replaces the old one, ` +
+              "and every balance, including those of past days, moves by the difference. Nothing records the change.",
+          );
+        }
         break;
       }
       case "balances": {
@@ -171,7 +178,7 @@ function promptHidden(question: string): Promise<string> {
 
 main().catch((error: unknown) => {
   const code = (error as { code?: string }).code;
-  if (error instanceof AdminError) {
+  if (error instanceof AdminError || error instanceof DatabaseSetupError) {
     console.error(`Error: ${error.message}`);
   } else if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
     // Bad command-line options: show the message, not a stack trace.

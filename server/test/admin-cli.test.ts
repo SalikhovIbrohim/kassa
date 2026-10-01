@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBlankDatabase } from "./helpers/test-app.js";
 
@@ -58,6 +59,43 @@ describe("admin command line: migrate", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).not.toContain("up to date");
     expect(result.stderr).not.toBe("");
+  }, 30_000);
+
+  it("refuses a database that does not store text as UTF8, and says how to make one that does", async () => {
+    const database = await createBlankDatabase({ encoding: "LATIN1" });
+    cleanups.push(database.drop);
+
+    const result = await runCli(["migrate"], { DATABASE_URL: database.url });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('stores text as LATIN1');
+    expect(result.stderr).toContain("ENCODING 'UTF8' TEMPLATE template0");
+    expect(result.stderr).not.toContain("    at "); // a message, not a stack trace
+    // Nothing was created in it.
+    const probe = new pg.Client({ connectionString: database.url });
+    await probe.connect();
+    const tables = await probe.query("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'");
+    await probe.end();
+    expect(tables.rows[0].n).toBe(0);
+  }, 30_000);
+
+  it("refuses a database that a newer version has changed, and goes on only when told to", async () => {
+    const url = await blankDatabase();
+    await runCli(["migrate"], { DATABASE_URL: url });
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    await client.query("INSERT INTO schema_migrations (name) VALUES ('9999_from_a_newer_version.sql')");
+    await client.end();
+
+    const refused = await runCli(["balances"], { DATABASE_URL: url });
+    const forced = await runCli(["balances"], { DATABASE_URL: url, ALLOW_NEWER_SCHEMA: "1" });
+
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("9999_from_a_newer_version.sql");
+    expect(refused.stderr).toContain("can show wrong balances");
+    expect(refused.stdout).not.toContain("RUB");
+    expect(forced.code).toBe(0);
+    expect(forced.stdout).toContain("RUB");
   }, 30_000);
 
   it("says what is missing when there is no DATABASE_URL", async () => {

@@ -64,6 +64,8 @@ type StartOptions = {
   /** Addresses of reverse proxies whose X-Forwarded-For header is believed. */
   trustProxy?: string | string[];
   loginProtection?: LoginProtectionOptions;
+  /** Gets the server's log lines, for tests that look at what is logged. */
+  logStream?: NodeJS.WritableStream;
 };
 
 /**
@@ -125,6 +127,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       sessionDays: options.sessionDays,
       trustProxy: options.trustProxy,
       loginProtection: options.loginProtection,
+      logger: options.logStream ? { stream: options.logStream } : undefined,
       now: () => clock,
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -202,9 +205,16 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
  * An empty throwaway database, for tests that start something of their own against it (the
  * admin command line, say). `drop` waits for stragglers, then removes it.
  */
-export async function createBlankDatabase(): Promise<{ url: string; drop(): Promise<void> }> {
+export async function createBlankDatabase(
+  options: { encoding?: string } = {},
+): Promise<{ url: string; drop(): Promise<void> }> {
   const name = `kassa_test_${randomBytes(6).toString("hex")}`;
-  await runAdmin(`CREATE DATABASE ${name}`);
+  // Another encoding needs the plain "C" locale to be allowed next to it.
+  await runAdmin(
+    options.encoding
+      ? `CREATE DATABASE ${name} ENCODING '${options.encoding}' TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'`
+      : `CREATE DATABASE ${name}`,
+  );
   return {
     url: withDatabase(adminUrl, name),
     async drop() {

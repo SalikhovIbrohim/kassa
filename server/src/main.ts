@@ -5,7 +5,7 @@ import { migrateDatabase } from "./migrate.js";
 const config = loadConfig();
 
 // Fail fast if the database is down or a migration breaks: the process manager restarts us.
-const applied = await migrateDatabase(config.databaseUrl);
+const applied = await migrateDatabase(config.databaseUrl, { allowNewerSchema: config.allowNewerSchema });
 if (applied.length > 0) {
   console.log(`Applied migrations: ${applied.join(", ")}`);
 }

@@ -81,10 +81,17 @@ try {
     console.log(`The role "${values.role}" exists already.`);
   }
 
-  const databaseExists = (await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [values.database])).rowCount > 0;
-  if (!databaseExists) {
-    await admin.query(`CREATE DATABASE ${admin.escapeIdentifier(values.database)} OWNER ${role}`);
+  const existing = await admin.query("SELECT pg_encoding_to_char(encoding) AS encoding FROM pg_database WHERE datname = $1", [values.database]);
+  if (existing.rowCount === 0) {
+    // UTF8 whatever the locale of the machine: PostgreSQL on Windows would otherwise use the Windows
+    // code page of the system (WIN1251, WIN1252...), which cannot keep most of what people type.
+    await admin.query(`CREATE DATABASE ${admin.escapeIdentifier(values.database)} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0`);
     console.log(`Created the database "${values.database}".`);
+  } else if (existing.rows[0].encoding !== "UTF8") {
+    fail(
+      `The database "${values.database}" exists, but stores text as ${existing.rows[0].encoding}, and Kassa needs UTF8. ` +
+        "If it holds nothing you need, drop it and run this again.",
+    );
   } else {
     console.log(`The database "${values.database}" exists already.`);
   }

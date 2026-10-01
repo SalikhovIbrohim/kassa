@@ -237,6 +237,33 @@ describe("deploy/setup-database.mjs: a role, a database and the settings file on
     expect(role).toEqual({ rolsuper: false, rolcreatedb: false, rolcreaterole: false });
   }, 30_000);
 
+  it("makes the database as UTF8 whatever the machine's own encoding is", async () => {
+    const { name, settings } = await sandbox();
+
+    const result = await setup(settings, name);
+
+    expect(result.code, result.stderr).toBe(0);
+    const client = new pg.Client({ connectionString: admin.toString() });
+    await client.connect();
+    const row = (await client.query("SELECT pg_encoding_to_char(encoding) AS encoding FROM pg_database WHERE datname = $1", [name])).rows[0];
+    await client.end();
+    expect(row.encoding).toBe("UTF8");
+  }, 30_000);
+
+  it("refuses a database that already exists with another encoding, and leaves it alone", async () => {
+    const { name, settings } = await sandbox();
+    const client = new pg.Client({ connectionString: admin.toString() });
+    await client.connect();
+    await client.query(`CREATE DATABASE ${name} ENCODING 'LATIN1' TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'`);
+    await client.end();
+
+    const result = await setup(settings, name);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("stores text as LATIN1");
+    await expect(readFile(settings, "utf8")).rejects.toThrow();
+  }, 30_000);
+
   it("keeps what exists when it is run again", async () => {
     const { name, settings } = await sandbox();
     await setup(settings, name);
