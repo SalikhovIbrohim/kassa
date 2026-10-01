@@ -59,6 +59,12 @@ try {
   fail(`could not connect to PostgreSQL as ${process.env.PGUSER ?? "postgres"}: ${error.message}`);
 }
 
+// The password is in the text of the statements that make the role. Keep them out of PostgreSQL's own log,
+// which would get the whole statement if one failed, or every one with log_statement set to ddl or all.
+for (const statement of ["SET log_min_error_statement = 'panic'", "SET log_statement = 'none'"]) {
+  await admin.query(statement).catch(() => {});
+}
+
 try {
   // The password already in the settings file wins: running this again must not lock the server out.
   let password;
@@ -96,6 +102,8 @@ try {
     console.log(`The database "${values.database}" exists already.`);
   }
 
+  await warnIfOpenToOthers();
+
   if (keep) {
     console.log(`Kept the settings file ${envFile}.`);
   } else {
@@ -112,6 +120,33 @@ try {
   fail(error.message);
 } finally {
   await admin.end().catch(() => {});
+}
+
+/**
+ * Only the application on this machine needs PostgreSQL. A pg_hba.conf that lets other addresses log in
+ * (the installer of some versions, or somebody following a guide, adds such a line) is worth a warning.
+ * The view is readable by the administrator only; if it cannot be read there is nothing to say.
+ */
+async function warnIfOpenToOthers() {
+  let rules;
+  try {
+    rules = await admin.query(`
+      SELECT line_number, type, database::text AS database, user_name::text AS users, address, netmask, auth_method
+        FROM pg_hba_file_rules
+       WHERE error IS NULL AND type LIKE 'host%'
+         AND (address IS NULL OR address NOT IN ('127.0.0.1', '::1', 'localhost'))
+       ORDER BY line_number`);
+  } catch {
+    return;
+  }
+  if (rules.rowCount === 0) return;
+  const lines = rules.rows.map((row) => `  line ${row.line_number}: ${row.type} ${row.database} ${row.users} ${row.address ?? ""}${row.netmask ? `/${row.netmask}` : ""} ${row.auth_method}`);
+  console.log(
+    "Warning: pg_hba.conf lets other computers than this one log in to PostgreSQL:\n" +
+      `${lines.join("\n")}\n` +
+      "Only Kassa on this machine needs it. Keep the lines for 127.0.0.1 and ::1 and remove the others " +
+      "(docs/deploy-windows.md, the section on the database), then restart the PostgreSQL service.",
+  );
 }
 
 /** The password of the database role named in an existing settings file, if it is there. */

@@ -47,6 +47,11 @@ export type TestApp = {
   /** Stops and starts the server again on the same database. */
   restart(): Promise<void>;
   /**
+   * Runs `work` with the server stopped and no connection of the test open on its database (the
+   * way the service is stopped while a copy is restored), then starts the server again.
+   */
+  whileStopped(work: () => Promise<void>): Promise<void>;
+  /**
    * Everything the users and sessions tables hold, as one piece of text. Only for
    * checking that secrets are not stored in the clear: a storage-level property
    * that cannot be observed over HTTP.
@@ -115,9 +120,13 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
   let clock = new Date();
   let app: Awaited<ReturnType<typeof buildApp>> | undefined;
   let baseUrl = "";
-  const adminPool = new pg.Pool({ connectionString: url });
-  // An idle connection cut by the server (a restart, a drop) must not crash the test run.
-  adminPool.on("error", () => {});
+  const openPool = () => {
+    const pool = new pg.Pool({ connectionString: url });
+    // An idle connection cut by the server (a restart, a drop) must not crash the test run.
+    pool.on("error", () => {});
+    return pool;
+  };
+  let adminPool = openPool();
 
   const start = async () => {
     app = await buildApp({
@@ -184,6 +193,16 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
     async restart() {
       await app?.close();
       await start();
+    },
+    async whileStopped(work) {
+      await app?.close();
+      await adminPool.end();
+      try {
+        await work();
+      } finally {
+        adminPool = openPool();
+        await start();
+      }
     },
     async storedCredentialsAsText() {
       const users = await adminPool.query("SELECT to_jsonb(u)::text AS row FROM users u");

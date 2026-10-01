@@ -3,30 +3,10 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterEach, beforeAll, afterAll, describe, expect, it } from "vitest";
+import { adminEnv, adminUrl as admin, repoRoot, runScript, type Run } from "./helpers/run-script.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
-
-const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
-
-type Run = { code: number | null; stdout: string; stderr: string };
-
-/** Runs one of the scripts in deploy/ the way a person or an update script would: its own process. */
-function runScript(script: string, args: string[], env: Record<string, string | undefined> = {}): Promise<Run> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [join(repoRoot, "deploy", script), ...args], {
-      cwd: repoRoot,
-      env: { ...process.env, ...env },
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => (stdout += chunk));
-    child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
-  });
-}
 
 describe("deploy/check.mjs: the check after an install or an update", () => {
   let webDistDir: string;
@@ -141,13 +121,6 @@ describe("deploy/check.mjs: the check after an install or an update", () => {
 });
 
 describe("deploy/setup-database.mjs: a role, a database and the settings file on a new machine", () => {
-  const admin = new URL(process.env.TEST_DATABASE_URL ?? "postgres://kassa_test:kassa_test@localhost:5432/postgres");
-  const adminEnv = {
-    PGHOST: admin.hostname,
-    PGPORT: admin.port || "5432",
-    PGUSER: decodeURIComponent(admin.username),
-    PGPASSWORD: decodeURIComponent(admin.password),
-  };
   const cleanups: Array<() => Promise<void>> = [];
 
   afterEach(async () => {
@@ -262,6 +235,21 @@ describe("deploy/setup-database.mjs: a role, a database and the settings file on
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("stores text as LATIN1");
     await expect(readFile(settings, "utf8")).rejects.toThrow();
+  }, 30_000);
+
+  it("warns about a pg_hba.conf that lets other computers log in, and only then", async () => {
+    const { name, settings } = await sandbox();
+    const client = new pg.Client({ connectionString: admin.toString() });
+    await client.connect();
+    const open = await client.query(
+      "SELECT count(*)::int AS n FROM pg_hba_file_rules WHERE error IS NULL AND type LIKE 'host%' AND (address IS NULL OR address NOT IN ('127.0.0.1', '::1', 'localhost'))",
+    );
+    await client.end();
+
+    const result = await setup(settings, name);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout.includes("Warning: pg_hba.conf lets other computers than this one log in")).toBe(open.rows[0].n > 0);
   }, 30_000);
 
   it("keeps what exists when it is run again", async () => {
