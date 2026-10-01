@@ -1183,3 +1183,52 @@ button.danger {
   color: #166534;
   background: #dcfce7;
 }
+
+/* The shift on the cashier's screen takes one line: the forms start high, without scrolling. */
+.shift-bar {
+  gap: 4px;
+  margin: 0;
+  padding: 6px 12px;
+}
+
+.shift-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shift-bar .shift-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.shift-chevron {
+  color: #475569;
+}
+
+.shift-details {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.page:has(.shift-bar) {
+  gap: 12px;
+}
+
+.page:has(.shift-bar) .balance {
+  padding: 8px 14px;
+}

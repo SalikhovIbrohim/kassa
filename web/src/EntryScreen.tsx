@@ -69,6 +69,7 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
         opening={shift.opening}
         problem={shift.problem}
         lastClosed={shift.lastClosed}
+        onDismissClosed={shift.dismissClosed}
         onOpen={shift.open}
         onClose={shift.close}
       />

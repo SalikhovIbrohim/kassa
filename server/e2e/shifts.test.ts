@@ -73,6 +73,7 @@ describe("shifts on the cashier's screen", () => {
     await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
 
     await seeText(bar(ivan.page), "Смена открыта");
+    await expandShift(ivan.page);
     // The thousands are separated by a no-break space, which `\s` covers.
     await seeText(bar(ivan.page), /Остаток на начало: 1\s000,00\s₽ · 50,00\s\$/);
     expect(await ivan.page.getByRole("button", { name: "Открыть смену" }).count()).toBe(0);
@@ -129,9 +130,13 @@ describe("shifts on the cashier's screen", () => {
     expect(await petr.page.getByRole("button", { name: "Открыть смену" }).count()).toBe(0);
   }, 90_000);
 
+  /** The details of the open shift are folded under its line. */
+  const expandShift = (page: Page) => bar(page).getByRole("button", { name: /Смена открыта/ }).click();
+
   const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
 
   async function closeWith(page: Page, rub: string, usd: string) {
+    await expandShift(page);
     await page.getByRole("button", { name: "Закрыть смену" }).click();
     await countField(page, "RUB").fill(rub);
     await countField(page, "USD").fill(usd);
@@ -159,6 +164,7 @@ describe("shifts on the cashier's screen", () => {
     const { ivan } = await desk();
     await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
     await seeText(bar(ivan.page), "Смена открыта");
+    await expandShift(ivan.page);
     await ivan.page.getByRole("button", { name: "Закрыть смену" }).click();
 
     await countField(ivan.page, "RUB").fill("1000");
@@ -201,6 +207,7 @@ describe("shifts on the cashier's screen", () => {
     await enterIncome(ivan.page, "100", "SH-WAIT");
     await seeVisible(ivan.page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
 
+    await expandShift(ivan.page);
     await ivan.page.getByRole("button", { name: "Закрыть смену" }).click();
 
     await seeVisible(ivan.page.getByRole("alert").filter({ hasText: "ждёт 1 запись" }));

@@ -120,7 +120,9 @@ export function useShift(login: string, onSessionExpired: () => void, onBalances
     [learn, reload, onBalancesStale, onSessionExpired],
   );
 
-  return { state, opening, problem, open, close, lastClosed };
+  const dismissClosed = useCallback(() => setLastClosed(null), []);
+
+  return { state, opening, problem, open, close, lastClosed, dismissClosed };
 }
 
 type Props = {
@@ -129,12 +131,16 @@ type Props = {
   opening: boolean;
   problem: string | null;
   lastClosed: ShiftReport | null;
+  onDismissClosed: () => void;
   onOpen: () => void;
   onClose: (shiftId: string, counted: Array<{ currency: Currency; amountMinor: number }>) => Promise<string | null>;
 };
 
 /** What the cashier sees above the forms: whether a shift is open, whose, and the buttons to open or close one. */
-export function ShiftBar({ login, state, opening, problem, lastClosed, onOpen, onClose }: Props) {
+export function ShiftBar({ login, state, opening, problem, lastClosed, onDismissClosed, onOpen, onClose }: Props) {
+  // The details (the opening balances, the button that closes the shift) are folded: the cashier looks at them
+  // rarely, and the forms must start high on the screen.
+  const [expanded, setExpanded] = useState(false);
   if (state.kind !== "known") return null;
   const { shift } = state;
 
@@ -142,27 +148,38 @@ export function ShiftBar({ login, state, opening, problem, lastClosed, onOpen, o
     <section className="shift-bar" aria-label="Смена">
       {shift === null ? (
         <>
-          {lastClosed && <ClosedResult report={lastClosed} />}
-          <p className="shift-line">
-            <strong>Смена не открыта.</strong> Откройте её, чтобы записи попали в смену и в сверку.
-          </p>
-          <button type="button" className="small" disabled={opening} onClick={onOpen}>
-            {opening ? "Открываем…" : "Открыть смену"}
-          </button>
+          {lastClosed && <ClosedResult report={lastClosed} onHide={onDismissClosed} />}
+          <div className="shift-row-line">
+            <span className="shift-line">
+              <strong>Смена не открыта</strong>
+            </span>
+            <button type="button" className="small" disabled={opening} onClick={onOpen}>
+              {opening ? "Открываем…" : "Открыть смену"}
+            </button>
+          </div>
         </>
       ) : shift.cashier.login === login ? (
         <>
-          <p className="shift-line">
-            <strong>Смена открыта</strong> с {formatMoscowShort(shift.openedAt)} (МСК).
-          </p>
-          <p className="shift-opening">
-            Остаток на начало: {shift.openingBalances.map((item) => formatMoney(item.amountMinor, item.currency)).join(" · ")}
-          </p>
-          <CloseShift login={login} shiftId={shift.id} onClose={onClose} />
+          <button type="button" className="shift-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+            <span className="shift-line">
+              <strong>Смена открыта</strong> с {formatMoscowShort(shift.openedAt)}
+            </span>
+            <span className="shift-chevron" aria-hidden="true">
+              {expanded ? "▴" : "▾"}
+            </span>
+          </button>
+          {expanded && (
+            <div className="shift-details">
+              <p className="shift-opening">
+                Остаток на начало: {shift.openingBalances.map((item) => formatMoney(item.amountMinor, item.currency)).join(" · ")}
+              </p>
+              <CloseShift login={login} shiftId={shift.id} onClose={onClose} />
+            </div>
+          )}
         </>
       ) : (
         <p className="shift-line">
-          <strong>Открыта смена кассира {shift.cashier.displayName}</strong> с {formatMoscowShort(shift.openedAt)} (МСК). Ваши записи в неё не попадут.
+          <strong>Открыта смена кассира {shift.cashier.displayName}</strong> с {formatMoscowShort(shift.openedAt)}. Ваши записи в неё не попадут.
         </p>
       )}
       {problem && (
@@ -175,7 +192,7 @@ export function ShiftBar({ login, state, opening, problem, lastClosed, onOpen, o
 }
 
 /** How a closed shift came out, per currency: what the books said, what was counted, the difference. */
-function ClosedResult({ report }: { report: ShiftReport }) {
+function ClosedResult({ report, onHide }: { report: ShiftReport; onHide: () => void }) {
   return (
     <div className="shift-result" role="status">
       <p className="shift-line">
@@ -195,6 +212,9 @@ function ClosedResult({ report }: { report: ShiftReport }) {
           );
         })}
       </ul>
+      <button type="button" className="secondary small" onClick={onHide}>
+        Скрыть
+      </button>
     </div>
   );
 }
