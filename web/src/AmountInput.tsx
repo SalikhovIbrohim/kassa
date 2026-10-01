@@ -5,18 +5,20 @@ const isSignificant = (char: string) => /[\d,.]/.test(char);
 
 /**
  * Regroups what a person has typed as an amount: thousands are separated by a space ("500000" becomes
- * "500 000"), the decimal separator is a comma, and there are at most two decimals. Anything else typed
+ * "500 000"), the decimal separator is a comma, and there are at most two decimals (`decimals` says
+ * otherwise, for a rate). Anything else typed
  * is dropped. The result is still read by parseAmountInput, which ignores the spaces.
  */
-export function formatAmountText(raw: string): string {
+export function formatAmountText(raw: string, shape: { decimals?: number; wholeDigits?: number } = {}): string {
+  const { decimals = 2, wholeDigits = 10 } = shape;
   let whole = "";
   let fraction = "";
   let hasSeparator = false;
   for (const char of raw) {
     if (char >= "0" && char <= "9") {
       if (hasSeparator) {
-        if (fraction.length < 2) fraction += char;
-      } else if (whole.length < 10) {
+        if (fraction.length < decimals) fraction += char;
+      } else if (whole.length < wholeDigits) {
         whole += char;
       }
     } else if ((char === "," || char === ".") && !hasSeparator) {
@@ -42,6 +44,9 @@ export function caretPosition(formatted: string, after: number): number {
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "inputMode"> & {
   value: string;
   onChange: (text: string) => void;
+  /** How many decimals and whole digits are taken: an amount has two and ten, a rate four and four. */
+  decimals?: number;
+  wholeDigits?: number;
   ref?: Ref<HTMLInputElement>;
 };
 
@@ -49,7 +54,8 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | 
  * An amount field that separates the thousands as the cashier types, so a long sum can be read at a glance
  * ("500 000", not "500000"). The text it hands back is already grouped.
  */
-export function AmountInput({ value, onChange, ref, ...rest }: Props) {
+export function AmountInput({ value, onChange, decimals, wholeDigits, ref, ...rest }: Props) {
+  const shape = { decimals, wholeDigits };
   const input = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => input.current!);
 
@@ -58,7 +64,7 @@ export function AmountInput({ value, onChange, ref, ...rest }: Props) {
     const typed = field.value;
     const start = field.selectionStart ?? typed.length;
     const after = [...typed.slice(start)].filter(isSignificant).length;
-    const formatted = formatAmountText(typed);
+    const formatted = formatAmountText(typed, shape);
     // Set here, not left to the re-render: a controlled field that is rewritten after the event loses its caret.
     field.value = formatted;
     const caret = caretPosition(formatted, after);
@@ -72,7 +78,7 @@ export function AmountInput({ value, onChange, ref, ...rest }: Props) {
       ref={input}
       type="text"
       inputMode="decimal"
-      value={formatAmountText(value)}
+      value={formatAmountText(value, shape)}
       onChange={change}
     />
   );

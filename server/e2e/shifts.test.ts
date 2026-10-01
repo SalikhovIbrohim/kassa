@@ -69,6 +69,7 @@ describe("shifts on the cashier's screen", () => {
   async function enterIncome(page: Page, amount: string, clientCode: string) {
     await page.getByRole("button", { name: "Приход", exact: true }).click();
     await amountField(page).fill(amount);
+    await page.locator("input[name=rate]:visible").fill("79");
     await page.locator("input[name=clientCode]").fill(clientCode);
     await page.getByRole("button", { name: "Записать приход" }).click();
   }

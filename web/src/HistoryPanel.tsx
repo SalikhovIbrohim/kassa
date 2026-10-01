@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchHistory, SessionExpiredError, type OperationHistory, type Snapshot } from "./api";
 import { formatMoscowShort } from "./days";
-import { formatMoney } from "./money";
+import { formatMoney, formatRate } from "./money";
 import { usePanelEntrance } from "./usePanelEntrance";
 
 type Props = {
@@ -28,6 +28,10 @@ export function describeChange(before: Snapshot, after: Snapshot, labels: Map<st
       before: formatMoney(before.amountMinor, before.currency),
       after: formatMoney(after.amountMinor, after.currency),
     });
+  }
+  if (before.rateE4 !== after.rateE4) {
+    const rate = (value: number | null) => (value === null ? EMPTY : formatRate(value));
+    lines.push({ field: "Курс", before: rate(before.rateE4), after: rate(after.rateE4) });
   }
   if (before.category !== after.category) {
     lines.push({ field: "Категория", before: category(before.category), after: category(after.category) });

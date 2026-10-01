@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 // 11:30 in Moscow (UTC+3), the middle of 5 March.
 const NOW = new Date("2026-03-05T08:30:00Z");
@@ -37,7 +38,7 @@ describe("the journal of operations", () => {
   type Entry = Record<string, unknown>;
 
   function income(overrides: Entry = {}): Entry {
-    return { id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides };
+    return withRate({ id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides });
   }
 
   function expense(overrides: Entry = {}): Entry {
@@ -80,6 +81,9 @@ describe("the journal of operations", () => {
             type: "expense",
             amountMinor: 30_000,
             currency: "RUB",
+            rateE4: null,
+            usdMinor: null,
+            rateSource: null,
             category: "owner_handover",
             recipient: "Азамат",
             clientCode: null,
@@ -96,6 +100,9 @@ describe("the journal of operations", () => {
             type: "income",
             amountMinor: 150_050,
             currency: "RUB",
+            rateE4: 790_000,
+            usdMinor: 1_899,
+            rateSource: "own",
             category: null,
             recipient: null,
             clientCode: "K17",

@@ -3,6 +3,7 @@ import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 // 11:30 in Moscow (UTC+3), the middle of 5 March.
 const NOW = new Date("2026-03-05T08:30:00Z");
@@ -40,9 +41,9 @@ describe("correcting and deleting: the guarantees at the edges", () => {
     };
   }
 
-  const income = (o: Entry = {}): Entry => ({ id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...o });
+  const income = (o: Entry = {}): Entry => withRate({ id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...o });
   const expense = (o: Entry = {}): Entry => ({ id: randomUUID(), type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", ...o });
-  const incomeEdit = (o: Entry = {}): Entry => ({ type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...o });
+  const incomeEdit = (o: Entry = {}): Entry => withRate({ type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...o });
   const expenseEdit = (o: Entry = {}): Entry => ({ type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", ...o });
 
   async function record(started: TestApp, cookie: string, body: Entry): Promise<string> {
@@ -421,8 +422,8 @@ describe("correcting and deleting: the guarantees at the edges", () => {
   });
 
   describe("what the database refuses to whoever writes to it, the application or not", () => {
-    /** The six fields of an operation that the history keeps, as the database sees them. */
-    const SNAPSHOT_SQL = `jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'category', category,
+    /** The seven fields of an operation that the history keeps, as the database sees them. */
+    const SNAPSHOT_SQL = `jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'rateE4', rate_e4, 'category', category,
       'recipient', recipient, 'clientCode', client_code, 'comment', comment)`;
 
     it("does not count a change recorded in a temporary table that stands in for the history", async () => {
@@ -520,7 +521,7 @@ describe("correcting and deleting: the guarantees at the edges", () => {
         UPDATE operations SET amount_minor = 60000, revision = 1 WHERE id = '${id}';
         INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, state_before)
           VALUES ('${id}', 1, 'edit', now(), (SELECT author_id FROM operations WHERE id = '${id}'),
-            '{"amountMinor": 50000, "currency": "RUB", "category": null, "recipient": null, "clientCode": "K17", "comment": null}');
+            '{"amountMinor": 50000, "currency": "RUB", "rateE4": 790000, "category": null, "recipient": null, "clientCode": "K17", "comment": null}');
         COMMIT;`);
 
       const [row] = await started.query<{ amount_minor: string; revision: number }>(

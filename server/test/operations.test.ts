@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 const NOW = new Date("2026-03-05T08:30:00Z");
 
@@ -28,14 +29,14 @@ describe("income and balances", () => {
   }
 
   function income(overrides: Record<string, unknown> = {}) {
-    return {
+    return withRate({
       id: randomUUID(),
       type: "income",
       amountMinor: 150_000,
       currency: "RUB",
       clientCode: "K17",
       ...overrides,
-    };
+    });
   }
 
   it("saves an income and answers with it and the new balances", async () => {
@@ -51,6 +52,9 @@ describe("income and balances", () => {
         type: "income",
         amountMinor: 150_000,
         currency: "RUB",
+        rateE4: 790_000,
+        usdMinor: 1_899,
+        rateSource: "own",
         category: null,
         recipient: null,
         clientCode: "K17",

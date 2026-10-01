@@ -13,7 +13,8 @@ import { ClientCodeField } from "./ClientCodeField";
 import { explainFailure, NO_CONNECTION } from "./changeMessages";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { AmountInput } from "./AmountInput";
-import { formatAmountInput, parseAmountInput, type Currency } from "./money";
+import { formatAmountInput, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
+import { RateField } from "./RateField";
 import { usePanelEntrance } from "./usePanelEntrance";
 
 type Props = {
@@ -44,6 +45,7 @@ export function OperationEditor({
   const isIncome = operation.type === "income";
   const [currency, setCurrency] = useState<Currency>(operation.currency);
   const [amount, setAmount] = useState(formatAmountInput(operation.amountMinor));
+  const [rate, setRate] = useState(operation.rateE4 === null ? "" : formatRateInput(operation.rateE4));
   const [category, setCategory] = useState<string | null>(operation.category);
   const [clientCode, setClientCode] = useState(operation.clientCode ?? "");
   const [recipient, setRecipient] = useState(operation.recipient ?? "");
@@ -66,6 +68,17 @@ export function OperationEditor({
       amountInput.current?.focus();
       return;
     }
+    // An income in rubles must have its rate; for an expense it may stay empty (the average of its shift is used).
+    const rateText = currency === "RUB" ? rate.trim() : "";
+    const rateE4 = rateText === "" ? null : parseRateInput(rateText);
+    if (currency === "RUB" && (isIncome || rateText !== "") && rateE4 === null) {
+      setError(
+        isIncome
+          ? "Введите курс: сколько рублей за 1 доллар, например 79 или 78,5."
+          : "Курс введён неверно: сколько рублей за 1 доллар, например 79 или 78,5. Или оставьте поле пустым.",
+      );
+      return;
+    }
     if (!isIncome && category === null) {
       setError("Выберите, на что ушли деньги.");
       return;
@@ -79,6 +92,7 @@ export function OperationEditor({
     const common = {
       amountMinor,
       currency,
+      ...(rateE4 === null ? {} : { rateE4 }),
       comment: comment.trim() || undefined,
       reason: reason.trim() || undefined,
     };
@@ -134,6 +148,8 @@ export function OperationEditor({
           onChange={setAmount}
         />
       </label>
+
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={isIncome} />}
 
       {!isIncome &&
         (categories.length > 0 ? (

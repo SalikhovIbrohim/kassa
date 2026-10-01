@@ -35,7 +35,7 @@ describe("what an unexpected failure leaves in the log", () => {
     const answer = await postJson(
       started,
       "/api/operations",
-      { id: randomUUID(), type: "income", amountMinor: 1_000, currency: "RUB", clientCode: "K-SECRET-17" },
+      { id: randomUUID(), type: "income", amountMinor: 1_000, currency: "RUB", rateE4: 790_000, clientCode: "K-SECRET-17" },
       cookie,
     );
 

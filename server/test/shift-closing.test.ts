@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 const OPENED = new Date("2026-03-05T08:30:00Z");
 const CLOSED = new Date("2026-03-05T15:00:00Z");
@@ -34,7 +35,7 @@ describe("closing a shift with a count of the cash", () => {
     };
   }
 
-  const income = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides });
+  const income = (overrides: Entry = {}): Entry => withRate({ id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides });
   const expense = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", ...overrides });
   const counted = (rub: number, usd: number) => ({ counted: [{ currency: "RUB", amountMinor: rub }, { currency: "USD", amountMinor: usd }] });
   const close = (started: TestApp, id: string, body: unknown, cookie?: string) => postJson(started, `/api/shifts/${id}/close`, body, cookie);
@@ -62,6 +63,7 @@ describe("closing a shift with a count of the cash", () => {
       closedAt: "2026-03-05T15:00:00.000Z",
       cashier: { login: "ivan", displayName: "Иван" },
       closedBy: { login: "ivan", displayName: "Иван" },
+      averageRateE4: 790_000,
       currencies: [
         { currency: "RUB", openingMinor: 100_000, calculatedMinor: 140_000, actualMinor: 139_000, differenceMinor: -1_000 },
         { currency: "USD", openingMinor: 5_000, calculatedMinor: 7_000, actualMinor: 7_500, differenceMinor: 500 },

@@ -12,7 +12,8 @@ import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
 import { AmountInput } from "./AmountInput";
-import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
+import { formatMoney, formatMoscowTime, parseAmountInput, parseRateInput, type Currency } from "./money";
+import { RateField } from "./RateField";
 import { useEntry } from "./useEntry";
 
 type Props = {
@@ -42,6 +43,8 @@ export function ExpenseForm({
   const [categories, setCategories] = useState<Category[] | null | undefined>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
+  // Empty to start with, and again after each entry: an expense without a rate is counted at the average of its shift.
+  const [rate, setRate] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [recipient, setRecipient] = useState("");
   const [comment, setComment] = useState("");
@@ -76,6 +79,12 @@ export function ExpenseForm({
       entry.setError("Выберите, на что ушли деньги.");
       return;
     }
+    // The rate of an expense is optional: left empty, the average of the shift is used when it is closed.
+    const rateE4 = currency === "RUB" && rate.trim() !== "" ? parseRateInput(rate) : null;
+    if (currency === "RUB" && rate.trim() !== "" && rateE4 === null) {
+      entry.setError("Курс введён неверно: сколько рублей за 1 доллар, например 79 или 78,5. Или оставьте поле пустым.");
+      return;
+    }
     const code = clientCode.trim();
     if (isRefund && code === "") {
       entry.setError("Для возврата клиенту введите код клиента.");
@@ -87,6 +96,7 @@ export function ExpenseForm({
       id,
       amountMinor,
       currency,
+      ...(rateE4 === null ? {} : { rateE4 }),
       category,
       recipient: recipient.trim() || undefined,
       clientCode: isRefund ? code : undefined,
@@ -94,6 +104,7 @@ export function ExpenseForm({
     }));
     if (saved) {
       setAmount("");
+      setRate("");
       setClientCode("");
       setRecipient("");
       setComment("");
@@ -168,6 +179,8 @@ export function ExpenseForm({
           onChange={(event) => setRecipient(event.target.value)}
         />
       </label>
+
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} />}
 
       <label>
         <span>

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 // 11:30 in Moscow (UTC+3), the middle of 10 March.
 const NOW = new Date("2026-03-10T08:30:00Z");
@@ -49,7 +50,7 @@ describe("the totals for a period", () => {
     };
   }
 
-  const income = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides });
+  const income = (overrides: Entry = {}): Entry => withRate({ id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides });
   const expense = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", ...overrides });
 
   /** Records an operation as `cookie` with the clock set to `at`; returns its id. */
@@ -127,6 +128,14 @@ describe("the totals for a period", () => {
             ],
           },
         ],
+        // 3 000,00 and 1 000,00 rubles at 79: 37,97 and 12,66 dollars. The expenses have no rate and are in no shift.
+        usd: {
+          incomeMinor: 5_063,
+          expenseMinor: 0,
+          handoverMinor: 0,
+          resultMinor: 5_063,
+          withoutRate: { income: { rubMinor: 0, count: 0 }, expense: { rubMinor: 235_000, count: 5 } },
+        },
       });
     });
 
@@ -140,7 +149,7 @@ describe("the totals for a period", () => {
 
       expect(of(body, "RUB")).toMatchObject({ incomeMinor: 250_000, expenseMinor: 0, openingMinor: 1_000_000, closingMinor: 1_250_000 });
       expect(of(body, "USD")).toMatchObject({ incomeMinor: 12_050, expenseMinor: 3_000, openingMinor: 5_000, closingMinor: 14_050 });
-      expect(Object.keys(body).sort()).toEqual(["currencies", "from", "to"]);
+      expect(Object.keys(body).sort()).toEqual(["currencies", "from", "to", "usd"]);
     });
 
     it("counts what every cashier made, not only one", async () => {
@@ -267,7 +276,7 @@ describe("the totals for a period", () => {
     it("counts a corrected operation as it says now, in the period it was made in", async () => {
       const { started, ivan, owner } = await desk();
       const id = await record(started, ivan, "2026-03-05T09:00:00Z", income({ amountMinor: 100_000 }));
-      const edit = await putJson(started, `/api/operations/${id}`, { type: "income", amountMinor: 160_000, currency: "RUB", clientCode: "K17" }, ivan);
+      const edit = await putJson(started, `/api/operations/${id}`, { type: "income", amountMinor: 160_000, currency: "RUB", rateE4: 790_000, clientCode: "K17" }, ivan);
       expect(edit.status, await edit.clone().text()).toBe(200);
 
       const { body } = await summary(started, owner, "?from=2026-03-05&to=2026-03-05");

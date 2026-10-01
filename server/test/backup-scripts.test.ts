@@ -120,7 +120,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       expect(response.status, await response.clone().text()).toBe(201);
       return id;
     };
-    const corrected = await record({ type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17" });
+    const corrected = await record({ type: "income", amountMinor: 50_000, currency: "RUB", rateE4: 790_000, clientCode: "K17" });
     await record({ type: "income", amountMinor: 12_050, currency: "USD", clientCode: "K18", comment: "за рейс Москва — Ташкент" });
     await record({ type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", recipient: "АЗС №5" });
     const deleted = await record({ type: "expense", amountMinor: 3_000, currency: "RUB", category: "other" });
@@ -128,7 +128,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
     const edit = await putJson(
       app,
       `/api/operations/${corrected}`,
-      { type: "income", amountMinor: 65_000, currency: "RUB", clientCode: "K17", comment: "и доплата", reason: "уточнил сумму" },
+      { type: "income", amountMinor: 65_000, currency: "RUB", rateE4: 795_000, clientCode: "K17", comment: "и доплата", reason: "уточнил сумму" },
       ivan,
     );
     expect(edit.status, await edit.clone().text()).toBe(200);
@@ -165,7 +165,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       expect((await stat(copy)).size).toBeGreaterThan(1000);
 
       // The day goes on: one more income after the copy was made.
-      await record({ type: "income", amountMinor: 77_700, currency: "RUB", clientCode: "K99" });
+      await record({ type: "income", amountMinor: 77_700, currency: "RUB", rateE4: 790_000, clientCode: "K99" });
       const later = await bookAsSeenBy(app, owner);
       expect(later).not.toEqual(before);
 
@@ -206,7 +206,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       await expect(app.execute("DELETE FROM operations")).rejects.toThrow();
       await expect(app.execute("UPDATE operations SET amount_minor = amount_minor + 1")).rejects.toThrow();
       const cashier = await loginAs(app, "ivan", "correct horse");
-      const next = await postJson(app, "/api/operations", { id: randomUUID(), type: "income", amountMinor: 100, currency: "RUB", clientCode: "K1" }, cashier);
+      const next = await postJson(app, "/api/operations", { id: randomUUID(), type: "income", amountMinor: 100, currency: "RUB", rateE4: 790_000, clientCode: "K1" }, cashier);
       expect(next.status).toBe(201);
     }, 120_000);
 

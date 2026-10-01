@@ -5,6 +5,7 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 import { loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
 import { launchChromium, newPhone, seeVisible } from "./browser.js";
+import { withRate } from "../test/helpers/entries.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -31,7 +32,7 @@ describe("the totals of a period, on the viewer's screen", () => {
     app = undefined;
   });
 
-  const income = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides });
+  const income = (overrides: Entry = {}): Entry => withRate({ id: randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "K17", ...overrides });
   const expense = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "expense", amountMinor: 10_000, currency: "RUB", category: "fuel_road", ...overrides });
 
   /** What a place on the screen says, with every kind of space made an ordinary one. */

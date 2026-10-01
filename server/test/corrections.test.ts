@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 // 11:30 in Moscow (UTC+3), the middle of 5 March.
 const NOW = new Date("2026-03-05T08:30:00Z");
@@ -37,7 +38,7 @@ describe("correcting and deleting operations", () => {
   }
 
   function income(overrides: Entry = {}): Entry {
-    return { id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides };
+    return withRate({ id: randomUUID(), type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides });
   }
 
   function expense(overrides: Entry = {}): Entry {
@@ -71,7 +72,7 @@ describe("correcting and deleting operations", () => {
 
   /** What an edit sends for an income: the entry without its id. */
   function incomeEdit(overrides: Entry = {}): Entry {
-    return { type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides };
+    return withRate({ type: "income", amountMinor: 50_000, currency: "RUB", clientCode: "K17", ...overrides });
   }
 
   function expenseEdit(overrides: Entry = {}): Entry {
@@ -117,6 +118,9 @@ describe("correcting and deleting operations", () => {
           type: "income",
           amountMinor: 50_000,
           currency: "RUB",
+          rateE4: 790_000,
+          usdMinor: 633,
+          rateSource: "own",
           category: null,
           recipient: null,
           clientCode: "K17",
@@ -301,6 +305,9 @@ describe("correcting and deleting operations", () => {
           type: "income",
           amountMinor: 75_050,
           currency: "USD",
+          rateE4: null,
+          usdMinor: 75_050,
+          rateSource: null,
           category: null,
           recipient: null,
           clientCode: "K99",
@@ -650,6 +657,7 @@ describe("correcting and deleting operations", () => {
           state: {
             amountMinor: 50_000,
             currency: "RUB",
+            rateE4: 790_000,
             category: null,
             recipient: null,
             clientCode: "K17",
@@ -675,9 +683,9 @@ describe("correcting and deleting operations", () => {
 
       const answer = await (await historyOf(started, owner, id)).json();
 
-      const original = { amountMinor: 10_000, currency: "RUB", category: "fuel_road", recipient: "Азамат", clientCode: null, comment: "заправка" };
+      const original = { amountMinor: 10_000, currency: "RUB", rateE4: null, category: "fuel_road", recipient: "Азамат", clientCode: null, comment: "заправка" };
       const afterFirst = { ...original, amountMinor: 12_000 };
-      const afterSecond = { amountMinor: 12_000, currency: "RUB", category: "salaries", recipient: "Бахтиёр", clientCode: null, comment: null };
+      const afterSecond = { amountMinor: 12_000, currency: "RUB", rateE4: null, category: "salaries", recipient: "Бахтиёр", clientCode: null, comment: null };
       expect(answer.created).toEqual({ at: NOW.toISOString(), by: { login: "ivan", displayName: "Иван" }, state: original });
       expect(answer.changes).toEqual([
         { revision: 1, action: "edit", at: at(10).toISOString(), by: { login: "ivan", displayName: "Иван" }, reason: "опечатка в сумме", before: original, after: afterFirst },
@@ -960,7 +968,7 @@ describe("correcting and deleting operations", () => {
         BEGIN;
         INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, state_before)
           SELECT id, 1, 'edit', now(), author_id,
-                 jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'category', category,
+                 jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'rateE4', rate_e4, 'category', category,
                                     'recipient', recipient, 'clientCode', client_code, 'comment', comment)
             FROM operations WHERE id = '${id}';
         UPDATE operations SET amount_minor = 60000, revision = 1 WHERE id = '${id}';

@@ -25,6 +25,25 @@ export type CurrencySummary = {
   expenseByCategory: Array<{ category: string; amountMinor: number }>;
 };
 
+/**
+ * The period counted in dollars, which is what the owner reckons in: dollars as they are, rubles at the rate of the
+ * operation (an expense without one at the average rate of its shift, once the shift is closed). The balances above
+ * stay in the currency the money is in; this is the result of the business.
+ */
+export type DollarSummary = {
+  incomeMinor: number;
+  /** Everything paid out except the handover to the owner, in dollars. */
+  expenseMinor: number;
+  handoverMinor: number;
+  /** Income minus expense. */
+  resultMinor: number;
+  /** Ruble operations that have no rate to count them at (an expense of a shift that is still open, say): not in the figures above. */
+  withoutRate: {
+    income: { rubMinor: number; count: number };
+    expense: { rubMinor: number; count: number };
+  };
+};
+
 /** The categories that are costs: all but the handover to the owner. */
 const COST_CATEGORIES = EXPENSE_CATEGORIES.filter((category) => category.code !== HANDOVER_CATEGORY);
 
@@ -115,7 +134,46 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
           expenseByCategory,
         };
       });
-      return { from, to, currencies };
+
+      // Rubles into dollars with whole numbers (see `toUsdMinor`), so that this adds up to what the journal shows.
+      const dollars = await pool.query<{
+        kind: "income" | "expense";
+        handover: boolean;
+        usd: string;
+        unrated_rub: string;
+        unrated_count: string;
+      }>(
+        `WITH rated AS (
+           SELECT op.kind, op.currency, op.amount_minor, COALESCE(op.category = $3, false) AS handover,
+                  COALESCE(op.rate_e4, CASE WHEN op.kind = 'expense' THEN s.average_rate_e4 END) AS rate
+             FROM operations op LEFT JOIN shifts s ON s.id = op.shift_id
+            WHERE op.deleted_at IS NULL AND op.created_at >= $1 AND op.created_at < $2
+         )
+         SELECT kind, handover,
+                COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount_minor
+                                  WHEN rate IS NOT NULL THEN (2 * amount_minor * 10000 + rate) / (2 * rate) END), 0) AS usd,
+                COALESCE(SUM(amount_minor) FILTER (WHERE currency = 'RUB' AND rate IS NULL), 0) AS unrated_rub,
+                COUNT(*) FILTER (WHERE currency = 'RUB' AND rate IS NULL) AS unrated_count
+           FROM rated GROUP BY kind, handover`,
+        [start, end, HANDOVER_CATEGORY],
+      );
+      const usd: DollarSummary = {
+        incomeMinor: 0,
+        expenseMinor: 0,
+        handoverMinor: 0,
+        resultMinor: 0,
+        withoutRate: { income: { rubMinor: 0, count: 0 }, expense: { rubMinor: 0, count: 0 } },
+      };
+      for (const row of dollars.rows) {
+        if (row.kind === "income") usd.incomeMinor += Number(row.usd);
+        else if (row.handover) usd.handoverMinor += Number(row.usd);
+        else usd.expenseMinor += Number(row.usd);
+        const bucket = usd.withoutRate[row.kind];
+        bucket.rubMinor += Number(row.unrated_rub);
+        bucket.count += Number(row.unrated_count);
+      }
+      usd.resultMinor = usd.incomeMinor - usd.expenseMinor;
+      return { from, to, currencies, usd };
     },
   );
 }

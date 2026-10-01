@@ -1,13 +1,17 @@
 import type pg from "pg";
 import { getBalances, type Balance } from "./balances.js";
 import type { ExpenseCategory } from "./categories.js";
-import { CURRENCIES, type Currency } from "./money.js";
+import { CURRENCIES, toUsdMinor, type Currency } from "./money.js";
 
 export type OperationRow = {
   id: string;
   kind: "income" | "expense";
   amount_minor: string;
   currency: Currency;
+  /** Rubles for one dollar, times 10 000 (bigint comes as text); only for rubles. */
+  rate_e4: string | null;
+  /** The average rate of the shift's ruble incomes, once the shift is closed (see `closeShift`). */
+  shift_average_rate_e4: string | null;
   category: ExpenseCategory | null;
   recipient: string | null;
   client_code: string | null;
@@ -27,19 +31,39 @@ export type OperationRow = {
 
 /** The columns every read of an operation returns: the row, who wrote it, who deleted it. */
 export const OPERATION_SELECT = `o.*,
+  s.average_rate_e4 AS shift_average_rate_e4,
   u.login AS author_login, u.display_name AS author_display_name,
   d.login AS deleted_by_login, d.display_name AS deleted_by_display_name`;
 
 export const OPERATION_FROM = `operations o
   JOIN users u ON u.id = o.author_id
+  LEFT JOIN shifts s ON s.id = o.shift_id
   LEFT JOIN users d ON d.id = o.deleted_by`;
 
+/**
+ * What a ruble operation is in dollars, and by which rate: its own, or for an expense without one the
+ * average of its shift, once the shift is closed. Dollars are what they are. Null when there is no rate yet.
+ */
+export function inDollars(row: OperationRow): { usdMinor: number | null; rateSource: "own" | "shift" | null } {
+  const amountMinor = Number(row.amount_minor);
+  if (row.currency === "USD") return { usdMinor: amountMinor, rateSource: null };
+  if (row.rate_e4 !== null) return { usdMinor: toUsdMinor(amountMinor, Number(row.rate_e4)), rateSource: "own" };
+  if (row.kind === "expense" && row.shift_average_rate_e4 !== null) {
+    return { usdMinor: toUsdMinor(amountMinor, Number(row.shift_average_rate_e4)), rateSource: "shift" };
+  }
+  return { usdMinor: null, rateSource: null };
+}
+
 export function toOperation(row: OperationRow) {
+  const dollars = inDollars(row);
   return {
     id: row.id,
     type: row.kind,
     amountMinor: Number(row.amount_minor),
     currency: row.currency,
+    rateE4: row.rate_e4 === null ? null : Number(row.rate_e4),
+    usdMinor: dollars.usdMinor,
+    rateSource: dollars.rateSource,
     category: row.category,
     recipient: row.recipient,
     clientCode: row.client_code,
@@ -60,6 +84,8 @@ export function toOperation(row: OperationRow) {
 export type Snapshot = {
   amountMinor: number;
   currency: Currency;
+  /** Rubles for one dollar, times 10 000; null for dollars and for a ruble expense without one. */
+  rateE4: number | null;
   category: ExpenseCategory | null;
   recipient: string | null;
   clientCode: string | null;
@@ -70,6 +96,7 @@ export function snapshotOf(row: OperationRow): Snapshot {
   return {
     amountMinor: Number(row.amount_minor),
     currency: row.currency,
+    rateE4: row.rate_e4 === null ? null : Number(row.rate_e4),
     category: row.category,
     recipient: row.recipient,
     clientCode: row.client_code,
@@ -77,10 +104,16 @@ export function snapshotOf(row: OperationRow): Snapshot {
   };
 }
 
+/** A line of history as it was kept: older lines were written before there was a rate, and have none. */
+export function readSnapshot(kept: Omit<Snapshot, "rateE4"> & { rateE4?: number | null }): Snapshot {
+  return { ...kept, rateE4: kept.rateE4 ?? null };
+}
+
 export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
   return (
     a.amountMinor === b.amountMinor &&
     a.currency === b.currency &&
+    a.rateE4 === b.rateE4 &&
     a.category === b.category &&
     a.recipient === b.recipient &&
     a.clientCode === b.clientCode &&
@@ -175,13 +208,13 @@ async function findOperation(db: pg.ClientBase, id: string): Promise<OperationRo
 /** What the operation said when it was first written, before any correction. */
 async function originalOf(db: pg.ClientBase, stored: OperationRow): Promise<Snapshot> {
   if (stored.revision === 0) return snapshotOf(stored);
-  const first = await db.query<{ state_before: Snapshot }>(
+  const first = await db.query<{ state_before: Parameters<typeof readSnapshot>[0] }>(
     "SELECT state_before FROM operation_changes WHERE operation_id = $1 AND revision = 1",
     [stored.id],
   );
   const original = first.rows[0]?.state_before;
   if (!original) throw new Error(`Operation ${stored.id} is at revision ${stored.revision} but has no history`);
-  return original;
+  return readSnapshot(original);
 }
 
 /**
@@ -215,15 +248,16 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
 
     const inserted = await client.query(
       `INSERT INTO operations
-         (id, kind, amount_minor, currency, category, recipient, client_code,
+         (id, kind, amount_minor, currency, rate_e4, category, recipient, client_code,
           client_code_key, comment, author_id, created_at, shift_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
         wanted.kind,
         wanted.amountMinor,
         wanted.currency,
+        wanted.rateE4,
         wanted.category,
         wanted.recipient,
         wanted.clientCode,
@@ -333,7 +367,7 @@ export async function changeOperation(
     } else {
       await client.query(
         `UPDATE operations
-            SET amount_minor = $2, currency = $3, category = $4, recipient = $5,
+            SET amount_minor = $2, currency = $3, rate_e4 = $9, category = $4, recipient = $5,
                 client_code = $6, client_code_key = $7, comment = $8, revision = revision + 1
           WHERE id = $1`,
         [
@@ -345,6 +379,7 @@ export async function changeOperation(
           after.clientCode,
           after.clientCode?.toLowerCase() ?? null,
           after.comment,
+          after.rateE4,
         ],
       );
     }
@@ -394,7 +429,7 @@ export async function readHistory(pool: pg.Pool, id: string): Promise<OperationH
         action: "edit" | "delete";
         changed_at: Date;
         reason: string | null;
-        state_before: Snapshot;
+        state_before: Parameters<typeof readSnapshot>[0];
         login: string;
         display_name: string;
       }>(
@@ -412,9 +447,9 @@ export async function readHistory(pool: pg.Pool, id: string): Promise<OperationH
         at: line.changed_at.toISOString(),
         by: { login: line.login, displayName: line.display_name },
         reason: line.reason,
-        before: line.state_before,
+        before: readSnapshot(line.state_before),
         // What the next change found, or what the operation says now.
-        after: lines.rows[index + 1]?.state_before ?? current,
+        after: lines.rows[index + 1] ? readSnapshot(lines.rows[index + 1]!.state_before) : current,
       }));
 
       return {

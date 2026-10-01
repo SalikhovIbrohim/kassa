@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EXPENSE_CATEGORY_CODES } from "../src/categories.js";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 const NOW = new Date("2026-03-05T08:30:00Z");
 
@@ -44,14 +45,14 @@ describe("expenses", () => {
   }
 
   function income(overrides: Record<string, unknown> = {}) {
-    return {
+    return withRate({
       id: randomUUID(),
       type: "income",
       amountMinor: 500_000,
       currency: "RUB",
       clientCode: "K17",
       ...overrides,
-    };
+    });
   }
 
   async function balances(started: TestApp, cookie: string) {
@@ -72,6 +73,9 @@ describe("expenses", () => {
         type: "expense",
         amountMinor: 120_050,
         currency: "RUB",
+        rateE4: null,
+        usdMinor: null,
+        rateSource: null,
         category: "fuel_road",
         recipient: "Азамат",
         clientCode: null,
@@ -383,7 +387,7 @@ describe("expenses", () => {
       ["another category", { category: "salaries" }],
       ["another recipient", { recipient: "Бахтиёр" }],
       ["another amount", { amountMinor: 1 }],
-      ["an income with the same id", { type: "income", category: undefined, recipient: undefined, clientCode: "K17" }],
+      ["an income with the same id", { type: "income", category: undefined, recipient: undefined, clientCode: "K17", rateE4: 790_000 }],
     ])("refuses the same id with %s", async (_name, changes) => {
       const { started, cookie } = await cashierApp({ RUB: "5000" });
       const body = expense({ recipient: "Азамат" });

@@ -15,7 +15,7 @@ import { DeleteConfirm } from "./DeleteConfirm";
 import { HistoryPanel } from "./HistoryPanel";
 import { OperationEditor } from "./OperationEditor";
 import { formatDay, formatMoscowClock, formatMoscowShort, moscowToday, shiftDay } from "./days";
-import { CURRENCIES, CURRENCY_NAME, formatMoney, type Currency } from "./money";
+import { CURRENCIES, CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
 
 type Props = {
   /** A cashier looks at one day, or one shift, of their own operations; the viewer filters everyone's. */
@@ -671,6 +671,7 @@ function OperationRow({
           {sign}
           {formatMoney(operation.amountMinor, operation.currency)}
         </span>
+        <DollarNote operation={operation} />
       </td>
       <td className="c-details">{details}</td>
       <td className="c-comment">{operation.comment}</td>
@@ -710,5 +711,21 @@ function OperationRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/** What a ruble entry is in dollars, and at which rate: its own, or the average of its shift. */
+function DollarNote({ operation }: { operation: Operation }) {
+  if (operation.currency !== "RUB") return null;
+  if (operation.usdMinor === null) {
+    // An expense without a rate of its own waits for the shift to be closed.
+    return operation.type === "expense" ? <small className="usd-note">в долларах после закрытия смены</small> : null;
+  }
+  return (
+    <small className="usd-note" data-usd={operation.usdMinor}>
+      ≈ {formatMoney(operation.usdMinor, "USD")}
+      {operation.rateSource === "own" && operation.rateE4 !== null && <> · курс {formatRate(operation.rateE4)}</>}
+      {operation.rateSource === "shift" && <> · средний курс смены</>}
+    </small>
   );
 }

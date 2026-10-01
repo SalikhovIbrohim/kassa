@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
+import { withRate } from "./helpers/entries.js";
 
 // The queue on a cashier's phone says whose entry it is sending (X-Kassa-As): the server takes the author
 // from the session, and a phone where somebody else has signed in since must not book the entry under them.
@@ -27,14 +28,15 @@ describe("an entry sent for a named cashier", () => {
     };
   }
 
-  const income = (overrides: Record<string, unknown> = {}) => ({
-    id: randomUUID(),
-    type: "income",
-    amountMinor: 150_000,
-    currency: "RUB",
-    clientCode: "K17",
-    ...overrides,
-  });
+  const income = (overrides: Record<string, unknown> = {}) =>
+    withRate({
+      id: randomUUID(),
+      type: "income",
+      amountMinor: 150_000,
+      currency: "RUB",
+      clientCode: "K17",
+      ...overrides,
+    });
 
   const journalIds = async (started: TestApp, owner: string) =>
     ((await (await get(started, "/api/operations", owner)).json()).operations as Array<{ id: string }>).map((item) => item.id);

@@ -3,6 +3,7 @@ import type { Balance, Category, Operation, OperationInput } from "./api";
 import { onQueuedEntrySaved, submitEntry, useQueueState } from "./queue-instance";
 import { entryText } from "./queue-text";
 import { rememberCurrency } from "./remembered-currency";
+import { rememberRate } from "./remembered-rate";
 
 const SERVER_MAY_HAVE_SAVED =
   "Сервер сейчас не справился. Возможно, запись уже сохранилась. Нажмите кнопку ещё раз: дубля не будет.";
@@ -104,6 +105,7 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
 
       if (outcome.kind === "saved") {
         rememberCurrency(input.currency);
+        if (input.rateE4 !== undefined) rememberRate(input.rateE4);
         entryId.current = crypto.randomUUID();
         onSaved(outcome.balances);
         if (outcome.operation.deletedAt !== null) {
@@ -119,6 +121,7 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
       if (outcome.kind === "kept") {
         // It is on the phone under its own id; the next entry is a new one.
         rememberCurrency(input.currency);
+        if (input.rateE4 !== undefined) rememberRate(input.rateE4);
         entryId.current = crypto.randomUUID();
         setSaved(null);
         const echo = entryText(input, categories ?? []);

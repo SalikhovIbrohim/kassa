@@ -1,6 +1,6 @@
 import { EXPENSE_CATEGORY_CODES, REFUND_CATEGORY, type ExpenseCategory } from "./categories.js";
 import type { Snapshot } from "./ledger.js";
-import { CURRENCIES, MAX_AMOUNT_MINOR } from "./money.js";
+import { CURRENCIES, MAX_AMOUNT_MINOR, MAX_RATE_E4, MIN_RATE_E4 } from "./money.js";
 import { NO_NUL } from "./schemas.js";
 import { cleanText } from "./text.js";
 
@@ -12,6 +12,8 @@ export type IncomeEntry = {
   type: "income";
   amountMinor: number;
   currency: "RUB" | "USD";
+  /** Rubles for one dollar, times 10 000. Required for rubles, not allowed for dollars. */
+  rateE4?: number;
   clientCode: string;
   comment?: string;
 };
@@ -20,6 +22,8 @@ export type ExpenseEntry = {
   type: "expense";
   amountMinor: number;
   currency: "RUB" | "USD";
+  /** Rubles for one dollar, times 10 000. Optional for rubles (the shift's average is used), not allowed for dollars. */
+  rateE4?: number;
   category: ExpenseCategory;
   recipient?: string;
   clientCode?: string;
@@ -33,6 +37,7 @@ const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, patter
 const commonProperties = {
   amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
   currency: { type: "string", enum: [...CURRENCIES] },
+  rateE4: { type: "integer", minimum: MIN_RATE_E4, maximum: MAX_RATE_E4 },
   comment: { type: "string", maxLength: 500, pattern: NO_NUL },
 } as const;
 
@@ -75,7 +80,8 @@ export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot } |
 
 /**
  * Cleans the text (see `cleanText`), turns blanks into "nothing", and applies the rules the
- * schema cannot: an income and a client refund name a client, no other expense does.
+ * schema cannot: an income and a client refund name a client, no other expense does; a rate
+ * goes with rubles only, and an income in rubles must have one.
  */
 export function normalizeEntry(body: Entry): NormalizedEntry {
   const comment = cleanText(body.comment ?? "") || null;
@@ -97,11 +103,19 @@ export function normalizeEntry(body: Entry): NormalizedEntry {
     }
   }
 
+  if (body.currency === "USD" && body.rateE4 !== undefined) {
+    return { error: "body/rateE4 is only for rubles" };
+  }
+  if (body.currency === "RUB" && body.type === "income" && body.rateE4 === undefined) {
+    return { error: "body/rateE4 is required for an income in rubles" };
+  }
+
   return {
     kind: body.type,
     fields: {
       amountMinor: body.amountMinor,
       currency: body.currency,
+      rateE4: body.rateE4 ?? null,
       category,
       recipient,
       clientCode,

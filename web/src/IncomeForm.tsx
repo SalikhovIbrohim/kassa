@@ -4,7 +4,9 @@ import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
 import { AmountInput } from "./AmountInput";
-import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
+import { formatMoney, formatMoscowTime, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
+import { RateField } from "./RateField";
+import { rememberedRate } from "./remembered-rate";
 import { useEntry } from "./useEntry";
 
 type Props = {
@@ -31,6 +33,11 @@ export function IncomeForm({
   active,
 }: Props) {
   const [amount, setAmount] = useState("");
+  // The rate of the last entry of today is there to start with: the cashier sees it, and changes it when it has moved.
+  const [rate, setRate] = useState(() => {
+    const kept = rememberedRate();
+    return kept === null ? "" : formatRateInput(kept);
+  });
   const [clientCode, setClientCode] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
@@ -49,6 +56,11 @@ export function IncomeForm({
       entry.setError("Введите сумму больше нуля, например 1500 или 1500,50.");
       return;
     }
+    const rateE4 = currency === "RUB" ? parseRateInput(rate) : null;
+    if (currency === "RUB" && rateE4 === null) {
+      entry.setError("Введите курс: сколько рублей за 1 доллар, например 79 или 78,5.");
+      return;
+    }
     const code = clientCode.trim();
     if (code === "") {
       entry.setError("Введите код клиента.");
@@ -60,6 +72,7 @@ export function IncomeForm({
       id,
       amountMinor,
       currency,
+      ...(rateE4 === null ? {} : { rateE4 }),
       clientCode: code,
       comment: comment.trim() || undefined,
     }));
@@ -99,6 +112,8 @@ export function IncomeForm({
           onChange={setAmount}
         />
       </label>
+
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required />}
 
       <ClientCodeField value={clientCode} onChange={setClientCode} />
 

@@ -126,6 +126,11 @@ export type Operation = {
   type: "income" | "expense";
   amountMinor: number;
   currency: Currency;
+  /** Rubles for one dollar, times 10 000: the rate of a ruble entry. Null for dollars, and for a ruble expense without one. */
+  rateE4: number | null;
+  /** What the entry is in dollars, and by which rate: its own, or the average of its shift (an expense without one, once the shift is closed). Null while there is no rate. */
+  usdMinor: number | null;
+  rateSource: "own" | "shift" | null;
   /** Only expenses have a category. */
   category: string | null;
   recipient: string | null;
@@ -213,6 +218,8 @@ type EntryBase = {
   shiftId?: string;
   amountMinor: number;
   currency: Currency;
+  /** Rubles for one dollar, times 10 000. An income in rubles must have it, an expense in rubles may; never for dollars. */
+  rateE4?: number;
   comment?: string;
 };
 
@@ -338,7 +345,21 @@ export type CurrencyTotals = {
   differenceMinor: number;
 };
 
-export type Totals = { from: string; to: string; currencies: CurrencyTotals[] };
+/** The period counted in dollars: dollars as they are, rubles at the rate of the entry (see `Operation.usdMinor`). */
+export type DollarTotals = {
+  incomeMinor: number;
+  expenseMinor: number;
+  handoverMinor: number;
+  /** Income minus expense. */
+  resultMinor: number;
+  /** Ruble entries that have no rate to count them at, and are not in the figures above. */
+  withoutRate: {
+    income: { rubMinor: number; count: number };
+    expense: { rubMinor: number; count: number };
+  };
+};
+
+export type Totals = { from: string; to: string; currencies: CurrencyTotals[]; usd: DollarTotals };
 
 /** The totals of a period (Moscow days, both included), each currency on its own. */
 export async function fetchTotals(from: string, to: string): Promise<Totals> {
@@ -347,7 +368,7 @@ export async function fetchTotals(from: string, to: string): Promise<Totals> {
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/summary`);
   const body = (await response.json()) as Totals;
   // An answer of another shape (a page of a proxy that said 200) is not totals: never show it as zeros.
-  if (!Array.isArray(body.currencies) || typeof body.from !== "string" || typeof body.to !== "string") {
+  if (!Array.isArray(body.currencies) || typeof body.from !== "string" || typeof body.to !== "string" || !body.usd) {
     throw new Error("The answer of /api/summary is not the totals of a period");
   }
   return body;
@@ -358,6 +379,7 @@ export async function fetchTotals(from: string, to: string): Promise<Totals> {
 export type Snapshot = {
   amountMinor: number;
   currency: Currency;
+  rateE4: number | null;
   category: string | null;
   recipient: string | null;
   clientCode: string | null;
@@ -367,6 +389,7 @@ export type Snapshot = {
 type EditBase = {
   amountMinor: number;
   currency: Currency;
+  rateE4?: number;
   comment?: string;
   /** Why, in the person's words. Optional. */
   reason?: string;
@@ -504,6 +527,8 @@ export async function openShift(): Promise<OpenShiftResult> {
 
 /** A shift as the owner reads it: who worked, when, and how the count of the cash came out. */
 export type ShiftReport = {
+  /** The average rate of the shift's ruble incomes, times 10 000, fixed when it was closed; null while open or when there was none. */
+  averageRateE4: number | null;
   id: string;
   openedAt: string;
   /** Null while the shift is open. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchShifts, SessionExpiredError, type ShiftReport } from "./api";
 import { formatMoscowShort } from "./days";
-import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
+import { CURRENCY_NAME, formatDifference, formatMoney, formatRate } from "./money";
 
 type Props = {
   onSessionExpired: () => void;
@@ -149,6 +149,11 @@ function ShiftCard({ shift }: { shift: ShiftReport }) {
           );
         })}
       </dl>
+      {closed && shift.averageRateE4 !== null && (
+        <p className="shift-card-times" data-average-rate={shift.averageRateE4}>
+          Средний курс смены: {formatRate(shift.averageRateE4)} ₽ за 1 $ (по нему считаются расходы без курса)
+        </p>
+      )}
     </li>
   );
 }

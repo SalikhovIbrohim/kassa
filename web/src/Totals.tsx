@@ -5,6 +5,7 @@ import {
   SessionExpiredError,
   type Category,
   type CurrencyTotals,
+  type DollarTotals,
   type Totals as TotalsData,
 } from "./api";
 import { formatDay, moscowToday, presetPeriod, type PeriodPreset } from "./days";
@@ -178,6 +179,7 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
             {shown.stale ? ". Обновляем…" : ""}
           </p>
           <div className="totals-cards">
+            <DollarCard usd={shown.data.usd} />
             {shown.data.currencies.map((item) => (
               <CurrencyCard key={item.currency} totals={item} label={label} />
             ))}
@@ -228,6 +230,46 @@ function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code:
           <dd data-total="closing">{formatMoney(totals.closingMinor, currency)}</dd>
         </div>
       </dl>
+    </section>
+  );
+}
+
+/**
+ * The period counted in dollars, which is what the owner reckons in: dollars as they are, rubles at the rate of their
+ * entry. The cards of the currencies below say how much money is in the cash desk; this one says what the business made.
+ */
+function DollarCard({ usd }: { usd: DollarTotals }) {
+  const { income, expense } = usd.withoutRate;
+  const missing = (side: { rubMinor: number; count: number }, what: "income" | "expense") =>
+    side.count === 0 ? null : (
+      <p className="hint" data-without-rate={what}>
+        Не в расчёте: {what === "income" ? "приходов" : "расходов"} в рублях без курса: {side.count}, на{" "}
+        {formatMoney(side.rubMinor, "RUB")}. Курс такой записи берётся из среднего по смене, когда смена закрыта.
+      </p>
+    );
+  return (
+    <section className="total-card dollars" aria-label="В долларах">
+      <h3>В долларах</h3>
+      <dl>
+        <div className={usd.incomeMinor === 0 ? "total-row income zero" : "total-row income"}>
+          <dt>Приход</dt>
+          <dd data-usd="income">{signed(usd.incomeMinor, "+", "USD")}</dd>
+        </div>
+        <div className={usd.expenseMinor === 0 ? "total-row expense zero" : "total-row expense"}>
+          <dt>Расход</dt>
+          <dd data-usd="expense">{signed(usd.expenseMinor, "−", "USD")}</dd>
+        </div>
+        <div className={usd.handoverMinor === 0 ? "total-row expense zero" : "total-row expense"}>
+          <dt>Передано владельцу</dt>
+          <dd data-usd="handover">{signed(usd.handoverMinor, "−", "USD")}</dd>
+        </div>
+        <div className="total-row closing">
+          <dt>Результат (приход минус расход)</dt>
+          <dd data-usd="result">{formatDifference(usd.resultMinor, "USD")}</dd>
+        </div>
+      </dl>
+      {missing(income, "income")}
+      {missing(expense, "expense")}
     </section>
   );
 }

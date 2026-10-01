@@ -23,6 +23,32 @@ export function parseAmountInput(text: string): number | null {
   return minor >= 1 && minor <= MAX_AMOUNT_MINOR ? minor : null;
 }
 
+/**
+ * The rate typed as "79", "78,4" or "78.2345" (rubles for one dollar) into the whole number the server keeps: times 10 000.
+ * Null when it is not a rate from 1 to 1000 with at most four decimals.
+ */
+export function parseRateInput(text: string): number | null {
+  const cleaned = text.replace(/[\s ]/g, "");
+  const match = /^(\d{1,4})(?:[.,](\d{1,4}))?$/.exec(cleaned);
+  if (!match) return null;
+  const rateE4 = Number(match[1]) * 10_000 + Number((match[2] ?? "").padEnd(4, "0"));
+  return rateE4 >= 10_000 && rateE4 <= 10_000_000 ? rateE4 : null;
+}
+
+/** 784000 -> "78,4": what a person would type, to prefill the field. */
+export function formatRateInput(rateE4: number): string {
+  const whole = Math.floor(rateE4 / 10_000);
+  const fraction = String(rateE4 % 10_000).padStart(4, "0").replace(/0+$/, "");
+  return fraction === "" ? String(whole) : `${whole},${fraction}`;
+}
+
+/** 784000 -> "78,40": a rate for reading, with at least two decimals. */
+export function formatRate(rateE4: number): string {
+  const whole = Math.floor(rateE4 / 10_000);
+  const fraction = String(rateE4 % 10_000).padStart(4, "0").replace(/0+$/, "").padEnd(2, "0");
+  return `${whole},${fraction}`;
+}
+
 /** What was counted in the cash desk: like an amount, but nothing at all is a count too ("0"). Null when it is not one. */
 export function parseCountInput(text: string): number | null {
   const cleaned = text.replace(/[\s ]/g, "");

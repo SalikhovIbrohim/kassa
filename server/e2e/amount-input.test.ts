@@ -56,6 +56,7 @@ describe("the amount field", () => {
 
     await amount.fill("");
     await amount.pressSequentially("250000");
+    await page.locator("input[name=rate]:visible").fill("79,5");
     await page.locator("input[name=clientCode]").fill("AMT-1");
     await page.getByRole("button", { name: "Записать приход" }).click();
     await seeText(page.locator(".success"), /Записано: приход 250\s000,00\s₽/);

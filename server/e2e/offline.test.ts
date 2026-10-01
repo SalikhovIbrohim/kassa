@@ -84,9 +84,13 @@ describe("making entries without a connection", () => {
   /** The amount field of the form that is on the screen (the other form is kept alive, hidden). */
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
 
+  /** The rate field of the form that is on the screen: the other form has one of its own, hidden. */
+  const rateField = (page: Page) => page.locator("input[name=rate]:visible");
+
   async function enterIncome(page: Page, amount: string, clientCode: string) {
     await page.getByRole("button", { name: "Приход", exact: true }).click();
     await amountField(page).fill(amount);
+    await rateField(page).fill("79");
     await page.locator("input[name=clientCode]").fill(clientCode);
     await page.getByRole("button", { name: "Записать приход" }).click();
   }
@@ -389,6 +393,7 @@ describe("making entries without a connection", () => {
     await page.getByText("Топливо и дорога").click();
     await page.getByRole("button", { name: "Приход", exact: true }).click();
     await amountField(page).fill("654");
+    await rateField(page).fill("79");
     await page.locator("input[name=clientCode]").fill("BUSY-1");
     // The server holds the answer to the first entry until the test lets it go.
     let release!: () => void;
@@ -508,7 +513,7 @@ describe("making entries without a connection", () => {
     const response = await postJson(
       started,
       "/api/operations",
-      { id: randomUUID(), type: "income", amountMinor: 1_000, currency, clientCode: "ELSE-1" },
+      { id: randomUUID(), type: "income", amountMinor: 1_000, currency, ...(currency === "RUB" ? { rateE4: 790_000 } : {}), clientCode: "ELSE-1" },
       cookie,
     );
     expect(response.status).toBe(201);

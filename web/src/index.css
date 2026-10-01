@@ -429,6 +429,13 @@ button.link {
   color: #991b1b;
 }
 
+.usd-note {
+  display: block;
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
 /* Phone: every operation is a small card. The header row stays for screen readers only. */
 .journal-table,
 .journal-table tbody {

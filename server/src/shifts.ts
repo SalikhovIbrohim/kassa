@@ -55,6 +55,12 @@ export type ShiftReport = {
   closedAt: string | null;
   cashier: Person;
   closedBy: Person | null;
+  /**
+   * The average rate (rubles for one dollar, times 10 000) of the ruble incomes of the shift, fixed when it was closed:
+   * the rate at which its ruble expenses without a rate of their own are counted in dollars. Null while the shift is
+   * open, or when there was no rate to take.
+   */
+  averageRateE4: number | null;
   currencies: Array<{
     currency: Currency;
     openingMinor: number;
@@ -73,10 +79,11 @@ type ReportRow = {
   display_name: string;
   closed_login: string | null;
   closed_display_name: string | null;
+  average_rate_e4: string | null;
 };
 
 const REPORT_SELECT = `SELECT s.id, s.opened_at, s.closed_at, u.login, u.display_name,
-       cb.login AS closed_login, cb.display_name AS closed_display_name
+       cb.login AS closed_login, cb.display_name AS closed_display_name, s.average_rate_e4
   FROM shifts s
   JOIN users u ON u.id = s.cashier_id
   LEFT JOIN users cb ON cb.id = s.closed_by`;
@@ -103,6 +110,7 @@ async function readReports(db: Queryable, where: string, params: unknown[], limi
     closedAt: row.closed_at?.toISOString() ?? null,
     cashier: { login: row.login, displayName: row.display_name },
     closedBy: row.closed_login === null ? null : { login: row.closed_login, displayName: row.closed_display_name ?? row.closed_login },
+    averageRateE4: number(row.average_rate_e4),
     currencies: CURRENCIES.map((currency) => {
       const figure = figures.rows.find((item) => item.shift_id === row.id && item.currency === currency);
       return {
@@ -164,15 +172,37 @@ export async function closeShift(
       );
       if (updated.rowCount !== 1) throw new Error(`Shift ${request.shiftId} has no figures for ${currency}`);
     }
-    await client.query("UPDATE shifts SET closed_at = $2, closed_by = $3 WHERE id = $1", [
+    await client.query("UPDATE shifts SET closed_at = $2, closed_by = $3, average_rate_e4 = $4 WHERE id = $1", [
       request.shiftId,
       request.now,
       request.closerId,
+      await averageRateOf(client, request.shiftId, request.now),
     ]);
     const [report] = await readReports(client, "WHERE s.id = $1", [request.shiftId], 1);
     if (!report) throw new Error(`Shift ${request.shiftId} was closed and is not there`);
     return { status: "closed", shift: report };
   });
+}
+
+/**
+ * The rate at which the ruble expenses of a shift that have none of their own are counted in dollars: the average
+ * of the rates of the ruble incomes of the shift. A shift with no ruble income takes the rate of the last one before
+ * it was closed; none at all, none.
+ */
+async function averageRateOf(db: Queryable, shiftId: string, closedAt: Date): Promise<number | null> {
+  const own = await db.query<{ average: string | null }>(
+    `SELECT ROUND(AVG(rate_e4))::bigint AS average FROM operations
+      WHERE shift_id = $1 AND kind = 'income' AND currency = 'RUB' AND rate_e4 IS NOT NULL AND deleted_at IS NULL`,
+    [shiftId],
+  );
+  if (own.rows[0]?.average != null) return Number(own.rows[0].average);
+  const last = await db.query<{ rate_e4: string }>(
+    `SELECT rate_e4 FROM operations
+      WHERE kind = 'income' AND currency = 'RUB' AND rate_e4 IS NOT NULL AND deleted_at IS NULL AND created_at <= $1
+      ORDER BY created_at DESC, id DESC LIMIT 1`,
+    [closedAt],
+  );
+  return last.rows[0] ? Number(last.rows[0].rate_e4) : null;
 }
 
 /**

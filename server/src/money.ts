@@ -33,3 +33,16 @@ export function formatAmount(minor: number): string {
   const fraction = String(absolute % 100).padStart(2, "0");
   return `${sign}${whole}.${fraction}`;
 }
+
+/** The exchange rate (rubles for one dollar) is kept times 10 000: 79,5 is 795000. From 1 to 1000. */
+export const RATE_SCALE = 10_000;
+export const MIN_RATE_E4 = 10_000;
+export const MAX_RATE_E4 = 10_000_000;
+
+/**
+ * What an amount of rubles (kopecks) is in dollars (cents) at a rate, rounded to the nearest cent
+ * (half up). Whole numbers all the way, so that the database and this give the same cent.
+ */
+export function toUsdMinor(rubMinor: number, rateE4: number): number {
+  return Math.floor((2 * rubMinor * RATE_SCALE + rateE4) / (2 * rateE4));
+}
