@@ -25,6 +25,9 @@ body {
   width: 100%;
   max-width: 420px;
   display: grid;
+  /* The one column may not grow with what is in it: a word without a break (a client code of 64 characters)
+     must not push the card, and the page with it, off the screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 24px;
   background: #ffffff;
@@ -375,8 +378,11 @@ select:focus-visible {
 }
 
 button.link {
-  min-height: 0;
-  padding: 0;
+  /* A finger needs 44px even for a link. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
   font-size: inherit;
   font-weight: 600;
   color: inherit;
@@ -843,11 +849,6 @@ button.danger {
   color: #475569;
 }
 
-.queue-entry-state {
-  color: #92400e;
-  font-size: 0.9rem;
-}
-
 .queue-problem,
 .queue-warning {
   color: #991b1b;
@@ -862,4 +863,68 @@ button.danger {
 
 .queue-others {
   color: #475569;
+}
+
+/* Where a form says what became of its last entry: always there (so that a screen reader reads what is put
+   into it), and when empty it takes no room: the gap of the card that it would add is taken back. */
+.entry-status:empty {
+  margin-bottom: -16px;
+}
+
+.queued.blocked {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+/* Long words without a break (a client code of 64 characters) must not widen the page. */
+.queue-entry,
+.queue-entry-text,
+.queue-problem,
+.queue-comment,
+.queue-warning {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.queue-comment {
+  color: #475569;
+}
+
+.queue-hint,
+.queue-tried {
+  font-size: 0.9rem;
+}
+
+.balances-unsent {
+  grid-column: 1 / -1;
+}
+
+.balances-unsent a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.queue-text {
+  display: grid;
+  gap: 8px;
+}
+
+.queue:focus {
+  outline: 3px solid #5eead4;
+  outline-offset: 2px;
+}
+
+.queued,
+.success,
+.error,
+.queue p {
+  overflow-wrap: anywhere;
+}
+
+.queue {
+  grid-template-columns: minmax(0, 1fr);
 }

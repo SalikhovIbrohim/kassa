@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NetworkError, type Balance, type Operation, type OperationInput, type OperationResult } from "./api";
 import { createQueue, type QueuedEntry, type QueueDeps } from "./queue";
 import { indexedDbStore, memoryStore } from "./queue-store";
@@ -22,8 +22,11 @@ function fakeServer() {
     /** Answer every request with this reason instead. */
     answer: undefined as undefined | OperationResult,
     cash: 0,
-    async send(input: OperationInput): Promise<OperationResult> {
+    /** Whose entry each send said it was, in order. */
+    logins: [] as string[],
+    async send(input: OperationInput, login = "?"): Promise<OperationResult> {
       log.push(`send ${input.id}`);
+      server.logins.push(login);
       if (server.offline) throw new NetworkError("offline");
       if (server.answer) return server.answer;
       const known = saved.get(input.id);
@@ -85,7 +88,7 @@ function setup(options: Partial<QueueDeps> & { login?: string | null } = {}) {
   const savedBalances: Balance[][] = [];
   const queue = createQueue({
     store,
-    send: (input) => server.send(input),
+    send: (input, as) => server.send(input, as),
     currentLogin: () => login,
     onSaved: (value) => savedBalances.push(value),
     setTimer: (callback, ms) => {
@@ -392,6 +395,314 @@ describe("the queue of entries made without a connection", () => {
     });
   });
 
+  describe("whose entry it is", () => {
+    it("says with every send which cashier made the entry", async () => {
+      const t = setup();
+      t.server.offline = true;
+      await t.queue.submit(income(), "ivan");
+      await t.queue.submit(income(), "ivan");
+      t.server.offline = false;
+      t.server.logins.length = 0;
+
+      await t.queue.nudge();
+      await t.queue.submit(income(), "ivan");
+
+      expect(t.server.logins).toEqual(["ivan", "ivan", "ivan"]);
+    });
+
+    it("waits for a sign-in when the server says that the session is somebody else's", async () => {
+      const t = setup();
+      t.server.answer = { ok: false, reason: "wrong-session" };
+      const entry = income();
+
+      const outcome = await t.queue.submit(entry, "ivan");
+
+      expect(outcome).toEqual({ kind: "kept", why: "login" });
+      expect(t.queue.getState()).toMatchObject({ needsLogin: true });
+      expect(t.queue.getState().entries[0]).toMatchObject({ id: entry.id, status: "waiting" });
+      expect(await t.stored()).toEqual([entry.id]);
+    });
+
+    it("stops at once when somebody else has signed in while the entries were going out", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const ids: string[] = [];
+      for (const amount of [10_000, 20_000, 30_000]) {
+        const entry = income(amount);
+        ids.push(entry.id);
+        await t.queue.submit(entry, "ivan");
+      }
+      t.server.offline = false;
+      t.server.log.length = 0;
+      const send = t.server.send.bind(t.server);
+      t.server.send = async (input, login) => {
+        const answer = await send(input, login);
+        t.signInAs("petr");
+        return answer;
+      };
+
+      await t.queue.nudge();
+
+      expect(t.server.log).toEqual([`send ${ids[0]}`]);
+      expect(await t.stored()).toEqual([ids[1], ids[2]]);
+    });
+
+    it("does not send what was just typed when the signed-in cashier is another one by then", async () => {
+      const t = setup();
+      const entry = income();
+      t.signInAs("petr");
+
+      const outcome = await t.queue.submit(entry, "ivan");
+
+      expect(outcome).toEqual({ kind: "kept", why: "login" });
+      expect(t.server.log).toEqual([]);
+      expect(await t.stored()).toEqual([entry.id]);
+    });
+  });
+
+  describe("in order", () => {
+    it("sends what is waiting before an entry typed now, so that money that came in earlier counts first", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const receive = income(10_000);
+      await t.queue.submit(receive, "ivan");
+      t.server.offline = false;
+      t.server.log.length = 0;
+      const spend = expense(8_000);
+
+      const outcome = await t.queue.submit(spend, "ivan");
+
+      expect(outcome.kind).toBe("saved");
+      expect(t.server.log).toEqual([`send ${receive.id}`, `send ${spend.id}`]);
+      expect(t.server.cash).toBe(2_000);
+      expect(await t.stored()).toEqual([]);
+    });
+
+    it("does not send an entry typed now a second time in the same run when the server has refused it", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const receive = income(10_000);
+      await t.queue.submit(receive, "ivan");
+      t.server.offline = false;
+      t.server.log.length = 0;
+      const spend = expense(50_000);
+
+      const outcome = await t.queue.submit(spend, "ivan");
+
+      expect(outcome).toMatchObject({ kind: "refused", problem: { kind: "insufficient-balance", availableMinor: 10_000 } });
+      // The income went first and was saved; the expense was asked about once, and not again after that.
+      expect(t.server.log).toEqual([`send ${receive.id}`, `send ${spend.id}`]);
+      expect(await t.stored()).toEqual([]);
+    });
+
+    it("keeps an entry typed now behind older ones that cannot be sent, without trying it", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const earlier = income(10_000);
+      await t.queue.submit(earlier, "ivan");
+      t.server.log.length = 0;
+      const later = income(5_000);
+
+      const outcome = await t.queue.submit(later, "ivan");
+
+      expect(outcome).toEqual({ kind: "kept", why: "offline" });
+      expect(t.server.log).toEqual([`send ${earlier.id}`]);
+      expect(await t.stored()).toEqual([earlier.id, later.id]);
+    });
+
+    it("sends an entry that the phone could not keep after the ones that are waiting", async () => {
+      const store = memoryStore();
+      let failWrites = false;
+      const flaky = {
+        list: () => store.list(),
+        remove: (id: string) => store.remove(id),
+        put: async (entry: QueuedEntry) => {
+          if (failWrites) throw new Error("no room");
+          await store.put(entry);
+        },
+      };
+      const t = setup({ store: flaky });
+      t.server.offline = true;
+      const earlier = income(10_000);
+      await t.queue.submit(earlier, "ivan");
+      t.server.offline = false;
+      t.server.log.length = 0;
+      failWrites = true;
+      const later = income(5_000);
+
+      const outcome = await t.queue.submit(later, "ivan");
+
+      expect(outcome.kind).toBe("saved");
+      expect(t.server.log).toEqual([`send ${earlier.id}`, `send ${later.id}`]);
+    });
+  });
+
+  describe("a server that does not answer", () => {
+    /** A send that answers when the test says so. */
+    function stuckServer() {
+      const waiting: Array<(answer: OperationResult) => void> = [];
+      return {
+        waiting,
+        send: (input: OperationInput) =>
+          new Promise<OperationResult>((resolve) => {
+            waiting.push(resolve);
+            void input;
+          }),
+      };
+    }
+    const patience = 123;
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("does not hold the form: after a while the entry counts as safe on the phone, and the send goes on", async () => {
+      const stuck = stuckServer();
+      const t = setup({ send: stuck.send, patienceMs: patience });
+      const entry = income();
+
+      const outcome = t.queue.submit(entry, "ivan");
+      await tick();
+      const [impatient] = t.timers.filter((timer) => timer.ms === patience && !timer.cleared);
+      impatient!.callback();
+
+      expect(await outcome).toEqual({ kind: "kept", why: "slow" });
+      expect(await t.stored()).toEqual([entry.id]);
+      expect(t.queue.getState().sending).toBe(true);
+
+      stuck.waiting[0]!({ ok: true, operation: operationOf(entry), balances: balances(50_000) });
+      await tick();
+      await tick();
+
+      expect(await t.stored()).toEqual([]);
+      expect(t.savedBalances).toEqual([balances(50_000)]);
+      expect(t.queue.getState().sending).toBe(false);
+    });
+
+    it("shows a refusal that comes after the form was released: the entry becomes a blocked one", async () => {
+      const stuck = stuckServer();
+      const t = setup({ send: stuck.send, patienceMs: patience });
+      const entry = expense(90_000);
+
+      const outcome = t.queue.submit(entry, "ivan");
+      await tick();
+      t.timers.find((timer) => timer.ms === patience && !timer.cleared)!.callback();
+      await outcome;
+      stuck.waiting[0]!({ ok: false, reason: "insufficient-balance", currency: "RUB", availableMinor: 1_000 });
+      await tick();
+      await tick();
+
+      expect(t.queue.getState().entries[0]).toMatchObject({
+        id: entry.id,
+        status: "blocked",
+        problem: { kind: "insufficient-balance", availableMinor: 1_000 },
+      });
+      expect(await t.stored()).toEqual([entry.id]);
+    });
+
+    it("does not release the form of an entry that the phone could not keep: it is all that is left of it", async () => {
+      const stuck = stuckServer();
+      const broken = {
+        list: async () => [] as QueuedEntry[],
+        put: async () => {
+          throw new Error("no room");
+        },
+        remove: async () => {},
+      };
+      const t = setup({ store: broken, send: stuck.send, patienceMs: patience });
+
+      const outcome = t.queue.submit(income(), "ivan");
+      await tick();
+
+      expect(t.timers.filter((timer) => timer.ms === patience)).toEqual([]);
+      stuck.waiting[0]!({ ok: false, reason: "server-error" });
+      expect(await outcome).toEqual({ kind: "not-kept", why: "server" });
+    });
+
+    it("is asked once more, not once for every ask, when many things say that the connection may be back", async () => {
+      const stuck = stuckServer();
+      let behaviour: (input: OperationInput) => Promise<OperationResult> = async () => {
+        throw new NetworkError("offline");
+      };
+      const t = setup({ send: (input) => behaviour(input) });
+      await t.queue.submit(income(), "ivan");
+      behaviour = stuck.send;
+
+      const asks = [t.queue.nudge(), t.queue.nudge(), t.queue.nudge(), t.queue.nudge(), t.queue.nudge()];
+      await tick();
+
+      // The first run is under way; the others have been folded into one more.
+      expect(stuck.waiting).toHaveLength(1);
+      stuck.waiting[0]!({ ok: false, reason: "server-error" });
+      await tick();
+      await tick();
+      expect(stuck.waiting).toHaveLength(2);
+      stuck.waiting[1]!({ ok: false, reason: "server-error" });
+      await Promise.all(asks);
+
+      expect(stuck.waiting).toHaveLength(2);
+    });
+  });
+
+  describe("the entries on the phone are read again when something went wrong", () => {
+    it("keeps trying after the phone failed to read them once", async () => {
+      const store = memoryStore();
+      let failReads = 0;
+      const flaky = {
+        put: (entry: QueuedEntry) => store.put(entry),
+        remove: (id: string) => store.remove(id),
+        list: async () => {
+          if (failReads > 0) {
+            failReads--;
+            throw new Error("unreadable");
+          }
+          return store.list();
+        },
+      };
+      const t = setup({ store: flaky });
+      await t.queue.start();
+      t.server.offline = true;
+      await t.queue.submit(income(), "ivan");
+      t.server.log.length = 0;
+      t.timers.length = 0;
+
+      failReads = 1;
+      await t.queue.nudge();
+
+      // The read failed, the entry in memory was still sent, and the next try is on the clock.
+      expect(t.server.log).toHaveLength(1);
+      expect(t.timers.filter((timer) => !timer.cleared)).toHaveLength(1);
+    });
+
+    it("does not let a read that began before a write hide the entry that was written", async () => {
+      const store = memoryStore();
+      let gate: (() => void) | undefined;
+      let slowRead = true;
+      const slow = {
+        put: (entry: QueuedEntry) => store.put(entry),
+        remove: (id: string) => store.remove(id),
+        list: async () => {
+          const before = await store.list();
+          if (slowRead) {
+            slowRead = false;
+            await new Promise<void>((resolve) => {
+              gate = resolve;
+            });
+          }
+          return before;
+        },
+      };
+      const t = setup({ store: slow });
+      t.server.offline = true;
+
+      const reading = t.queue.reload();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const entry = income();
+      await t.queue.submit(entry, "ivan");
+      gate!();
+      await reading;
+
+      expect(t.queue.getState().entries.map((item) => item.id)).toEqual([entry.id]);
+    });
+  });
+
   describe("trying again by itself", () => {
     it("waits longer after every failure, up to a minute, and goes quiet after a success", async () => {
       const t = setup();
@@ -479,6 +790,26 @@ describe("the queue of entries made without a connection", () => {
     });
   });
 
+  it("tells that an entry was saved while it is still on the phone, so that a form waiting for it can tell it from a given-up one", async () => {
+    const store = memoryStore();
+    let stillThere: string[] = [];
+    const t = setup({
+      store,
+      onSaved: async () => {
+        stillThere = (await store.list()).map((item) => item.id);
+      },
+    });
+    t.server.offline = true;
+    const entry = income();
+    await t.queue.submit(entry, "ivan");
+    t.server.offline = false;
+
+    await t.queue.nudge();
+
+    expect(stillThere).toEqual([entry.id]);
+    expect(await t.stored()).toEqual([]);
+  });
+
   it("tells other tabs when the stored entries change", async () => {
     let changes = 0;
     const t = setup({ onStoreChanged: () => changes++ });
@@ -506,6 +837,33 @@ describe("the queue of entries made without a connection", () => {
 
     expect(t.server.saved.has(entry.id)).toBe(true);
     expect(await t.stored()).toEqual([]);
+  });
+});
+
+describe("a phone whose storage does not answer", () => {
+  it("counts a write as failed after a while, instead of holding up the entry that the server would take", async () => {
+    vi.useFakeTimers();
+    try {
+      // A storage that never says that it is open.
+      const stuck = {
+        open: () => ({}) as IDBOpenDBRequest,
+      } as unknown as IDBFactory;
+      const store = indexedDbStore(stuck);
+      const entry: QueuedEntry = {
+        id: "a",
+        input: { type: "income", id: "a", amountMinor: 100, currency: "RUB", clientCode: "K1" },
+        login: "ivan",
+        queuedAt: "2026-03-05T08:30:00.000Z",
+        status: "waiting",
+        problem: null,
+      };
+
+      const writing = expect(store.put(entry)).rejects.toThrow("did not answer in time");
+      await vi.advanceTimersByTimeAsync(8_001);
+      await writing;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

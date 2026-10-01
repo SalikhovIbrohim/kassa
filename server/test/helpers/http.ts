@@ -2,10 +2,10 @@ import type { TestApp } from "./test-app.js";
 
 export const SESSION_COOKIE = "kassa_session";
 
-export function postJson(app: TestApp, path: string, body: unknown, cookie?: string) {
+export function postJson(app: TestApp, path: string, body: unknown, cookie?: string, headers: Record<string, string> = {}) {
   return fetch(`${app.baseUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}), ...headers },
     body: JSON.stringify(body),
   });
 }

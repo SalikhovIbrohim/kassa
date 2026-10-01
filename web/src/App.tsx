@@ -16,7 +16,7 @@ import { Journal } from "./Journal";
 import { LoginScreen } from "./LoginScreen";
 import { plural } from "./plural";
 import { QueueBanner } from "./QueueBanner";
-import { onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
+import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 
 type State =
@@ -32,6 +32,10 @@ const ROLE_LABEL: Record<Role, string> = {
 
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  const unsent = useQueueState().entries.length;
+  // The login of the screen that is showing, for noticing that somebody else has signed in from another tab.
+  const shownLogin = useRef<string | null>(null);
+  shownLogin.current = state.kind === "logged-in" ? state.user.login : null;
 
   const load = useCallback(() => {
     setState({ kind: "loading" });
@@ -55,9 +59,20 @@ export function App() {
 
   // The entries kept on the phone are read once, whoever is or is not signed in.
   useEffect(() => {
-    void queue.start();
+    queue.start().catch((error) => console.error("The entries on the phone could not be read:", error));
     return () => queue.stop();
   }, []);
+
+  // Another tab of this browser signed in as somebody else (the cookie is shared by all of them, so
+  // this tab's entries would go out under that session): look again at who is signed in.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== "kassa.user" || shownLogin.current === null) return;
+      if (rememberedUser()?.login !== shownLogin.current) load();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [load]);
 
   // Stable identity: SignedIn reloads its balances when this changes.
   const showLoggedOut = useCallback(() => {
@@ -79,8 +94,14 @@ export function App() {
         <div className="card">
           <h1>Касса</h1>
           <p className="error" role="alert">
-            Нет связи с сервером. Проверьте интернет.
+            Нет связи с сервером.
           </p>
+          {unsent > 0 && (
+            <p className="queued" role="status">
+              На телефоне {plural(unsent, "ждёт", "ждут", "ждут")} отправки: {unsent} {plural(unsent, "запись", "записи", "записей")}.
+              Не потеряно: {plural(unsent, "она уйдёт", "они уйдут", "они уйдут")}, когда связь появится и войдёт кассир, который {plural(unsent, "её внёс", "их внёс", "их внёс")}.
+            </p>
+          )}
           <button type="button" onClick={load}>
             Повторить
           </button>
@@ -155,6 +176,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     document.addEventListener("visibilitychange", cameBack);
     // So that an expense can be entered later without a connection: the categories are kept on the phone.
     fetchCategories().catch(() => {});
+    // The entries that wait live only in this browser's storage: ask it not to clear them when short of room.
+    keepStorage();
     const stopListening = onQueuedEntrySaved(showSavedBalances);
     sendWhatWaits();
     return () => {
@@ -165,7 +188,11 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     };
   }, [cashier, user.login, loadBalances, showSavedBalances]);
 
-  const kept = useQueueState().entries.filter((entry) => entry.login === user.login).length;
+  const mine = useQueueState().entries.filter((entry) => entry.login === user.login);
+  const kept = mine.length;
+  const blockedCount = mine.filter((entry) => entry.status === "blocked").length;
+  const waitingCount = kept - blockedCount;
+  const leaveButton = useRef<HTMLButtonElement>(null);
 
   async function leave(sure = false) {
     setError(null);
@@ -185,7 +212,14 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       // fall through to the message below
     }
     // Do not pretend we are logged out while the session is still alive on the server.
-    setError("Не удалось выйти: нет связи с сервером. Попробуйте ещё раз.");
+    setError(
+      `Выйти можно только при связи с сервером. Пока вы вошли как ${user.displayName}: новые записи пойдут от этого имени.`,
+    );
+  }
+
+  function stay() {
+    setConfirmingLeave(false);
+    leaveButton.current?.focus();
   }
 
   return (
@@ -198,26 +232,43 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
             <span className="role">{ROLE_LABEL[user.role]}</span>
           </p>
         </div>
-        <button type="button" className="secondary small" onClick={() => void leave()}>
+        <button ref={leaveButton} type="button" className="secondary small" onClick={() => void leave()}>
           Выйти
         </button>
       </header>
 
       {confirmingLeave && (
-        <div className="queue" role="alertdialog" aria-label="Выход с неотправленными записями">
-          <p className="queue-title">
+        <div
+          className="queue"
+          role="alertdialog"
+          aria-labelledby="leave-title"
+          aria-describedby="leave-text"
+          tabIndex={-1}
+          ref={(node) => node?.focus()}
+        >
+          <p className="queue-title" id="leave-title">
             Не отправлено: {kept} {plural(kept, "запись", "записи", "записей")}
           </p>
-          <p>
-            Они останутся на этом телефоне и отправятся после вашего следующего входа. Пока они не дошли, их нет ни в
-            журнале, ни в остатке.
-          </p>
+          <div id="leave-text" className="queue-text">
+            {waitingCount > 0 && (
+              <p>
+                {waitingCount === 1 ? "Она останется" : "Они останутся"} на этом телефоне и {waitingCount === 1 ? "уйдёт" : "уйдут"} после
+                вашего следующего входа. Пока {waitingCount === 1 ? "она не дошла, её нет" : "они не дошли, их нет"} ни в журнале, ни в остатке.
+              </p>
+            )}
+            {blockedCount > 0 && (
+              <p>
+                Ещё {blockedCount} {plural(blockedCount, "запись", "записи", "записей")} сервер не принял.{" "}
+                {blockedCount === 1 ? "Сама она не уйдёт" : "Сами они не уйдут"}: нужно решить, отправить {blockedCount === 1 ? "её" : "их"} снова или удалить.
+              </p>
+            )}
+          </div>
           <div className="queue-actions">
-            <button type="button" className="small" onClick={() => void leave(true)}>
-              Всё равно выйти
-            </button>
-            <button type="button" className="secondary small" onClick={() => setConfirmingLeave(false)}>
+            <button type="button" className="small" onClick={stay}>
               Остаться
+            </button>
+            <button type="button" className="secondary small" onClick={() => void leave(true)}>
+              Всё равно выйти
             </button>
           </div>
         </div>
@@ -229,9 +280,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         </p>
       )}
 
-      <Balances balances={balances} onRetry={loadBalances} />
-
-      {cashier && <QueueBanner login={user.login} onSignIn={onLoggedOut} />}
+      <Balances balances={balances} onRetry={loadBalances} unsent={cashier ? kept : 0} />
 
       {user.role === "cashier" ? (
         <EntryScreen
@@ -242,6 +291,9 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       ) : (
         <Journal mode="viewer" onSessionExpired={onLoggedOut} onRefresh={loadBalances} />
       )}
+
+      {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
+      {cashier && <QueueBanner login={user.login} onSignIn={onLoggedOut} />}
     </main>
   );
 }

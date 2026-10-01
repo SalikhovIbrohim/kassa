@@ -1,16 +1,19 @@
-import { useEffect, useState, type MutableRefObject } from "react";
-import type { Balance, Operation, OperationInput } from "./api";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import type { Balance, Category, Operation, OperationInput } from "./api";
 import { formatMoney } from "./money";
-import { submitEntry } from "./queue-instance";
+import { onQueuedEntrySaved, submitEntry, useQueueState } from "./queue-instance";
+import { entryText } from "./queue-text";
+import { rememberCurrency } from "./remembered-currency";
 
 const SERVER_MAY_HAVE_SAVED =
   "Сервер сейчас не справился. Возможно, запись уже сохранилась. Нажмите кнопку ещё раз: дубля не будет.";
 
-/** What the form says when the entry is on the phone and has not reached the server yet. */
-const KEPT_ON_THE_PHONE = {
-  offline: "Нет связи. Запись сохранена на телефоне и отправится сама, когда связь появится.",
-  server: "Сервер сейчас не отвечает как надо. Запись сохранена на телефоне и отправится сама.",
-  login: "Нужно войти заново. Запись сохранена на телефоне и отправится после входа.",
+/** Why an entry is on the phone and not on the server, and what happens next. */
+const WHY_KEPT = {
+  offline: "Уйдёт, когда появится связь и приложение будет открыто.",
+  server: "Сервер не ответил как надо. Отправим ещё раз сами, пока приложение открыто.",
+  slow: "Сервер отвечает долго. Отправка идёт: держите приложение открытым.",
+  login: "Нужно войти заново: запись уйдёт после входа.",
 } as const;
 
 type Options = {
@@ -29,24 +32,62 @@ type Options = {
    * "saved" banner is about, the banner must not keep saying what it said before.
    */
   changed?: Operation | null;
+  /** Names of the categories, for the line that says what was kept on the phone. */
+  categories?: readonly Category[];
 };
+
+/** What the form says about its last entry while it is on the phone and not yet on the server. */
+export type EntryNote = { kind: "kept" | "blocked"; text: string };
 
 /**
  * What every entry form shares: the id is kept while the entry is retried and renewed
  * once it is saved; a busy flag against double taps; Russian error messages.
  */
-export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed }: Options) {
+export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories }: Options) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Operation | null>(null);
-  // Set when the last entry is on the phone and not yet on the server.
-  const [note, setNote] = useState<string | null>(null);
+  // The last entry, while it is on the phone and not yet on the server: what it was, and what was said.
+  const [kept, setKept] = useState<{ id: string; echo: string; text: string } | null>(null);
+  const keptId = useRef<string | null>(null);
+  const queued = useQueueState().entries;
 
   // A correction shows in the banner; a deletion takes the banner away.
   useEffect(() => {
     if (!changed) return;
     setSaved((current) => (current && current.id === changed.id ? (changed.deletedAt ? null : changed) : current));
   }, [changed]);
+
+  // The entry that was kept on the phone has reached the server by itself: it says so, like any saved entry.
+  useEffect(
+    () =>
+      onQueuedEntrySaved((_balances, operation) => {
+        if (operation.id !== keptId.current) return;
+        keptId.current = null;
+        setKept(null);
+        if (operation.deletedAt === null) setSaved(operation);
+      }),
+    [],
+  );
+
+  const onThePhone = kept ? queued.find((entry) => entry.id === kept.id) : undefined;
+  // Gone from the phone without having been saved: the cashier gave it up. Nothing more to say about it.
+  useEffect(() => {
+    if (kept && !onThePhone) {
+      keptId.current = null;
+      setKept(null);
+    }
+  }, [kept, onThePhone]);
+
+  const note: EntryNote | null =
+    kept && onThePhone
+      ? onThePhone.status === "blocked"
+        ? {
+            kind: "blocked",
+            text: `Сервер не принял запись: ${kept.echo}. Что с ней делать, решите в плашке «Не отправлено» ниже.`,
+          }
+        : { kind: "kept", text: kept.text }
+      : null;
 
   /**
    * Writes the entry to the phone and sends it. Resolves true when the entry is safe, on the
@@ -56,11 +97,14 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
     if (busy) return false;
     setBusy(true);
     setError(null);
-    setNote(null);
+    keptId.current = null;
+    setKept(null);
     try {
-      const outcome = await submitEntry(build(entryId.current));
+      const input = build(entryId.current);
+      const outcome = await submitEntry(input);
 
       if (outcome.kind === "saved") {
+        rememberCurrency(input.currency);
         entryId.current = crypto.randomUUID();
         onSaved(outcome.balances);
         if (outcome.operation.deletedAt !== null) {
@@ -75,9 +119,16 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
 
       if (outcome.kind === "kept") {
         // It is on the phone under its own id; the next entry is a new one.
+        rememberCurrency(input.currency);
         entryId.current = crypto.randomUUID();
         setSaved(null);
-        setNote(KEPT_ON_THE_PHONE[outcome.why]);
+        const echo = entryText(input, categories ?? []);
+        keptId.current = input.id;
+        setKept({
+          id: input.id,
+          echo,
+          text: `Сохранено на телефоне, на сервер не ушло: ${echo}. ${WHY_KEPT[outcome.why]}`,
+        });
         if (outcome.why === "login") onSessionExpired();
         return true;
       }

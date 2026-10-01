@@ -1,7 +1,8 @@
-import { useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import type { Balance, Operation } from "./api";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
+import { EntryStatus } from "./EntryStatus";
 import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
 import { useEntry } from "./useEntry";
 
@@ -14,6 +15,8 @@ type Props = {
   onSessionExpired: () => void;
   /** The operation last corrected or deleted in the journal (see useEntry). */
   changed?: Operation | null;
+  /** The form is on the screen (and not hidden behind the other one or the journal). */
+  active: boolean;
 };
 
 export function IncomeForm({
@@ -24,12 +27,18 @@ export function IncomeForm({
   onBalancesStale,
   onSessionExpired,
   changed,
+  active,
 }: Props) {
   const [amount, setAmount] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed });
+
+  // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
+  useEffect(() => {
+    if (active) amountInput.current?.focus();
+  }, [active]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -65,18 +74,14 @@ export function IncomeForm({
     <form className="card" onSubmit={submit}>
       <h2>Приход</h2>
 
-      {entry.note && (
-        <p className="queued" role="status">
-          {entry.note}
-        </p>
-      )}
-
-      {entry.saved?.type === "income" && (
-        <p className="success" role="status">
-          Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}, клиент{" "}
-          {entry.saved.clientCode}. <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
-        </p>
-      )}
+      <EntryStatus note={entry.note}>
+        {entry.saved?.type === "income" && (
+          <p className="success">
+            Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}, клиент{" "}
+            {entry.saved.clientCode}. <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+          </p>
+        )}
+      </EntryStatus>
 
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
@@ -90,7 +95,6 @@ export function IncomeForm({
           autoComplete="off"
           enterKeyHint="next"
           placeholder="0"
-          autoFocus
           required
           value={amount}
           onChange={(event) => setAmount(event.target.value)}

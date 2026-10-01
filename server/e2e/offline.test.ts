@@ -80,11 +80,28 @@ describe("making entries without a connection", () => {
     await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
   }
 
+  /** The amount field of the form that is on the screen (the other form is kept alive, hidden). */
+  const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
+
   async function enterIncome(page: Page, amount: string, clientCode: string) {
     await page.getByRole("button", { name: "Приход", exact: true }).click();
-    await page.locator("input[name=amount]").fill(amount);
+    await amountField(page).fill(amount);
     await page.locator("input[name=clientCode]").fill(clientCode);
     await page.getByRole("button", { name: "Записать приход" }).click();
+  }
+
+  /**
+   * The entry was typed and the first try to send it failed: the form says so. The banner is there earlier, as
+   * soon as the entry is on the phone, so it is not the moment to let the connection come back.
+   */
+  const waitUntilKept = (page: Page) =>
+    seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
+
+  async function enterExpense(page: Page, amount: string, category = "Топливо и дорога") {
+    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await amountField(page).fill(amount);
+    await page.getByText(category).click();
+    await page.getByRole("button", { name: "Записать расход" }).click();
   }
 
   it("keeps an entry on the phone, opens the app without a connection, and sends the entry by itself once, when the connection returns", async () => {
@@ -94,9 +111,11 @@ describe("making entries without a connection", () => {
     await context.setOffline(true);
     await enterIncome(page, "777", "OFF-1");
 
-    await seeVisible(page.getByRole("status").filter({ hasText: "Запись сохранена на телефоне" }));
+    await seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло: Приход +777,00" }));
     await seeText(banner, "Не отправлено: 1 запись");
-    await seeValue(page.locator("input[name=amount]"), "");
+    // The balances do not count what is on the phone, and say so.
+    await seeText(page.getByRole("region", { name: "Остатки" }), "Без учёта неотправленных записей: 1");
+    await seeValue(amountField(page), "");
 
     // The app is closed and opened again with no connection at all: it opens, and the entry is still there.
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -126,7 +145,7 @@ describe("making entries without a connection", () => {
 
     await enterIncome(page, "888", "OFF-2");
 
-    await seeVisible(page.getByRole("status").filter({ hasText: "Запись сохранена на телефоне" }));
+    await seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
     expect(await onServer("OFF-2")).toBe(1);
 
     await page.unroute("**/api/operations");
@@ -134,6 +153,9 @@ describe("making entries without a connection", () => {
 
     await seeGone(banner);
     expect(await onServer("OFF-2")).toBe(1);
+    // The form that kept the entry says that it has arrived, like for any entry that is saved.
+    await seeText(page.locator(".success"), "Записано: приход");
+    await seeGone(page.getByText("Сохранено на телефоне, на сервер не ушло"));
   });
 
   it("lets an expense be entered without a connection, with the categories the phone kept", async () => {
@@ -141,10 +163,8 @@ describe("making entries without a connection", () => {
     await waitUntilKeptOnThePhone(page);
 
     await context.setOffline(true);
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
-    await page.locator("input[name=amount]").fill("250");
-    await page.getByText("Топливо и дорога").click();
-    await page.getByRole("button", { name: "Записать расход" }).click();
+    await enterExpense(page, "250");
+    await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
     await context.setOffline(false);
 
@@ -159,6 +179,7 @@ describe("making entries without a connection", () => {
     const { started, page, context, signIn, onServer } = await desk();
     await context.setOffline(true);
     await enterIncome(page, "999", "OFF-3");
+    await waitUntilKept(page);
     await seeText(page.getByRole("region", { name: /ещё не дошли/ }), "Не отправлено: 1 запись");
     // Meanwhile somebody ends the cashier's sessions (access revoked, then given back).
     await started.admin.revokeUser("ivan");
@@ -166,7 +187,7 @@ describe("making entries without a connection", () => {
 
     await context.setOffline(false);
 
-    await seeVisible(page.getByText("На телефоне ждут отправки: 1 запись"));
+    await seeVisible(page.getByText("На телефоне ждёт отправки: 1 запись"));
     expect(await onServer("OFF-3")).toBe(0);
 
     await signIn("ivan", "correct horse");
@@ -178,19 +199,20 @@ describe("making entries without a connection", () => {
     const { page, context, banner, signIn, onServer, authorsOnServer } = await desk();
     await context.setOffline(true);
     await enterIncome(page, "111", "OFF-4");
+    await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
     // The connection comes back, but the server cannot be reached for entries yet.
     await page.route("**/api/operations", (route) => (route.request().method() === "POST" ? route.abort("internetdisconnected") : route.continue()));
     await context.setOffline(false);
 
     await page.getByRole("button", { name: "Выйти" }).click();
-    await seeText(page.getByRole("alertdialog"), "Они останутся на этом телефоне");
+    await seeText(page.getByRole("alertdialog"), "Она останется на этом телефоне");
     await page.getByRole("button", { name: "Всё равно выйти" }).click();
     await page.getByRole("button", { name: "Войти" }).waitFor();
     await signIn("petr", "another good one");
     await page.unroute("**/api/operations");
 
-    await seeText(page.getByRole("region", { name: /ещё не дошли/ }), "ждут входа другого кассира (ivan)");
+    await seeText(page.getByRole("region", { name: /ещё не дошли/ }), "записи другого кассира (ivan)");
     // Give the phone every chance to send it (the connection "comes back" once more): it must not.
     await context.setOffline(true);
     await context.setOffline(false);
@@ -209,16 +231,16 @@ describe("making entries without a connection", () => {
   it("keeps an entry the server refuses for lack of money, with the reason, until the cashier decides", async () => {
     const { started, page, context, banner } = await desk();
     await context.setOffline(true);
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
-    await page.locator("input[name=amount]").fill("500");
-    await page.getByText("Топливо и дорога").click();
-    await page.getByRole("button", { name: "Записать расход" }).click();
+    await enterExpense(page, "500");
+    await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
 
     await context.setOffline(false);
 
-    await seeText(banner, "В кассе не хватает денег");
-    await seeText(banner, "Сервер не принял эти записи");
+    await seeText(banner, "В кассе не хватило денег");
+    await seeText(banner, "Сервер не принял эту запись");
+    // The form that made the entry says so too, and what to do.
+    await seeText(page.getByRole("status").filter({ hasText: "Сервер не принял запись" }), "Что с ней делать, решите в плашке");
 
     // Money comes in (another way), and the cashier asks to try again.
     const cookie = await loginAs(started, "ivan", "correct horse");
@@ -229,30 +251,207 @@ describe("making entries without a connection", () => {
       cookie,
     );
     expect(income.status).toBe(201);
-    await banner.getByRole("button", { name: "Повторить" }).click();
+    await banner.getByRole("button", { name: "Отправить снова" }).click();
 
     await seeGone(banner);
     const operations = (await (await get(started, "/api/operations?limit=100", cookie)).json()).operations;
     expect(operations.filter((item: { type: string }) => item.type === "expense")).toHaveLength(1);
   });
 
-  it("lets the cashier give up an entry the server refused, after asking twice", async () => {
+  it("lets the cashier delete from the phone an entry the server refused, after asking twice", async () => {
     const { started, page, context, banner } = await desk();
     await context.setOffline(true);
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
-    await page.locator("input[name=amount]").fill("500");
-    await page.getByText("Топливо и дорога").click();
-    await page.getByRole("button", { name: "Записать расход" }).click();
+    await enterExpense(page, "500");
+    await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
     await context.setOffline(false);
-    await seeText(banner, "В кассе не хватает денег");
+    await seeText(banner, "В кассе не хватило денег");
 
-    await banner.getByRole("button", { name: "Убрать" }).click();
-    await seeText(banner, "Точно убрать?");
-    await banner.getByRole("button", { name: "Да, убрать" }).click();
+    await banner.getByRole("button", { name: "Удалить с телефона" }).click();
+    await seeText(banner, "Удалить эту запись с телефона?");
+    await banner.getByRole("button", { name: "Да, удалить" }).click();
 
     await seeGone(banner);
     const cookie = await loginAs(started, "ivan", "correct horse");
     expect((await (await get(started, "/api/operations?limit=100", cookie)).json()).operations).toEqual([]);
+  });
+
+  it("does not leave a tab on the screen of a cashier who has signed out in another tab of the same browser", async () => {
+    const { started, page, context, banner, signIn, onServer, authorsOnServer } = await desk();
+    await context.setOffline(true);
+    await enterIncome(page, "321", "TAB-1");
+    await waitUntilKept(page);
+    await seeText(banner, "Не отправлено: 1 запись");
+    // No tab of this browser can send entries for now; for everything else the connection is back.
+    const noEntries = (route: import("playwright-core").Route) =>
+      route.request().method() === "POST" ? route.abort("internetdisconnected") : route.continue();
+    await context.route("**/api/operations", noEntries);
+    await context.setOffline(false);
+
+    // Another tab of the same browser (one cookie jar): ivan leaves it, petr signs in.
+    const other = await context.newPage();
+    await other.goto(started.baseUrl);
+    await other.getByRole("button", { name: "Выйти" }).click();
+    await other.getByRole("button", { name: "Всё равно выйти" }).click();
+    await other.getByLabel("Логин").fill("petr");
+    await other.getByLabel("Пароль").fill("another good one");
+    await other.getByRole("button", { name: "Войти" }).click();
+    await other.getByRole("button", { name: "Выйти" }).waitFor();
+
+    // The first tab does not go on as ivan: it asks for a sign-in, and says what waits on the phone.
+    await seeVisible(page.getByRole("button", { name: "Войти" }));
+    await seeText(page.locator("form.card"), "На телефоне ждёт отправки: 1 запись");
+    await context.unroute("**/api/operations", noEntries);
+    await page.waitForTimeout(1500);
+    expect(await onServer("TAB-1")).toBe(0);
+
+    // The entry waits for its author, and is written by him.
+    await signIn("ivan", "correct horse");
+    await expect.poll(() => onServer("TAB-1")).toBe(1);
+    expect(await authorsOnServer("TAB-1")).toEqual(["ivan"]);
+  });
+
+  it("does not book an entry under a session of another cashier that no screen of this tab knows about", async () => {
+    const { started, page, context, banner, signIn, onServer, authorsOnServer } = await desk();
+    await context.setOffline(true);
+    await enterIncome(page, "654", "TAB-2");
+    await waitUntilKept(page);
+    await seeText(banner, "Не отправлено: 1 запись");
+    // The connection comes back but entries still cannot go out (from any tab: the entries on the phone are
+    // shared), while petr signs in behind this tab's back: the cookie is shared by the whole browser, and
+    // nothing tells this tab.
+    const noEntries = (route: import("playwright-core").Route) =>
+      route.request().method() === "POST" ? route.abort("internetdisconnected") : route.continue();
+    await context.route("**/api/operations", noEntries);
+    await context.setOffline(false);
+    const other = await context.newPage();
+    await other.goto(started.baseUrl);
+    await other.evaluate(async () => {
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ login: "petr", password: "another good one" }),
+      });
+      if (!response.ok) throw new Error(`login ${response.status}`);
+    });
+
+    await context.unroute("**/api/operations", noEntries);
+    // Either the button or the phone's own next try gets there first: both end the same way.
+    await banner.getByRole("button", { name: "Отправить сейчас" }).click({ timeout: 2_000 }).catch(() => {});
+
+    // The server refuses it (it is ivan's entry, the session is petr's): it asks for a sign-in and books nothing.
+    await seeText(banner, "Нужно войти заново");
+    expect(await onServer("TAB-2")).toBe(0);
+    await banner.getByRole("button", { name: "Войти" }).click();
+    await signIn("ivan", "correct horse");
+    await expect.poll(() => onServer("TAB-2")).toBe(1);
+    expect(await authorsOnServer("TAB-2")).toEqual(["ivan"]);
+  });
+
+  it("does not hold the form when the server does not answer: the entry is on the phone, and goes out when the server is back", async () => {
+    const { page, banner, onServer } = await desk();
+    // A connection that is up and a server that never answers.
+    await page.route("**/api/operations", () => {});
+
+    await enterIncome(page, "654", "HANG-1");
+
+    await seeVisible(page.getByRole("status").filter({ hasText: "Сервер отвечает долго" }));
+    await seeText(page.getByRole("button", { name: /Записать приход|Записываем/ }), "Записать приход");
+    await seeValue(amountField(page), "");
+    expect(await onServer("HANG-1")).toBe(0);
+
+    await page.unroute("**/api/operations");
+    // The request that hangs is cut off after ten seconds, and the entry goes out again by itself.
+    await seeGone(banner);
+    expect(await onServer("HANG-1")).toBe(1);
+    await seeText(page.locator(".success"), "Записано: приход");
+  });
+
+  it("opens the app from the phone while the proxy answers 502 for everything, and keeps entries until the server is back", async () => {
+    const { page, context, banner, onServer } = await desk();
+    await waitUntilKeptOnThePhone(page);
+    const down = (route: import("playwright-core").Route) =>
+      route.fulfill({ status: 502, contentType: "text/plain", body: "Bad Gateway" });
+    // The context sees what the service worker asks for too, which the page alone does not.
+    await context.route("**/*", down);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await enterIncome(page, "135", "BAD-1");
+    await seeText(banner, "Не отправлено: 1 запись");
+
+    await context.unroute("**/*", down);
+    await seeGone(banner);
+    expect(await onServer("BAD-1")).toBe(1);
+  });
+
+  it("sends what waits before an entry typed now, so that money that came in earlier counts first", async () => {
+    const { page, context, banner, onServer } = await desk();
+    await context.setOffline(true);
+    await enterIncome(page, "100", "ORD-1");
+    await waitUntilKept(page);
+    await seeText(banner, "Не отправлено: 1 запись");
+    // The connection is back, but the first try fails: the entry waits, and its next try is a few seconds away.
+    let failed = false;
+    await page.route("**/api/operations", (route) => {
+      if (route.request().method() === "POST" && !failed) {
+        failed = true;
+        return route.abort("internetdisconnected");
+      }
+      return route.continue();
+    });
+    await context.setOffline(false);
+    await page.waitForFunction(() => document.body.innerText.includes("Нет связи с сервером"));
+
+    // An expense of 80 with the income of 100 still on the phone: the server has no money yet.
+    await enterExpense(page, "80");
+
+    await seeGone(banner);
+    expect(await page.getByText("В кассе не хватает денег").count()).toBe(0);
+    expect(await onServer("ORD-1")).toBe(1);
+    await seeText(page.locator('[data-currency="RUB"]'), "20,00");
+  });
+
+  it("keeps a very long client code inside the screen", async () => {
+    const { page, context, banner } = await desk();
+    await context.setOffline(true);
+    await enterIncome(page, "5", "K".repeat(60));
+    await seeText(banner, "Не отправлено: 1 запись");
+
+    await banner.getByRole("button", { name: "Показать список" }).click();
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+
+  it("keeps what is typed in the expense form while the income form is looked at", async () => {
+    const { page } = await desk({ RUB: "1000" });
+    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await amountField(page).fill("250");
+    await page.getByText("Топливо и дорога").click();
+
+    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await seeValue(amountField(page), "");
+    await page.getByRole("button", { name: "Расход", exact: true }).click();
+
+    await seeValue(amountField(page), "250");
+    expect(await page.getByRole("radio", { name: "Топливо и дорога" }).isChecked()).toBe(true);
+  });
+
+  it("starts a form with the currency of the last entry also when the server cannot be asked", async () => {
+    const { page, context } = await desk();
+    await waitUntilKeptOnThePhone(page);
+    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("radio", { name: "Доллары" }).check();
+    await amountField(page).fill("10");
+    await page.locator("input[name=clientCode]").fill("USD-1");
+    await page.getByRole("button", { name: "Записать приход" }).click();
+    await seeText(page.locator(".success"), "Записано: приход");
+
+    await context.setOffline(true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Выйти" }).waitFor();
+
+    expect(await page.getByRole("radio", { name: "Доллары" }).isChecked()).toBe(true);
   });
 });

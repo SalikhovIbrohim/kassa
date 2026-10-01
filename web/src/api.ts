@@ -12,9 +12,20 @@ export class NetworkError extends Error {}
 /** The session ended (expired, revoked, logged out elsewhere): show the login screen. */
 export class SessionExpiredError extends Error {}
 
-async function request(path: string, init?: RequestInit): Promise<Response> {
+/** The whole exchange, the answer read to its end included, must be over in this time. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * A request that cannot hang: a phone with bars but no data (or a server that is stuck) leaves a fetch
+ * waiting for as long as the system likes. After the time is up it is a lost connection, like any other.
+ * The timer is left running when the answer has begun, so that a body that never ends is cut off too;
+ * aborting what is finished does nothing.
+ */
+async function request(path: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(path, { credentials: "same-origin", ...init });
+    return await fetch(path, { credentials: "same-origin", ...init, signal: controller.signal });
   } catch {
     throw new NetworkError(`Cannot reach the server for ${path}`);
   }
@@ -22,7 +33,8 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
 
 /** The person behind the session cookie, or null when nobody is logged in. */
 export async function fetchCurrentUser(): Promise<User | null> {
-  const response = await request("/api/me");
+  // Short: when it does not answer, the app opens with the cashier it remembers, and the entries wait on the phone.
+  const response = await request("/api/me", undefined, 5_000);
   if (response.status === 401) return null;
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/me`);
   const body = (await response.json()) as { user: User };
@@ -175,23 +187,51 @@ export type OperationInput =
 
 export type OperationResult =
   | { ok: true; operation: Operation; balances: Balance[] }
-  | { ok: false; reason: "session-expired" | "forbidden" | "conflict" | "rejected" | "server-error" }
+  | {
+      ok: false;
+      reason:
+        | "session-expired"
+        /** The session belongs to another cashier than the one who made the entry. */
+        | "wrong-session"
+        | "forbidden"
+        | "conflict"
+        | "rejected"
+        | "server-error";
+    }
   /** An expense above what the cash desk holds: the server says how much there is. */
   | { ok: false; reason: "insufficient-balance"; currency: Currency; availableMinor: number };
 
-export async function createOperation(input: OperationInput): Promise<OperationResult> {
-  const response = await request("/api/operations", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  });
+/** Answers that say "not now" and not "no": a proxy that is busy, a server that is being replaced. */
+const TRY_AGAIN_LATER = new Set([404, 405, 408, 425, 429]);
+
+/**
+ * Sends an entry. `login` is whose entry it is: the server takes the author from the session, and
+ * refuses the entry (409 wrong_session) when the session is another cashier's. Percent-encoded,
+ * because a header cannot carry every alphabet and a login may be in any.
+ */
+export async function createOperation(input: OperationInput, login: string): Promise<OperationResult> {
+  const response = await request(
+    "/api/operations",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-kassa-as": encodeURIComponent(login) },
+      body: JSON.stringify(input),
+    },
+    10_000,
+  );
   if (response.ok) {
-    const body = (await response.json()) as { operation: Operation; balances: Balance[] };
-    return { ok: true, ...body };
+    // Only an answer that is about this entry counts as the server having it: anything else that says
+    // 200 (a captive portal, a proxy of some kind) would otherwise make the phone forget the entry.
+    const body = (await response.json().catch(() => null)) as { operation?: Operation; balances?: Balance[] } | null;
+    if (body?.operation?.id !== input.id || !Array.isArray(body.balances)) return { ok: false, reason: "server-error" };
+    return { ok: true, operation: body.operation, balances: body.balances };
   }
   if (response.status === 401) return { ok: false, reason: "session-expired" };
   if (response.status === 403) return { ok: false, reason: "forbidden" };
-  if (response.status === 409) return { ok: false, reason: "conflict" };
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, reason: body?.error === "wrong_session" ? "wrong-session" : "conflict" };
+  }
   if (response.status === 422) {
     const body = (await response.json().catch(() => null)) as {
       currency?: Currency;
@@ -206,9 +246,9 @@ export async function createOperation(input: OperationInput): Promise<OperationR
       };
     }
   }
-  // The server itself failed: the entry may or may not have been saved, which is not the
+  // The server itself failed, or is busy: the entry may or may not have been saved, which is not the
   // data's fault and must not be reported as if it were.
-  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  if (response.status >= 500 || TRY_AGAIN_LATER.has(response.status)) return { ok: false, reason: "server-error" };
   return { ok: false, reason: "rejected" };
 }
 

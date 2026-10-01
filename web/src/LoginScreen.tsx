@@ -19,7 +19,9 @@ export function LoginScreen({ onLoggedIn }: Props) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const waiting = useQueueState().entries.length;
+  const entries = useQueueState().entries;
+  const blocked = entries.filter((entry) => entry.status === "blocked").length;
+  const waiting = entries.length - blocked;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -62,8 +64,14 @@ export function LoginScreen({ onLoggedIn }: Props) {
 
         {waiting > 0 && (
           <p className="queued" role="status">
-            На телефоне ждут отправки: {waiting} {plural(waiting, "запись", "записи", "записей")}. Они отправятся после
-            входа того, кто их сделал.
+            На телефоне {plural(waiting, "ждёт", "ждут", "ждут")} отправки: {waiting} {plural(waiting, "запись", "записи", "записей")}.{" "}
+            {waiting === 1 ? "Она уйдёт" : "Они уйдут"} сразу после входа кассира, который {waiting === 1 ? "её" : "их"} внёс.
+          </p>
+        )}
+        {blocked > 0 && (
+          <p className="queued blocked" role="status">
+            Ещё {blocked} {plural(blocked, "запись", "записи", "записей")} сервер не принял: после входа нужно решить, что с{" "}
+            {blocked === 1 ? "ней" : "ними"} делать.
           </p>
         )}
 

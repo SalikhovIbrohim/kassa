@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
 import { EXPENSE_CATEGORIES } from "./categories.js";
@@ -16,6 +16,31 @@ export type OperationsOptions = {
 /** Makes %, _ and \\ in what a person typed ordinary characters in a LIKE pattern. */
 function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Who the sender is sending for, percent-encoded because a login may be in any alphabet. The queue of a
+ * phone sends the login of the cashier who made the entry: the server takes the author from the session,
+ * and a phone where somebody else has signed in since (in another tab, or while a send was under way)
+ * must not book the entry under them. An entry without the header is the author's own, as it always was.
+ */
+const AUTHOR_HEADER = "x-kassa-as";
+
+async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: FastifyReply) {
+  const claimed = request.headers[AUTHOR_HEADER];
+  if (claimed === undefined) return;
+  let said: string | undefined;
+  try {
+    said = typeof claimed === "string" ? decodeURIComponent(claimed) : undefined;
+  } catch {
+    said = undefined;
+  }
+  if (said === undefined || said.toLowerCase() !== request.user!.login.toLowerCase()) {
+    return reply.code(409).send({
+      error: "wrong_session",
+      message: "This entry belongs to another cashier than the one who is signed in here.",
+    });
+  }
 }
 
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
@@ -79,7 +104,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
-      onRequest: [app.authenticate, app.requireRole("cashier")],
+      onRequest: [app.authenticate, app.requireRole("cashier"), mustBeSentForTheSessionsOwner],
       schema: {
         // The id is made by the client, so that sending the same entry twice stores it once.
         body: entrySchema({ properties: { id: UUID }, required: ["id"] }),

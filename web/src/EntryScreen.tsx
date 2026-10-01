@@ -4,6 +4,7 @@ import { ExpenseForm } from "./ExpenseForm";
 import { IncomeForm } from "./IncomeForm";
 import { Journal } from "./Journal";
 import type { Currency } from "./money";
+import { rememberedCurrency } from "./remembered-currency";
 
 type Props = {
   onSaved: (balances: Balance[]) => void;
@@ -15,13 +16,16 @@ type Form = "income" | "expense";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
 export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Props) {
-  // The form being filled stays alive, only hidden, while the journal is open: a cashier who
-  // peeks at the journal in the middle of an entry must find their typing where they left it.
+  // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
+  // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
+  // they left it (an expense that the server refused for lack of money is exactly when they go and enter
+  // the income first).
   const [form, setForm] = useState<Form>("income");
   const [journalOpen, setJournalOpen] = useState(false);
   // What the cashier last corrected or deleted in the journal, for the "saved" banners.
   const [changed, setChanged] = useState<Operation | null>(null);
-  const [currency, setCurrency] = useState<Currency>("RUB");
+  // The currency of the last entry is known without the server: a form opened offline starts with it.
+  const [currency, setCurrency] = useState<Currency>(() => rememberedCurrency() ?? "RUB");
   const currencyTouched = useRef(false);
   const entryId = useRef(crypto.randomUUID());
 
@@ -82,7 +86,12 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
         </button>
       </div>
 
-      <div hidden={journalOpen}>{form === "income" ? <IncomeForm {...shared} /> : <ExpenseForm {...shared} />}</div>
+      <div hidden={journalOpen || form !== "income"}>
+        <IncomeForm {...shared} active={!journalOpen && form === "income"} />
+      </div>
+      <div hidden={journalOpen || form !== "expense"}>
+        <ExpenseForm {...shared} active={!journalOpen && form === "expense"} />
+      </div>
       {journalOpen && (
         <Journal
           mode="cashier"

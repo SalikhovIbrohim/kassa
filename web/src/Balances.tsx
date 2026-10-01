@@ -8,9 +8,11 @@ export type BalancesState = Balance[] | null | undefined | "offline";
 type Props = {
   balances: BalancesState;
   onRetry: () => void;
+  /** Entries of this cashier that are on the phone and not on the server: the balances do not count them. */
+  unsent?: number;
 };
 
-export function Balances({ balances, onRetry }: Props) {
+export function Balances({ balances, onRetry, unsent = 0 }: Props) {
   if (balances === undefined) {
     return (
       <section className="card" aria-label="Остатки">
@@ -49,6 +51,12 @@ export function Balances({ balances, onRetry }: Props) {
           </div>
         );
       })}
+      {unsent > 0 && (
+        <p className="hint balances-unsent">
+          Без учёта неотправленных записей: {unsent}.{" "}
+          <a href="#queue">Показать</a>
+        </p>
+      )}
       {balances === "offline" && (
         <p className="hint balances-offline">
           Нет связи: остатков не видно. Они появятся, когда связь вернётся.{" "}

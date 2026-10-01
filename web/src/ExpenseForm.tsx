@@ -10,6 +10,7 @@ import {
 import { CategoryPicker } from "./CategoryPicker";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
+import { EntryStatus } from "./EntryStatus";
 import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
 import { useEntry } from "./useEntry";
 
@@ -22,6 +23,8 @@ type Props = {
   onSessionExpired: () => void;
   /** The operation last corrected or deleted in the journal (see useEntry). */
   changed?: Operation | null;
+  /** The form is on the screen (and not hidden behind the other one or the journal). */
+  active: boolean;
 };
 
 export function ExpenseForm({
@@ -32,6 +35,7 @@ export function ExpenseForm({
   onBalancesStale,
   onSessionExpired,
   changed,
+  active,
 }: Props) {
   // null: loading, undefined: failed to load.
   const [categories, setCategories] = useState<Category[] | null | undefined>(null);
@@ -41,7 +45,12 @@ export function ExpenseForm({
   const [recipient, setRecipient] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed });
+  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
+
+  // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
+  useEffect(() => {
+    if (active) amountInput.current?.focus();
+  }, [active]);
 
   function loadCategories() {
     setCategories(null);
@@ -98,18 +107,14 @@ export function ExpenseForm({
     <form className="card" onSubmit={submit}>
       <h2>Расход</h2>
 
-      {entry.note && (
-        <p className="queued" role="status">
-          {entry.note}
-        </p>
-      )}
-
-      {entry.saved?.type === "expense" && (
-        <p className="success" role="status">
-          Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.{" "}
-          <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
-        </p>
-      )}
+      <EntryStatus note={entry.note}>
+        {entry.saved?.type === "expense" && (
+          <p className="success">
+            Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.{" "}
+            <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+          </p>
+        )}
+      </EntryStatus>
 
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
@@ -123,7 +128,6 @@ export function ExpenseForm({
           autoComplete="off"
           enterKeyHint="next"
           placeholder="0"
-          autoFocus
           required
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
