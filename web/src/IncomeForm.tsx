@@ -3,6 +3,7 @@ import type { Balance, Operation } from "./api";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
+import { AmountInput } from "./AmountInput";
 import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
 import { useEntry } from "./useEntry";
 
@@ -87,17 +88,15 @@ export function IncomeForm({
 
       <label>
         Сумма
-        <input
+        <AmountInput
           ref={amountInput}
           name="amount"
-          type="text"
-          inputMode="decimal"
           autoComplete="off"
           enterKeyHint="next"
           placeholder="0"
           required
           value={amount}
-          onChange={(event) => setAmount(event.target.value)}
+          onChange={setAmount}
         />
       </label>
 

@@ -551,7 +551,7 @@ describe("making entries without a connection", () => {
     await enterIncome(page, "4321", "B5-1");
 
     await seeVisible(page.getByRole("alert").filter({ hasText: "Нужно войти заново, а на телефоне запись сохранить не удалось" }));
-    await seeValue(amountField(page), "4321");
+    await seeValue(amountField(page), "4 321");
     expect(await page.getByLabel("Логин").count()).toBe(0);
   });
 });

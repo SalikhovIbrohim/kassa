@@ -12,6 +12,7 @@ import { CategoryPicker } from "./CategoryPicker";
 import { ClientCodeField } from "./ClientCodeField";
 import { explainFailure, NO_CONNECTION } from "./changeMessages";
 import { CurrencyPicker } from "./CurrencyPicker";
+import { AmountInput } from "./AmountInput";
 import { formatAmountInput, parseAmountInput, type Currency } from "./money";
 import { usePanelEntrance } from "./usePanelEntrance";
 
@@ -124,15 +125,13 @@ export function OperationEditor({
 
       <label>
         Сумма
-        <input
+        <AmountInput
           ref={amountInput}
           name="amount"
-          type="text"
-          inputMode="decimal"
           autoComplete="off"
           required
           value={amount}
-          onChange={(event) => setAmount(event.target.value)}
+          onChange={setAmount}
         />
       </label>
 

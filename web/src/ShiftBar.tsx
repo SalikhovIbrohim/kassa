@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { AmountInput } from "./AmountInput";
 import { closeShift, fetchCurrentShift, openShift, SessionExpiredError, type Shift, type ShiftReport } from "./api";
 import { formatMoscowShort } from "./days";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, parseCountInput, type Currency } from "./money";
@@ -272,12 +273,11 @@ function CloseShift({
       {CURRENCIES.map((currency) => (
         <label key={currency}>
           В кассе, {CURRENCY_NAME[currency].toLowerCase()}
-          <input
+          <AmountInput
             name={`count-${currency}`}
-            inputMode="decimal"
             autoComplete="off"
             value={counts[currency]}
-            onChange={(event) => setCounts((previous) => ({ ...previous, [currency]: event.target.value }))}
+            onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
           />
         </label>
       ))}
