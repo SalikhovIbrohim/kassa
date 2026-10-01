@@ -100,14 +100,15 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     categories: EXPENSE_CATEGORIES,
   }));
 
-  app.post<{ Body: Entry & { id: string } }>(
+  app.post<{ Body: Entry & { id: string; shiftId?: string } }>(
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
       onRequest: [app.authenticate, app.requireRole("cashier"), mustBeSentForTheSessionsOwner],
       schema: {
         // The id is made by the client, so that sending the same entry twice stores it once.
-        body: entrySchema({ properties: { id: UUID }, required: ["id"] }),
+        // The shift is named by a phone that was offline when the entry was made; see `shiftFor` in the ledger.
+        body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }),
       },
     },
     async (request, reply) => {
@@ -123,6 +124,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
+        shiftId: body.shiftId,
       });
 
       switch (recorded.status) {

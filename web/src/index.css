@@ -1046,3 +1046,34 @@ button.danger {
   color: #64748b;
   font-weight: 500;
 }
+
+/* ---- The shift on the cashier's screen ---- */
+
+.shift-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.shift-bar p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.shift-bar .shift-opening {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.shift-bar button {
+  justify-self: start;
+}
+
+.journal .presets {
+  margin-bottom: 8px;
+}

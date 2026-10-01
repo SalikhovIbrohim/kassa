@@ -14,6 +14,8 @@ export type OperationRow = {
   comment: string | null;
   created_at: Date;
   author_id: string;
+  /** The shift it was entered in; null for operations from before there were shifts, or without a shift of the author's own. */
+  shift_id: string | null;
   author_login: string;
   author_display_name: string;
   /** How many times it was corrected or deleted; 0 means as first written. */
@@ -44,6 +46,7 @@ export function toOperation(row: OperationRow) {
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
     createdAt: row.created_at.toISOString(),
+    shiftId: row.shift_id,
     revision: row.revision,
     deletedAt: row.deleted_at?.toISOString() ?? null,
     deletedBy:
@@ -91,6 +94,8 @@ export type NewOperation = Snapshot & {
   kind: "income" | "expense";
   authorId: string;
   createdAt: Date;
+  /** The shift the sender says was open when the entry was made (a phone that was offline); see `shiftFor`. */
+  shiftId?: string | null;
 };
 
 export type RecordResult =
@@ -107,7 +112,7 @@ export type RecordResult =
  * Runs `work` in one transaction: committed when it returns, rolled back when it throws.
  * Whatever `work` writes becomes visible together, or not at all.
  */
-async function inTransaction<T>(
+export async function inTransaction<T>(
   pool: pg.Pool,
   work: (client: pg.PoolClient) => Promise<T>,
   begin = "BEGIN",
@@ -144,6 +149,21 @@ async function lockBalances(client: pg.ClientBase, currencies: readonly Currency
   for (const currency of [...currencies].sort()) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`kassa.balance.${currency}`]);
   }
+}
+
+/**
+ * The shift a new operation belongs to. A phone that was offline says which shift was open on it when the
+ * entry was made, and that one counts, also if it has been closed since. Otherwise it is the shift the author
+ * has open now. Never a shift of somebody else, never one that does not exist: an entry is not refused for
+ * that, it simply belongs to no shift (the owner sees it as one made outside a shift).
+ */
+async function shiftFor(db: pg.ClientBase, authorId: string, named: string | null | undefined): Promise<string | null> {
+  if (named) {
+    const found = await db.query<{ id: string }>("SELECT id FROM shifts WHERE id = $1 AND cashier_id = $2", [named, authorId]);
+    if (found.rows[0]) return found.rows[0].id;
+  }
+  const open = await db.query<{ id: string }>("SELECT id FROM shifts WHERE closed_at IS NULL AND cashier_id = $1", [authorId]);
+  return open.rows[0]?.id ?? null;
 }
 
 async function findOperation(db: pg.ClientBase, id: string): Promise<OperationRow | undefined> {
@@ -213,8 +233,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
     const inserted = await client.query(
       `INSERT INTO operations
          (id, kind, amount_minor, currency, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          client_code_key, comment, author_id, created_at, shift_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
@@ -228,6 +248,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
         wanted.comment,
         wanted.authorId,
         wanted.createdAt,
+        await shiftFor(client, wanted.authorId, wanted.shiftId),
       ],
     );
     // Zero rows: another request with this id got in between our look and our insert (an

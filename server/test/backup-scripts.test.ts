@@ -27,6 +27,11 @@ async function which(command: string): Promise<string> {
   throw new Error(`${command} is not on the PATH: the tests of the copy scripts need the PostgreSQL command line tools`);
 }
 
+/** The migration files of this version, in the order they run. */
+async function migrationFiles(): Promise<string[]> {
+  return (await readdir(fileURLToPath(new URL("../migrations/", import.meta.url)))).filter((name) => name.endsWith(".sql")).sort();
+}
+
 describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and getting them back", () => {
   const cleanups: Array<() => Promise<void>> = [];
 
@@ -219,7 +224,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       // The role of the settings file owns it and can read it.
       const client = new pg.Client({ connectionString: url });
       await client.connect();
-      expect((await client.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n).toBe(4);
+      expect((await client.query("SELECT count(*)::int AS n FROM schema_migrations")).rows[0].n).toBe((await migrationFiles()).length);
       await client.end();
     }, 60_000);
   });
@@ -721,7 +726,7 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       expect(check.stdout).toContain("The copy is from an older version of Kassa");
       expect(replace.code, replace.stderr).toBe(0);
       // The current code takes the restored database forward, as the server does when it starts.
-      expect(await migrateDatabase(machine.url)).toEqual(["0004_corrections.sql"]);
+      expect(await migrateDatabase(machine.url)).toEqual((await migrationFiles()).filter((file) => file >= "0004"));
     }, 60_000);
 
     it("names the database it keeps by what PostgreSQL really keeps, also for a long name outside ASCII, so that a second restore works", async () => {

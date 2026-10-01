@@ -285,6 +285,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
       {user.role === "cashier" ? (
         <EntryScreen
+          login={user.login}
           onSaved={showSavedBalances}
           onBalancesStale={loadBalances}
           onSessionExpired={onLoggedOut}

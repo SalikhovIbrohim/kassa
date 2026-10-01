@@ -123,6 +123,7 @@ describe("correcting and deleting operations", () => {
           comment: "за рейс",
           author: { login: "ivan", displayName: "Иван" },
           createdAt: NOW.toISOString(),
+          shiftId: null,
           revision: 1,
           deletedAt: LATER.toISOString(),
           deletedBy: { login: "ivan", displayName: "Иван" },
@@ -376,6 +377,7 @@ describe("correcting and deleting operations", () => {
           // Who wrote it and when never change.
           author: { login: "ivan", displayName: "Иван" },
           createdAt: NOW.toISOString(),
+          shiftId: null,
           revision: 1,
           deletedAt: null,
           deletedBy: null,

@@ -128,7 +128,7 @@ describe("sending an entry", () => {
     currency: "RUB",
     clientCode: "K17",
   };
-  const operation = { ...entry, category: null, recipient: null, comment: null, author: { login: "ivan", displayName: "Иван" }, createdAt: "2026-03-05T08:30:00.000Z", revision: 0, deletedAt: null, deletedBy: null };
+  const operation = { ...entry, category: null, recipient: null, comment: null, author: { login: "ivan", displayName: "Иван" }, createdAt: "2026-03-05T08:30:00.000Z", shiftId: null, revision: 0, deletedAt: null, deletedBy: null };
 
   it("says whose entry it is, in a form that a header can carry in any alphabet", async () => {
     let headers: Record<string, string> = {};

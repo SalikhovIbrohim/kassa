@@ -6,6 +6,7 @@ import { registerCorrections } from "./corrections.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
+import { registerShifts } from "./shifts.js";
 import { registerSummary } from "./summary.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
@@ -93,6 +94,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   await registerJournal(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
+  });
+
+  await registerShifts(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
   });

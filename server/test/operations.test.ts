@@ -57,6 +57,7 @@ describe("income and balances", () => {
         comment: "за рейс в Ташкент",
         author: { login: "ivan", displayName: "Иван" },
         createdAt: "2026-03-05T08:30:00.000Z",
+        shiftId: null,
         revision: 0,
         deletedAt: null,
         deletedBy: null,

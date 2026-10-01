@@ -5,8 +5,11 @@ import { IncomeForm } from "./IncomeForm";
 import { Journal } from "./Journal";
 import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
+import { ShiftBar, useShift } from "./ShiftBar";
 
 type Props = {
+  /** The cashier signed in: whose shift is the open one. */
+  login: string;
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
@@ -15,7 +18,9 @@ type Props = {
 type Form = "income" | "expense";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
-export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Props) {
+export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired }: Props) {
+  const shift = useShift(login, onSessionExpired);
+  const ownShiftOpen = shift.state.kind === "known" && shift.state.shift?.cashier.login === login;
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
   // they left it (an expense that the server refused for lack of money is exactly when they go and enter
@@ -58,6 +63,8 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
 
   return (
     <>
+      <ShiftBar login={login} state={shift.state} opening={shift.opening} problem={shift.problem} onOpen={shift.open} />
+
       <div className="tabs" role="group" aria-label="Раздел">
         <button
           type="button"
@@ -100,6 +107,7 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
       {journalOpen && (
         <Journal
           mode="cashier"
+          shiftOpen={ownShiftOpen}
           onSessionExpired={onSessionExpired}
           onRefresh={onBalancesStale}
           onBalances={onSaved}

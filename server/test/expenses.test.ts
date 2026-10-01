@@ -78,6 +78,7 @@ describe("expenses", () => {
         comment: "заправка, рейс 17",
         author: { login: "ivan", displayName: "Иван" },
         createdAt: "2026-03-05T08:30:00.000Z",
+        shiftId: null,
         revision: 0,
         deletedAt: null,
         deletedBy: null,

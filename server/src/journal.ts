@@ -22,6 +22,8 @@ type JournalQuery = {
   category?: string;
   clientCode?: string;
   author?: string;
+  /** "current" (the shift that is open now) or the id of a shift. */
+  shift?: string;
   deleted?: "exclude" | "include" | "only";
   limit?: string;
   cursor?: string;
@@ -35,7 +37,8 @@ type JournalQuery = {
 type Position = { createdAt: string; id: string };
 
 const CURSOR_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const UUID = new RegExp(`^${UUID_PATTERN}$`);
 // Nothing this application records is older or newer; a cursor outside is not one of ours.
 const EARLIEST_YEAR = 2000;
 const LATEST_YEAR = 2100;
@@ -80,6 +83,9 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
+            // The operations of one shift: "current", or the id of a shift. Without a day of its own the shift
+            // is not cut at midnight; with one, the two are asked for together.
+            shift: { type: "string", maxLength: 36, pattern: `^(current|${UUID_PATTERN})$` },
             // Deleted operations: left out (the default), shown among the others, or only them.
             deleted: { type: "string", enum: ["exclude", "include", "only"] },
             // Query strings arrive as text and this server does not guess types.
@@ -95,7 +101,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       const badRequest = (message: string) =>
         reply.code(400).send({ statusCode: 400, error: "Bad Request", message });
 
-      // One bound on its own means that single day; neither means today.
+      // One bound on its own means that single day; neither means today, unless a shift is asked for.
+      const byShift = query.shift !== undefined && query.from === undefined && query.to === undefined;
       const from = query.from ?? query.to ?? cashDayOf(now());
       const to = query.to ?? query.from ?? from;
       if (from > to) return badRequest("querystring/from must not be after querystring/to");
@@ -120,14 +127,29 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
         return reply.code(403).send({ error: "forbidden" });
       }
 
-      const conditions = ["o.created_at >= $1", "o.created_at < $2"];
-      if (deleted === "exclude") conditions.push("o.deleted_at IS NULL");
-      if (deleted === "only") conditions.push("o.deleted_at IS NOT NULL");
-      const values: unknown[] = [cashDayStart(from), cashDayEnd(to)];
+      // "The current shift" with none open is a shift with nothing in it.
+      let shiftId = query.shift;
+      if (shiftId === "current") {
+        const open = await pool.query<{ id: string }>("SELECT id FROM shifts WHERE closed_at IS NULL");
+        if (!open.rows[0]) {
+          return { from: byShift ? null : from, to: byShift ? null : to, operations: [], nextCursor: null };
+        }
+        shiftId = open.rows[0].id;
+      }
+
+      const conditions: string[] = [];
+      const values: unknown[] = [];
       const add = (condition: (placeholder: string) => string, value: unknown) => {
         values.push(value);
         conditions.push(condition(`$${values.length}`));
       };
+      if (!byShift) {
+        add((p) => `o.created_at >= ${p}`, cashDayStart(from));
+        add((p) => `o.created_at < ${p}`, cashDayEnd(to));
+      }
+      if (shiftId !== undefined) add((p) => `o.shift_id = ${p}::uuid`, shiftId);
+      if (deleted === "exclude") conditions.push("o.deleted_at IS NULL");
+      if (deleted === "only") conditions.push("o.deleted_at IS NOT NULL");
 
       // The role decides whose operations these are, whatever the filters say.
       if (user.role === "cashier") add((p) => `o.author_id = ${p}`, user.id);
@@ -158,8 +180,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       const page = found.rows.slice(0, limit);
       const last = page.at(-1);
       return {
-        from,
-        to,
+        from: byShift ? null : from,
+        to: byShift ? null : to,
         operations: page.map(toOperation),
         nextCursor:
           found.rows.length > limit && last

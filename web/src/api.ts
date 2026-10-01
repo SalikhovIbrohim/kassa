@@ -96,6 +96,8 @@ export type Operation = {
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
+  /** The shift it was entered in; null for an entry made before there were shifts or outside the author's own shift. */
+  shiftId: string | null;
   /** How many times it was corrected or deleted; 0 means as first written. */
   revision: number;
   /** Set when the operation was deleted: only the viewer ever receives such operations. */
@@ -170,6 +172,8 @@ export async function fetchCategories(): Promise<Category[]> {
 type EntryBase = {
   /** Made once per entry and kept across retries, so a retry can never count twice. */
   id: string;
+  /** The shift that was open on this phone when the entry was made, so that an entry sent later still belongs to it. */
+  shiftId?: string;
   amountMinor: number;
   currency: Currency;
   comment?: string;
@@ -257,9 +261,9 @@ export async function createOperation(input: OperationInput, login: string): Pro
 export type Cashier = { login: string; displayName: string };
 
 export type JournalFilters = {
-  /** Moscow calendar days, YYYY-MM-DD, both included. */
-  from: string;
-  to: string;
+  /** Moscow calendar days, YYYY-MM-DD, both included. Left out when a shift is asked for. */
+  from?: string;
+  to?: string;
   currency?: Currency;
   type?: "income" | "expense";
   category?: string;
@@ -267,6 +271,8 @@ export type JournalFilters = {
   author?: string;
   /** Viewer only: show deleted operations too, or only them. Left out, they are hidden. */
   deleted?: "include" | "only";
+  /** The operations of the shift that is open now, whatever the day (no period is given with it). */
+  shift?: "current";
 };
 
 export type JournalPage = { operations: Operation[]; nextCursor: string | null };
@@ -430,4 +436,63 @@ export async function fetchHistory(id: string): Promise<OperationHistory> {
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from the history`);
   return (await response.json()) as OperationHistory;
+}
+
+// ---- Shifts ----
+
+export type Shift = {
+  id: string;
+  /** ISO time. */
+  openedAt: string;
+  cashier: { login: string; displayName: string };
+  /** What the shift started with, each currency. */
+  openingBalances: Balance[];
+};
+
+function readShift(value: unknown): Shift | null {
+  const shift = value as Partial<Shift> | null;
+  if (
+    !shift ||
+    typeof shift.id !== "string" ||
+    typeof shift.openedAt !== "string" ||
+    typeof shift.cashier?.login !== "string" ||
+    typeof shift.cashier.displayName !== "string" ||
+    !Array.isArray(shift.openingBalances)
+  ) {
+    return null;
+  }
+  return shift as Shift;
+}
+
+/** The shift that is open now, or null when none is. Throws when the server cannot say. */
+export async function fetchCurrentShift(): Promise<Shift | null> {
+  const response = await request("/api/shifts/current");
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/shifts/current`);
+  const body = (await response.json()) as { shift: unknown };
+  if (body.shift === null) return null;
+  const shift = readShift(body.shift);
+  if (!shift) throw new Error("The answer about the shift is not a shift");
+  return shift;
+}
+
+export type OpenShiftResult =
+  | { ok: true; shift: Shift }
+  /** A shift is open already (whose it is, in `shift`). */
+  | { ok: false; reason: "already-open"; shift: Shift | null };
+
+/** Opens a shift for the signed-in cashier. Throws when the server cannot be reached or says something unexpected. */
+export async function openShift(): Promise<OpenShiftResult> {
+  const response = await request("/api/shifts", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.status === 201) {
+    const shift = readShift(((await response.json()) as { shift: unknown }).shift);
+    if (!shift) throw new Error("The answer about the shift is not a shift");
+    return { ok: true, shift };
+  }
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as { shift?: unknown } | null;
+    return { ok: false, reason: "already-open", shift: readShift(body?.shift ?? null) };
+  }
+  throw new Error(`Unexpected status ${response.status} from /api/shifts`);
 }
