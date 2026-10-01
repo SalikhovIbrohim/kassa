@@ -152,6 +152,10 @@ Invoke-Main {
         Write-Step 'Letting each service in where it needs to be (a minute, for the packages)'
         $app = Get-ServiceSid -Name 'KassaApp'
         # The application: its program, its settings (the only account but the administrators that has the password), its log.
+        # Node looks at every folder on the way to its program (realpath), the root of the installation included, and
+        # that folder is closed to everybody but the administrators: without this it fails with EPERM before it starts.
+        # Only this folder itself (no inheritance): nothing inside it is opened by this.
+        Grant-Access -Path $layout.Root -Sid $app -Rights 'RX'
         Grant-Access -Path $layout.App -Sid $app -Rights '(OI)(CI)RX'
         Grant-Access -Path $layout.Settings -Sid $app -Rights 'R'
         Grant-Access -Path ([IO.Path]::Combine($layout.Services, 'KassaApp')) -Sid $app -Rights '(OI)(CI)RX'
