@@ -114,10 +114,13 @@ function Assert-Tool {
 }
 
 function Assert-Node {
-    Assert-Tool -Name node -Hint 'Install Node.js 22 (LTS) from https://nodejs.org, then open a new PowerShell window.'
+    Assert-Tool -Name node -Hint 'Install Node.js 22.12 or newer (LTS) from https://nodejs.org, then open a new PowerShell window.'
     $version = (& node --version).TrimStart('v')
-    if ([int]($version.Split('.')[0]) -lt 22) {
-        throw "Node.js $version is too old: Kassa needs version 22 or newer (https://nodejs.org)."
+    $parts = $version.Split('.')
+    # 22.12 and not just 22: the build tool (Vite 8) ships its native part as an optional package that npm leaves out,
+    # without an error, on an older Node, and the build then fails with "Cannot find native binding".
+    if (([int]$parts[0] -lt 22) -or ([int]$parts[0] -eq 22 -and [int]$parts[1] -lt 12)) {
+        throw "Node.js $version is too old: Kassa needs version 22.12 or newer (https://nodejs.org)."
     }
 }
 
