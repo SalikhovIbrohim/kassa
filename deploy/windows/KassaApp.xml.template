@@ -1,0 +1,24 @@
+<!-- The Kassa server as a Windows service, run by WinSW (https://github.com/winsw/winsw).
+     install-services.ps1 fills in the __PLACEHOLDERS__ and writes this next to a copy of WinSW
+     named KassaApp.exe. -->
+<service>
+  <id>KassaApp</id>
+  <name>Kassa application</name>
+  <description>Kassa cash book: the application server (Node.js).</description>
+  <executable>__NODE__</executable>
+  <arguments>--env-file="__SETTINGS__" server/dist/main.js</arguments>
+  <workingdirectory>__APP__</workingdirectory>
+  <!-- The database first. If it is not ready yet the server stops at once, and is started again below. -->
+  <depend>__POSTGRES__</depend>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <logpath>__LOGS__</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

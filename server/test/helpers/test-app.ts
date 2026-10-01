@@ -198,6 +198,29 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
   };
 }
 
+/**
+ * An empty throwaway database, for tests that start something of their own against it (the
+ * admin command line, say). `drop` waits for stragglers, then removes it.
+ */
+export async function createBlankDatabase(): Promise<{ url: string; drop(): Promise<void> }> {
+  const name = `kassa_test_${randomBytes(6).toString("hex")}`;
+  await runAdmin(`CREATE DATABASE ${name}`);
+  return {
+    url: withDatabase(adminUrl, name),
+    async drop() {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+          await runAdmin(`DROP DATABASE ${name}`);
+          return;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+      }
+      await runAdmin(`DROP DATABASE ${name} WITH (FORCE)`);
+    },
+  };
+}
+
 function withDatabase(url: string, databaseName: string): string {
   const parsed = new URL(url);
   parsed.pathname = `/${databaseName}`;

@@ -94,6 +94,10 @@ npm run admin -w server -- balances                      # остатки по �
 - `GET /api/client-codes?prefix=`: ранее вводившиеся коды клиентов, последние первыми, без учёта регистра, не больше восьми.
 - `GET /api/operations/defaults`: валюта, которой этот кассир пользовался последней (по умолчанию RUB).
 
+## Развёртывание на сервере
+
+Сервер владельца работает под Windows 10: службы Windows без Docker (приложение, PostgreSQL 16, Caddy с автоматическим HTTPS). Подробная инструкция с командами, проверкой после установки, обновлением, откатом и разбором проблем: [docs/deploy-windows.md](docs/deploy-windows.md). Скрипты лежат в `deploy/windows/` (PowerShell 5.1, он есть в каждой Windows 10) и `deploy/` (Node.js): `setup.ps1` (база, настройки, первая сборка), `build.ps1` (сборка и миграции), `install-services.ps1` (службы и HTTPS), `update.ps1` (обновление и откат одной командой), `kassa.ps1` (команды администратора с настройками машины), `power.ps1`, `lint.ps1` (проверка самих скриптов без Windows), `deploy/check.mjs` (проверка работающего сервера по адресу), `deploy/setup-database.mjs`. Файл настроек вне репозитория: образец `deploy/kassa.env.example`. `npm run admin -w server -- migrate` применяет миграции базы отдельно от запуска сервера.
+
 ## Сборка и запуск как в проде
 
 ```sh
@@ -107,10 +111,10 @@ DATABASE_URL=... npm start   # сервер отдаёт и API, и web/dist н�
 
 Тесты ходят только в публичный HTTP API сервера и работают с настоящей PostgreSQL: подмен базы нет. Для каждого теста создаётся и потом удаляется отдельная база.
 
-1. Нужна роль PostgreSQL с правом `CREATEDB`. Адрес сервера задаётся переменной `TEST_DATABASE_URL`, по умолчанию `postgres://kassa_test:kassa_test@localhost:5432/postgres`. Создать такую роль можно так:
+1. Нужна роль PostgreSQL-суперпользователь (как в CI): тесты создают и удаляют базы, а тесты `deploy/setup-database.mjs` ещё и роли. Адрес сервера задаётся переменной `TEST_DATABASE_URL`, по умолчанию `postgres://kassa_test:kassa_test@localhost:5432/postgres`. Создать такую роль можно так:
 
    ```sh
-   psql -U postgres -c "CREATE ROLE kassa_test LOGIN CREATEDB PASSWORD 'kassa_test'"
+   psql -U postgres -c "CREATE ROLE kassa_test LOGIN SUPERUSER PASSWORD 'kassa_test'"
    ```
 
 2. Запуск:
@@ -124,4 +128,4 @@ DATABASE_URL=... npm start   # сервер отдаёт и API, и web/dist н�
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) на каждый push в любую ветку: проверка типов, тесты на PostgreSQL 16, сборка.
+GitHub Actions (`.github/workflows/ci.yml`) на каждый push в любую ветку: проверка типов, тесты на PostgreSQL 16, сборка, проверка скриптов `deploy/windows` (`lint.ps1`).

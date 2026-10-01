@@ -17,6 +17,9 @@ import {
 const USAGE = `Usage: npm run admin -- <command> [options]
 
 Commands:
+  migrate                             apply the database migrations that have not run yet
+                                      (the server does this at start too; this lets an update
+                                      script see it fail before the new version is started)
   create-user    --login <login> --role <cashier|viewer> [--name <display name>]
   list-users
   revoke-user    --login <login>      block access and end all sessions
@@ -55,9 +58,12 @@ async function main(): Promise<void> {
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
   try {
     // Makes the first admin command work on a brand-new database too.
-    await migrate(pool);
+    const applied = await migrate(pool);
 
     switch (command) {
+      case "migrate":
+        console.log(applied.length > 0 ? `Applied migrations: ${applied.join(", ")}` : "The database is up to date.");
+        break;
       case "create-user": {
         const login = required(values.login, "--login");
         const role = required(values.role, "--role") as Role;

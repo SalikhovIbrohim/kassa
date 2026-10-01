@@ -43,3 +43,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # The Windows deployment scripts: they must parse and stay within Windows PowerShell 5.1.
+      - run: pwsh -NoProfile -File deploy/windows/lint.ps1
