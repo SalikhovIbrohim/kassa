@@ -289,7 +289,11 @@ fieldset.categories .choice {
 /* ---- Journal ---- */
 
 .tabs:has(> :nth-child(3)) {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tabs:has(> :nth-child(3)) .tab {
+  padding: 0 6px;
 }
 
 select {
@@ -451,6 +455,10 @@ button.link {
 }
 
 .journal-table tr:focus {
+  outline: none;
+}
+
+.journal-table tr:focus-visible {
   outline: 3px solid #5eead4;
   outline-offset: 2px;
 }
@@ -594,6 +602,21 @@ button.danger {
   font-size: 1.05rem;
 }
 
+/* The heading is only a landing place for keyboard focus: it needs no ring. */
+.panel-body h3:focus {
+  outline: none;
+}
+
+.panel-body {
+  scroll-margin: 12px;
+}
+
+/* What people type in a reason or a comment may be one long word. */
+.panel-body,
+.history-list {
+  overflow-wrap: anywhere;
+}
+
 .panel-body p {
   margin: 0;
 }
@@ -634,7 +657,27 @@ button.danger {
   font-style: italic;
 }
 
-/* Laptop: a real table, money in a right-aligned column. */
+.notice {
+  margin: 0;
+  padding: 12px 14px;
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+}
+
+.categories-missing {
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 419px) {
+  .filter-grid .whole-line-on-phone {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Wide screens: the filters in four columns. */
 @media (min-width: 720px) {
   .filter-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -644,7 +687,11 @@ button.danger {
   .filter-grid .reset {
     grid-column: auto;
   }
+}
 
+/* Laptop: a real table, money in a right-aligned column. Below this width (tablets held
+   upright, phones turned sideways) the cards are used: the table with its buttons needs room. */
+@media (min-width: 960px) {
   .journal-table {
     display: table;
     background: #ffffff;
@@ -686,6 +733,13 @@ button.danger {
 
   .journal-table td:empty {
     display: table-cell;
+  }
+
+  /* What people type can be one long unbroken word: it must not stretch the whole table. */
+  .journal-table .c-who,
+  .journal-table .c-details,
+  .journal-table .c-comment {
+    overflow-wrap: anywhere;
   }
 
   .journal-table th {

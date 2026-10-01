@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
-import { fetchCategories, REFUND_CATEGORY, SessionExpiredError, type Balance, type Category } from "./api";
+import {
+  fetchCategories,
+  REFUND_CATEGORY,
+  SessionExpiredError,
+  type Balance,
+  type Category,
+  type Operation,
+} from "./api";
 import { CategoryPicker } from "./CategoryPicker";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
@@ -13,6 +20,8 @@ type Props = {
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
+  /** The operation last corrected or deleted in the journal (see useEntry). */
+  changed?: Operation | null;
 };
 
 export function ExpenseForm({
@@ -22,6 +31,7 @@ export function ExpenseForm({
   onSaved,
   onBalancesStale,
   onSessionExpired,
+  changed,
 }: Props) {
   // null: loading, undefined: failed to load.
   const [categories, setCategories] = useState<Category[] | null | undefined>(null);
@@ -31,7 +41,7 @@ export function ExpenseForm({
   const [recipient, setRecipient] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired });
+  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed });
 
   function loadCategories() {
     setCategories(null);

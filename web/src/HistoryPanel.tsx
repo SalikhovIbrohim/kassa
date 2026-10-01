@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchHistory, SessionExpiredError, type OperationHistory, type Snapshot } from "./api";
 import { formatMoscowShort } from "./days";
 import { formatMoney } from "./money";
+import { usePanelEntrance } from "./usePanelEntrance";
 
 type Props = {
   operationId: string;
@@ -45,6 +46,7 @@ export function describeChange(before: Snapshot, after: Snapshot, labels: Map<st
 
 /** The whole story of one operation: how it was written, then every change, oldest first. */
 export function HistoryPanel({ operationId, labels, onClose, onSessionExpired }: Props) {
+  const { root, heading } = usePanelEntrance<HTMLElement>();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -65,8 +67,10 @@ export function HistoryPanel({ operationId, labels, onClose, onSessionExpired }:
   }, [operationId, attempt, onSessionExpired]);
 
   return (
-    <section className="panel-body history" aria-label="История записи">
-      <h3>История записи</h3>
+    <section className="panel-body history" aria-label="История записи" ref={root}>
+      <h3 ref={heading} tabIndex={-1}>
+        История записи
+      </h3>
 
       {state.kind === "loading" && <p className="hint">Загрузка…</p>}
 

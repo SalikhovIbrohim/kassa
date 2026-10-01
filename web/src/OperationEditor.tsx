@@ -13,6 +13,7 @@ import { ClientCodeField } from "./ClientCodeField";
 import { explainFailure, NO_CONNECTION } from "./changeMessages";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { formatAmountInput, parseAmountInput, type Currency } from "./money";
+import { usePanelEntrance } from "./usePanelEntrance";
 
 type Props = {
   operation: Operation;
@@ -20,13 +21,25 @@ type Props = {
   onSaved: (operation: Operation, balances: Balance[]) => void;
   onCancel: () => void;
   onSessionExpired: () => void;
+  /** The operation no longer exists as it was (deleted elsewhere): say so and refresh the journal. */
+  onGone: (message: string) => void;
+  /** The list of categories did not load: ask for it again. */
+  onReloadCategories: () => void;
 };
 
 /**
  * Corrects one operation: the same fields as when it was written (the type never changes),
  * starting from what it says now, and an optional reason.
  */
-export function OperationEditor({ operation, categories, onSaved, onCancel, onSessionExpired }: Props) {
+export function OperationEditor({
+  operation,
+  categories,
+  onSaved,
+  onCancel,
+  onSessionExpired,
+  onGone,
+  onReloadCategories,
+}: Props) {
   const isIncome = operation.type === "income";
   const [currency, setCurrency] = useState<Currency>(operation.currency);
   const [amount, setAmount] = useState(formatAmountInput(operation.amountMinor));
@@ -38,6 +51,7 @@ export function OperationEditor({ operation, categories, onSaved, onCancel, onSe
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const amountInput = useRef<HTMLInputElement>(null);
+  const { root, heading } = usePanelEntrance<HTMLFormElement>();
 
   const isRefund = category === REFUND_CATEGORY;
 
@@ -89,7 +103,11 @@ export function OperationEditor({ operation, categories, onSaved, onCancel, onSe
         onSessionExpired();
         return;
       }
-      setError(explainFailure(result, "edit"));
+      if (result.reason === "deleted" || result.reason === "not-found") {
+        onGone(`${explainFailure(result, "edit", operation.type)} Журнал обновлён.`);
+        return;
+      }
+      setError(explainFailure(result, "edit", operation.type));
     } catch (caught) {
       setError(caught instanceof NetworkError ? NO_CONNECTION : "Не получилось сохранить. Попробуйте ещё раз.");
     }
@@ -97,8 +115,10 @@ export function OperationEditor({ operation, categories, onSaved, onCancel, onSe
   }
 
   return (
-    <form className="panel-body" onSubmit={submit} aria-label="Изменить запись">
-      <h3>Изменить запись</h3>
+    <form className="panel-body" onSubmit={submit} aria-label="Изменить запись" ref={root}>
+      <h3 ref={heading} tabIndex={-1}>
+        Изменить запись
+      </h3>
 
       <CurrencyPicker value={currency} onChange={setCurrency} />
 
@@ -116,7 +136,19 @@ export function OperationEditor({ operation, categories, onSaved, onCancel, onSe
         />
       </label>
 
-      {!isIncome && <CategoryPicker categories={categories} value={category} onChange={setCategory} />}
+      {!isIncome &&
+        (categories.length > 0 ? (
+          <CategoryPicker categories={categories} value={category} onChange={setCategory} />
+        ) : (
+          <div className="categories-missing">
+            <p className="error" role="alert">
+              Список категорий не загрузился.
+            </p>
+            <button type="button" className="secondary" onClick={onReloadCategories}>
+              Повторить
+            </button>
+          </div>
+        ))}
 
       {(isIncome || isRefund) && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 

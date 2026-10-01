@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchDefaultCurrency, type Balance } from "./api";
+import { fetchDefaultCurrency, type Balance, type Operation } from "./api";
 import { ExpenseForm } from "./ExpenseForm";
 import { IncomeForm } from "./IncomeForm";
 import { Journal } from "./Journal";
@@ -19,6 +19,8 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
   // peeks at the journal in the middle of an entry must find their typing where they left it.
   const [form, setForm] = useState<Form>("income");
   const [journalOpen, setJournalOpen] = useState(false);
+  // What the cashier last corrected or deleted in the journal, for the "saved" banners.
+  const [changed, setChanged] = useState<Operation | null>(null);
   const [currency, setCurrency] = useState<Currency>("RUB");
   const currencyTouched = useRef(false);
   const entryId = useRef(crypto.randomUUID());
@@ -42,6 +44,7 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
     onSaved,
     onBalancesStale,
     onSessionExpired,
+    changed,
   };
 
   return (
@@ -81,7 +84,13 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
 
       <div hidden={journalOpen}>{form === "income" ? <IncomeForm {...shared} /> : <ExpenseForm {...shared} />}</div>
       {journalOpen && (
-        <Journal mode="cashier" onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} onBalances={onSaved} />
+        <Journal
+          mode="cashier"
+          onSessionExpired={onSessionExpired}
+          onRefresh={onBalancesStale}
+          onBalances={onSaved}
+          onOperationChanged={setChanged}
+        />
       )}
     </>
   );

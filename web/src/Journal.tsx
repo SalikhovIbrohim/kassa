@@ -25,6 +25,8 @@ type Props = {
   onRefresh?: () => void;
   /** Called with the new balances after a correction or deletion changed them. */
   onBalances?: (balances: Balance[]) => void;
+  /** Called with an operation the cashier just corrected or deleted. */
+  onOperationChanged?: (operation: Operation) => void;
 };
 
 /** What is open under a row: a correction, a deletion to confirm, or the history. */
@@ -80,14 +82,20 @@ function toFilters(draft: Draft): JournalFilters {
   };
 }
 
-export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props) {
+export function Journal({ mode, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = moscowToday();
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
   const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
-  const [focusId, setFocusId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
+  // Where keyboard focus should go next: a row (after an action) or nothing. A request is
+  // handed over once and forgotten, so that a row appearing later cannot take focus again.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null);
+  const focusNonce = useRef(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [categoriesFailed, setCategoriesFailed] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
   // What the list was asked for. It follows the draft at once, except while text is typed.
   const [applied, setApplied] = useState<Draft>(draft);
   const [reloadCount, setReloadCount] = useState(0);
@@ -98,9 +106,16 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
   const newest = useRef(0);
 
   const loadCategories = useCallback(() => {
-    fetchCategories().then(setCategories, (caught: unknown) => {
-      if (caught instanceof SessionExpiredError) onSessionExpired();
-    });
+    fetchCategories().then(
+      (list) => {
+        setCategories(list);
+        setCategoriesFailed(false);
+      },
+      (caught: unknown) => {
+        if (caught instanceof SessionExpiredError) onSessionExpired();
+        else setCategoriesFailed(true);
+      },
+    );
   }, [onSessionExpired]);
 
   useEffect(() => {
@@ -115,6 +130,26 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
     const timer = setTimeout(() => setApplied(draft), pause);
     return () => clearTimeout(timer);
   }, [draft, applied.clientCode]);
+
+  // The handlers below run after a render and need the panel and the list as they are now,
+  // not as they were when the request that they answer was sent.
+  const panelNow = useRef<Panel | null>(null);
+  const loadNow = useRef<Load>(load);
+  useEffect(() => {
+    panelNow.current = panel;
+    loadNow.current = load;
+  });
+
+  // A panel belongs to a row of the list on screen: new filters or a row that is gone close it.
+  useEffect(() => {
+    setPanel(null);
+    setNotice(null);
+  }, [applied]);
+  useEffect(() => {
+    if (panel && load.kind === "ready" && !load.stale && !load.operations.some((item) => item.id === panel.id)) {
+      setPanel(null);
+    }
+  }, [load, panel]);
 
   useEffect(() => {
     const mine = ++newest.current;
@@ -167,7 +202,7 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
             }
           : previous,
       );
-      setFocusId(page.operations[0]?.id ?? null);
+      if (page.operations[0]) requestFocus(page.operations[0].id);
     } catch (caught) {
       if (caught instanceof SessionExpiredError) onSessionExpired();
       else
@@ -185,23 +220,52 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
     onRefresh?.();
   }
 
+  const requestFocus = useCallback((id: string) => {
+    focusNonce.current += 1;
+    setFocusRequest({ id, nonce: focusNonce.current });
+  }, []);
+  const focusDone = useCallback(() => setFocusRequest(null), []);
+
   /** Opens a panel under a row, or closes it when the same button is pressed again. */
-  const togglePanel = (kind: Panel["kind"], id: string) =>
+  const togglePanel = (kind: Panel["kind"], id: string) => {
+    setNotice(null);
     setPanel((current) => (current?.kind === kind && current.id === id ? null : { kind, id }));
+  };
+
+  /** Closes the open panel without doing anything, and puts keyboard focus back on its row. */
+  function closePanel() {
+    const open = panelNow.current;
+    setPanel(null);
+    if (open) requestFocus(open.id);
+  }
 
   function operationChanged(changed: Operation, balances: Balance[]) {
-    setPanel(null);
-    setFocusId(changed.id);
+    // Only the panel this answer belongs to closes: the person may be working in another one by now.
+    const answered = panelNow.current?.id === changed.id;
+    if (answered) {
+      setPanel(null);
+      requestFocus(changed.id);
+    }
     setLoad((previous) =>
       previous.kind === "ready"
         ? { ...previous, operations: previous.operations.map((item) => (item.id === changed.id ? changed : item)) }
         : previous,
     );
     onBalances?.(balances);
+    onOperationChanged?.(changed);
   }
 
   function operationDeleted(deleted: Operation, balances: Balance[]) {
-    setPanel(null);
+    const answered = panelNow.current?.id === deleted.id;
+    // Focus goes to the row that takes its place, or to the heading when the list is empty now.
+    const rows = loadNow.current.kind === "ready" ? loadNow.current.operations : [];
+    const index = rows.findIndex((item) => item.id === deleted.id);
+    const neighbour = rows[index + 1] ?? rows[index - 1];
+    if (answered) {
+      setPanel(null);
+      if (neighbour) requestFocus(neighbour.id);
+      else heading.current?.focus();
+    }
     // A cashier no longer sees it. (The viewer never deletes.)
     setLoad((previous) =>
       previous.kind === "ready"
@@ -209,6 +273,14 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
         : previous,
     );
     onBalances?.(balances);
+    onOperationChanged?.(deleted);
+  }
+
+  /** The operation was deleted somewhere else: close the panel, say so, and bring the screen up to date. */
+  function operationGone(message: string) {
+    setPanel(null);
+    setNotice(message);
+    refresh();
   }
 
   const labels = useMemo(() => new Map(categories.map((item) => [item.code, item.label])), [categories]);
@@ -223,7 +295,9 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
   return (
     <section className="journal" aria-label="Журнал">
       <div className="journal-head">
-        <h2>Журнал</h2>
+        <h2 ref={heading} tabIndex={-1}>
+          Журнал
+        </h2>
         <button type="button" className="secondary small" onClick={refresh}>
           Обновить
         </button>
@@ -311,7 +385,7 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
                 ))}
               </select>
             </label>
-            <label>
+            <label className="whole-line-on-phone">
               Удалённые записи
               <select name="deleted" value={draft.deleted} onChange={(e) => change({ deleted: e.target.value as Draft["deleted"] })}>
                 <option value="">Скрывать</option>
@@ -328,6 +402,20 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
       )}
 
       <p className="period">{shownPeriod}</p>
+
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
+      {categoriesFailed && (
+        <p className="error" role="alert">
+          Не удалось загрузить названия категорий.{" "}
+          <button type="button" className="link" onClick={loadCategories}>
+            Повторить
+          </button>
+        </p>
+      )}
 
       {periodIsBackwards && (
         <p className="error" role="alert">
@@ -400,7 +488,8 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
                         description={description}
                         open={open}
                         onToggle={(kind) => togglePanel(kind, operation.id)}
-                        takeFocus={operation.id === focusId}
+                        focusRequest={focusRequest?.id === operation.id ? focusRequest : null}
+                        onFocusDone={focusDone}
                       />
                       {open && (
                         <tr className="panel">
@@ -410,8 +499,10 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
                                 operation={operation}
                                 categories={categories}
                                 onSaved={operationChanged}
-                                onCancel={() => setPanel(null)}
+                                onCancel={closePanel}
                                 onSessionExpired={onSessionExpired}
+                                onGone={operationGone}
+                                onReloadCategories={loadCategories}
                               />
                             )}
                             {open === "delete" && (
@@ -419,15 +510,17 @@ export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props
                                 operation={operation}
                                 description={description}
                                 onDeleted={operationDeleted}
-                                onCancel={() => setPanel(null)}
+                                onCancel={closePanel}
                                 onSessionExpired={onSessionExpired}
+                                onGone={operationGone}
                               />
                             )}
                             {open === "history" && (
                               <HistoryPanel
+                                key={`${operation.id}-${operation.revision}-${operation.deletedAt ?? ""}`}
                                 operationId={operation.id}
                                 labels={labels}
-                                onClose={() => setPanel(null)}
+                                onClose={closePanel}
                                 onSessionExpired={onSessionExpired}
                               />
                             )}
@@ -476,7 +569,8 @@ function OperationRow({
   description,
   open,
   onToggle,
-  takeFocus,
+  focusRequest,
+  onFocusDone,
 }: {
   operation: Operation;
   mode: Props["mode"];
@@ -484,13 +578,16 @@ function OperationRow({
   description: string;
   open: Panel["kind"] | null;
   onToggle: (kind: Panel["kind"]) => void;
-  /** The row just added or changed: focus moves here so a keyboard user does not lose their place. */
-  takeFocus: boolean;
+  /** Set when keyboard focus should move to this row (after an action), so nobody loses their place. */
+  focusRequest: { id: string; nonce: number } | null;
+  onFocusDone: () => void;
 }) {
   const row = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
-    if (takeFocus) row.current?.focus();
-  }, [takeFocus]);
+    if (!focusRequest) return;
+    row.current?.focus();
+    onFocusDone();
+  }, [focusRequest, onFocusDone]);
   const what = operation.type === "income" ? "Приход" : (labels.get(operation.category ?? "") ?? "Расход");
   const sign = operation.type === "income" ? "+" : "−";
   const deleted = operation.deletedAt !== null;
@@ -504,7 +601,7 @@ function OperationRow({
   return (
     <tr
       ref={row}
-      tabIndex={takeFocus ? -1 : undefined}
+      tabIndex={-1}
       className={[operation.type, deleted ? "deleted" : ""].filter(Boolean).join(" ")}
     >
       <td className="c-time">

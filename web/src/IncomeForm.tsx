@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent, type MutableRefObject } from "react";
-import type { Balance } from "./api";
+import type { Balance, Operation } from "./api";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
@@ -12,6 +12,8 @@ type Props = {
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
+  /** The operation last corrected or deleted in the journal (see useEntry). */
+  changed?: Operation | null;
 };
 
 export function IncomeForm({
@@ -21,12 +23,13 @@ export function IncomeForm({
   onSaved,
   onBalancesStale,
   onSessionExpired,
+  changed,
 }: Props) {
   const [amount, setAmount] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired });
+  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
