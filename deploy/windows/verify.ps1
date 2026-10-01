@@ -152,7 +152,7 @@ Invoke-Main {
 
     if ($Site) {
         Test-Part 'public address' {
-            & node $checker "https://$Site" | Out-Host
+            & node $checker "https://$Site" @(if ($NoProxy) { '--no-port-80' }) | Out-Host
             if ($LASTEXITCODE -eq 0) { Write-Report 'ok' 'public address' "https://$Site passes every check from this machine (a phone elsewhere is the real test)" }
             else { Write-Report 'FAIL' 'public address' "https://$Site does not pass (above). From this machine it can also fail because of the router: try a phone on mobile data." }
         }

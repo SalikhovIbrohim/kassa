@@ -9,17 +9,19 @@
 // session cookie, then signs out again. The password is never taken from the command line.
 import { parseArgs } from "node:util";
 
-const USAGE = `Usage: node deploy/check.mjs <address> [--login <login>]
+const USAGE = `Usage: node deploy/check.mjs <address> [--login <login>] [--no-port-80]
 
   node deploy/check.mjs http://127.0.0.1:3000
-  node deploy/check.mjs https://203-0-113-5.sslip.io --login ivan   (password in KASSA_CHECK_PASSWORD)`;
+  node deploy/check.mjs https://203-0-113-5.sslip.io --login ivan   (password in KASSA_CHECK_PASSWORD)
+
+--no-port-80: do not look at port 80 (another web server holds it, and the proxy gets its certificate on port 443).`;
 
 const TIMEOUT_MS = 10_000;
 
 async function main() {
   const { values, positionals } = parseArgs({
     args: process.argv.slice(2),
-    options: { login: { type: "string" }, help: { type: "boolean", short: "h" } },
+    options: { login: { type: "string" }, "no-port-80": { type: "boolean" }, help: { type: "boolean", short: "h" } },
     allowPositionals: true,
   });
   if (values.help || positionals.length !== 1) {
@@ -87,7 +89,7 @@ async function main() {
     return "the API asks for a login";
   });
 
-  if (https && (base.port === "" || base.port === "443")) {
+  if (https && !values["no-port-80"] && (base.port === "" || base.port === "443")) {
     await check("port 80", async () => {
       const plain = new URL(base);
       plain.protocol = "http:";
