@@ -104,4 +104,43 @@ describe("admin command line: migrate", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("DATABASE_URL is required");
   }, 30_000);
+
+  /** Runs SQL in a database of a test, as something that was left there before the migration (a table of that name). */
+  async function inDatabase(url: string, sql: string) {
+    const client = new pg.Client({ connectionString: url });
+    await client.connect();
+    try {
+      await client.query(sql);
+    } finally {
+      await client.end();
+    }
+  }
+
+  it("exits with 4 when the first migration fails: nothing was applied, the database is as it was, so the old version can run", async () => {
+    const url = await blankDatabase();
+    await inDatabase(url, "CREATE TABLE users (leftover int)");
+
+    const result = await runCli(["migrate"], { DATABASE_URL: url });
+
+    expect(result.code).toBe(4);
+    expect(result.stderr).toContain("0001_users_and_sessions.sql failed");
+    expect(result.stderr).toContain("Nothing was applied: the database is as it was");
+    expect(result.stderr).not.toContain("    at "); // a message, not a stack trace
+    const probe = new pg.Client({ connectionString: url });
+    await probe.connect();
+    const recorded = await probe.query("SELECT count(*)::int AS n FROM schema_migrations");
+    await probe.end();
+    expect(recorded.rows[0].n).toBe(0);
+  }, 30_000);
+
+  it("exits with 1, and names what was applied, when a later migration fails: the database has been changed", async () => {
+    const url = await blankDatabase();
+    await inDatabase(url, "CREATE TABLE operations (leftover int)");
+
+    const result = await runCli(["migrate"], { DATABASE_URL: url });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("0002_operations.sql failed");
+    expect(result.stderr).toContain("Applied before it: 0001_users_and_sessions.sql");
+  }, 30_000);
 });

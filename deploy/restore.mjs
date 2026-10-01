@@ -165,7 +165,7 @@ async function assertNobodyUses(database) {
 
 /** Makes a new database owned by the Kassa role and restores the copy into it, all or nothing. */
 async function restoreIntoNewDatabase(pgRestore, copy, connection, purpose) {
-  const name = `${connection.database.slice(0, 40)}_${purpose}_${randomBytes(3).toString("hex")}`;
+  const name = `${shorten(connection.database, 40)}_${purpose}_${randomBytes(3).toString("hex")}`;
   const role = admin.escapeIdentifier(connection.user);
   scratch.add(name);
   await admin.query(`CREATE DATABASE ${admin.escapeIdentifier(name)} OWNER ${role} ENCODING 'UTF8' TEMPLATE template0`);
@@ -189,15 +189,27 @@ async function look(database, connection) {
   } catch (error) {
     throw new Problem(`Could not connect to the restored database as "${connection.user}": ${error.message}. Is the password in the settings file the role's?`);
   }
+  /** What every copy of Kassa has: when it is not there, this is not a copy of Kassa. */
+  const must = async (sql) => (await client.query(sql)).rows[0];
+  /**
+   * What a later version added (deleting, the history of changes): a copy made by an older version has not got it, and
+   * putting such a copy back is exactly what going back to an older version needs, so it is not an error.
+   */
+  const maybe = async (sql) => {
+    try {
+      return (await client.query(sql)).rows[0].n;
+    } catch {
+      return null;
+    }
+  };
   try {
-    const counts = await client.query(`
-      SELECT (SELECT count(*) FROM users)::int AS users,
-             (SELECT count(*) FROM operations)::int AS operations,
-             (SELECT count(*) FROM operations WHERE deleted_at IS NOT NULL)::int AS deleted,
-             (SELECT count(*) FROM operation_changes)::int AS changes,
-             (SELECT to_char(max(created_at) AT TIME ZONE 'Europe/Moscow', 'YYYY-MM-DD HH24:MI') FROM operations) AS newest`);
-    const migrations = await client.query("SELECT name FROM schema_migrations ORDER BY name");
-    return { ...counts.rows[0], migrations: migrations.rows.map((row) => row.name) };
+    const users = (await must("SELECT count(*)::int AS n FROM users")).n;
+    const operations = (await must("SELECT count(*)::int AS n FROM operations")).n;
+    const newest = (await must("SELECT to_char(max(created_at) AT TIME ZONE 'Europe/Moscow', 'YYYY-MM-DD HH24:MI') AS newest FROM operations")).newest;
+    const migrations = (await client.query("SELECT name FROM schema_migrations ORDER BY name")).rows.map((row) => row.name);
+    const deleted = await maybe("SELECT count(*)::int AS n FROM operations WHERE deleted_at IS NOT NULL");
+    const changes = await maybe("SELECT count(*)::int AS n FROM operation_changes");
+    return { users, operations, deleted, changes, newest, migrations };
   } catch (error) {
     throw new Problem(`The restored database does not look like Kassa's (${error.message}).`);
   } finally {
@@ -207,37 +219,52 @@ async function look(database, connection) {
 
 function describe(found) {
   const newest = found.newest ? `the newest is from ${found.newest} (Moscow time)` : "there are none yet";
+  const history = found.changes === null ? "no history of changes yet (a copy of an older version)" : `${found.changes} line${found.changes === 1 ? "" : "s"} of history`;
   return (
     `The copy holds ${found.users} user${found.users === 1 ? "" : "s"}, ${found.operations} operation${found.operations === 1 ? "" : "s"}` +
-    `${found.deleted > 0 ? ` (${found.deleted} of them deleted)` : ""}, ${found.changes} line${found.changes === 1 ? "" : "s"} of history; ${newest}. ` +
+    `${found.deleted > 0 ? ` (${found.deleted} of them deleted)` : ""}, ${history}; ${newest}. ` +
     `Last migration: ${found.migrations.at(-1) ?? "none"}.`
   );
 }
 
-/** Renames the live database out of the way and the restored one into its place. Returns the new name of the old one. */
+/**
+ * The first characters of a name that take at most `limit` bytes. PostgreSQL cuts a name at 63 bytes, and a name
+ * that was cut is not the one that was printed (letters outside ASCII take two bytes or more).
+ */
+function shorten(text, limit) {
+  let bytes = 0;
+  let result = "";
+  for (const char of text) {
+    const size = Buffer.byteLength(char);
+    if (bytes + size > limit) break;
+    bytes += size;
+    result += char;
+  }
+  return result;
+}
+
+/**
+ * Renames the live database out of the way and the restored one into its place, both in one transaction: the
+ * computer going down between the two would otherwise leave no database of the live name at all. Returns the
+ * new name of the old one.
+ */
 async function swapIn(restored, live) {
   const exists = (await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [live])).rowCount > 0;
-  let kept;
-  if (exists) {
-    kept = `${live.slice(0, 30)}_before_restore_${stamp().replace("-", "_")}`;
-    try {
-      await admin.query(`ALTER DATABASE ${admin.escapeIdentifier(live)} RENAME TO ${admin.escapeIdentifier(kept)}`);
-    } catch (error) {
-      throw new Problem(`The live database could not be renamed, so nothing was changed: ${error.message}`);
-    }
-  }
+  const kept = exists ? `${shorten(live, 30)}_before_restore_${stamp().replace("-", "_")}` : undefined;
+  let renaming = "the live database";
   try {
+    await admin.query("BEGIN");
+    if (kept) await admin.query(`ALTER DATABASE ${admin.escapeIdentifier(live)} RENAME TO ${admin.escapeIdentifier(kept)}`);
+    renaming = "the restored database";
     await admin.query(`ALTER DATABASE ${admin.escapeIdentifier(restored)} RENAME TO ${admin.escapeIdentifier(live)}`);
+    await admin.query("COMMIT");
   } catch (error) {
-    if (kept) {
-      await admin.query(`ALTER DATABASE ${admin.escapeIdentifier(kept)} RENAME TO ${admin.escapeIdentifier(live)}`).catch((undoError) => {
-        throw new Problem(
-          `The restored database could not be put in place (${error.message}), and the old one could not be given its name back (${undoError.message}). ` +
-            `The old data is in the database "${kept}"; rename it to "${live}" in pgAdmin.`,
-        );
-      });
-    }
-    throw new Problem(`The restored database could not be put in place, so nothing was changed: ${error.message}`);
+    await admin.query("ROLLBACK").catch(() => {});
+    throw new Problem(
+      renaming === "the live database"
+        ? `The live database could not be renamed, so nothing was changed: ${error.message}`
+        : `The restored database could not be put in place, so nothing was changed: ${error.message}`,
+    );
   }
   scratch.delete(restored);
   return kept;

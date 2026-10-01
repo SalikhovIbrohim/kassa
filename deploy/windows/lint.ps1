@@ -9,7 +9,7 @@
   (usually 7), which accepts more. This is the part of that gap a machine can see: syntax and
   parameters that 5.1 does not know. It exits with 1 if it finds anything.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param()
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +44,12 @@ foreach ($script in $scripts) {
 
     $first = (Get-Content -LiteralPath $script.FullName -TotalCount 1)
     if ($first -notmatch '^#Requires -Version 5\.1') { Report $name 1 'the first line must be "#Requires -Version 5.1"' }
+
+    # A word typed after the name of a script must never become the value of its first parameter: kassa.ps1 once
+    # took "list-users" for the folder. Parameters are taken by name only. (common.ps1 is read in, not run.)
+    if ($name -ne 'common.ps1' -and $text -notmatch '(?m)^\[CmdletBinding\(PositionalBinding = \$false\)\]') {
+        Report $name 1 'must have [CmdletBinding(PositionalBinding = $false)] before its param block'
+    }
 
     $nodes = $ast.FindAll({ $true }, $true)
     foreach ($node in $nodes) {

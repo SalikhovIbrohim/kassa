@@ -14,7 +14,7 @@
   .\kassa.ps1 set-opening-balance --currency RUB --amount 45000.50
   .\kassa.ps1 help
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa',
     [Parameter(ValueFromRemainingArguments = $true)]

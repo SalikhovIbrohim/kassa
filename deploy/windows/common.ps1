@@ -24,6 +24,10 @@ $script:FirewallRules = @(
 # Where everything lives. $Root is the folder that holds the app, the settings, the logs and the tools.
 function Get-KassaLayout {
     param([string]$Root = 'C:\kassa')
+    # A full path: the scripts change folders, and a path like .\kassa would then mean something else.
+    if (-not [IO.Path]::IsPathRooted($Root)) {
+        $Root = [IO.Path]::GetFullPath([IO.Path]::Combine((Get-Location).ProviderPath, $Root))
+    }
     $app = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..', '..'))
     [pscustomobject]@{
         Root      = $Root
@@ -49,12 +53,14 @@ function Assert-Administrator {
 }
 
 # Runs a program and stops the script if it fails: PowerShell does not do that by itself.
+# What the program prints goes to the window (Out-Host) and not into the result of the function that called
+# this: a function returns everything it prints, so a caller that returns a yes or a no would return a list.
 function Invoke-Native {
     param(
         [Parameter(Mandatory)][string]$File,
         [string[]]$Arguments = @()
     )
-    & $File @Arguments
+    & $File @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "'$File $($Arguments -join ' ')' failed with exit code $LASTEXITCODE"
     }
@@ -65,6 +71,29 @@ function Invoke-Npm {
     param([string[]]$Arguments = @())
     $npm = if ($script:OnWindows) { 'npm.cmd' } else { 'npm' }
     Invoke-Native -File $npm -Arguments $Arguments
+}
+
+# node prints UTF-8, and Windows PowerShell 5.1 reads what a program prints with the code page of the console (866
+# or 437), so a folder like D:\Copies in Cyrillic would come out garbled in what a script reads back and prints.
+# Use around such a call:  $utf8 = Set-Utf8Console  ...  Restore-Console $utf8  (in a finally block). A scheduled
+# task has no console to set: then nothing is changed and nothing is restored.
+function Set-Utf8Console {
+    $previous = $null
+    try {
+        $previous = [Console]::OutputEncoding
+        [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false)
+    }
+    catch {
+        $previous = $null
+    }
+    $previous
+}
+
+function Restore-Console {
+    param($Encoding)
+    if ($Encoding) {
+        try { [Console]::OutputEncoding = $Encoding } catch { }
+    }
 }
 
 # git, with its answer. A git that fails (a repository of another owner, say) must not turn into an empty string.
@@ -127,7 +156,7 @@ function Resolve-PostgresService {
 # A Windows service, or nothing when there is none (or when this is not Windows, as in a rehearsal of the scripts elsewhere).
 function Get-ServiceOrNull {
     param([Parameter(Mandatory)][string]$Name)
-    if (-not $script:OnWindows) { return $null }
+    if (-not (Get-Command -Name Get-Service -ErrorAction SilentlyContinue)) { return $null }
     Get-Service -Name $Name -ErrorAction SilentlyContinue
 }
 
@@ -170,18 +199,22 @@ function Wait-ServiceRemoved {
     throw "The service $Name is still there (marked for deletion). Close the Services window (services.msc) and the Task Manager and run this again, or restart the computer first."
 }
 
-# The port the application listens on: PORT in the settings file, 3000 when it is not there.
+# The port the application listens on: PORT in the settings file, 3000 when it is not there. When the line is
+# there twice the last one counts, as it does for the application (node --env-file), and a value in quotes or
+# followed by a comment is read too.
 function Get-AppPort {
     param([Parameter(Mandatory)]$Layout)
     if (Test-Path -LiteralPath $Layout.Settings) {
-        $match = [regex]::Match([IO.File]::ReadAllText($Layout.Settings), '(?m)^\s*PORT\s*=\s*(\d+)\s*$')
-        if ($match.Success) { return [int]$match.Groups[1].Value }
+        $found = [regex]::Matches([IO.File]::ReadAllText($Layout.Settings), '(?m)^\s*PORT\s*=\s*["'']?(\d+)["'']?\s*(#.*)?$')
+        if ($found.Count -gt 0) { return [int]$found[$found.Count - 1].Groups[1].Value }
     }
     3000
 }
 
 # Whether the application answers on this machine, trying for up to a minute (it takes a few seconds to start).
 # If it never does, the check is run once more with its output shown, which says why.
+# The answer is one $true or $false, and nothing else: callers write `if (-not (Wait-Application ...))`, and a
+# function returns whatever it prints, so what the check prints goes to the window (Out-Host) and not to the caller.
 function Wait-Application {
     param([Parameter(Mandatory)]$Layout)
     $checker = [IO.Path]::Combine($Layout.App, 'deploy', 'check.mjs')
@@ -191,7 +224,17 @@ function Wait-Application {
         if ($LASTEXITCODE -eq 0) { return $true }
         Start-Sleep -Seconds 3
     }
-    & node $checker $address
+    & node $checker $address | Out-Host
+    return $false
+}
+
+# Whether a port is among the ports of a firewall rule: they are written as 3000, or as a range, 3000-3010.
+function Test-PortListed {
+    param($Values, [int]$Port)
+    foreach ($value in @($Values)) {
+        if ($value -match '^(\d+)$' -and [int]$Matches[1] -eq $Port) { return $true }
+        if ($value -match '^(\d+)-(\d+)$' -and [int]$Matches[1] -le $Port -and $Port -le [int]$Matches[2]) { return $true }
+    }
     return $false
 }
 

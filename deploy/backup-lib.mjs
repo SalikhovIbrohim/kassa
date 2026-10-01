@@ -3,13 +3,16 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { parseEnv } from "node:util";
 
 /** Something the person running the script can fix: said in plain words, without a stack trace. */
 export class Problem extends Error {}
 
-/** The settings file, read the way `node --env-file` (and so the services) read it. */
+/**
+ * The settings file, read the way `node --env-file` (and so the services) read it. The text it was read from
+ * is kept as `.raw` (not one of the settings), for the checks that look at how a value was written.
+ */
 export async function readSettings(path) {
   let text;
   try {
@@ -20,7 +23,33 @@ export async function readSettings(path) {
         (error.code === "EACCES" || error.code === "EPERM" ? " (run this as an administrator)" : ""),
     );
   }
-  return parseEnv(text);
+  const settings = parseEnv(text);
+  Object.defineProperty(settings, "raw", { value: text, enumerable: false });
+  return settings;
+}
+
+/**
+ * The folder the copies go to: --to, else BACKUP_DIR of the settings file, else the folder the caller names
+ * as its own default. Checked, because a scheduled task runs where nobody can see what went wrong.
+ */
+export function backupFolder({ to, settings, defaultFolder }) {
+  const folder = to ?? settings.BACKUP_DIR ?? defaultFolder;
+  if (!folder) {
+    throw new Problem("Where to put the copies? Give --to <folder>, or write BACKUP_DIR=<folder> in the settings file.");
+  }
+  if (/[\r\n\t]/.test(folder)) {
+    throw new Problem("BACKUP_DIR contains a line break or a tab: write the path without quotes (BACKUP_DIR=D:\\kassa-copies).");
+  }
+  // In the file, a # that is not inside quotes starts a comment: "D:\copies #1" would be read as "D:\copies".
+  if (to === undefined && /^\s*BACKUP_DIR\s*=\s*[^'"\r\n]*#/m.test(settings.raw ?? "")) {
+    throw new Problem(
+      "BACKUP_DIR has a # in it, and everything from the # on is read as a comment. Write the path in single quotes: BACKUP_DIR='D:\\kassa copies #1'.",
+    );
+  }
+  if (!isAbsolute(folder)) {
+    throw new Problem(`"${folder}" is not a full path (like D:\\kassa-copies): a scheduled task does not start in the folder you expect.`);
+  }
+  return folder;
 }
 
 /** The parts of DATABASE_URL, decoded. */
@@ -134,25 +163,47 @@ export function stamp(date = new Date()) {
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** The names of the copies of one database: `kassa-20261001-143005.dump`. */
-export function copyPattern(database, { partial = false } = {}) {
-  return new RegExp(`^${escapeRegExp(database)}-\\d{8}-\\d{6}\\.dump${partial ? "\\.partial" : ""}$`);
+/** What may follow the time in the name of a copy that has a purpose of its own: `before-update`. */
+export const LABEL = /^[a-z]+(-[a-z]+)*$/;
+
+/**
+ * The names of the copies of one database. The nightly copy: `kassa-20261001-143005.dump`. One made for a
+ * purpose: `kassa-20261001-143005-before-update.dump`. Without `label` only the nightly ones match; with a
+ * label only the ones with that label; with `anyLabel` the ones with any (and without) label.
+ */
+export function copyPattern(database, { partial = false, label, anyLabel = false } = {}) {
+  const tail = anyLabel ? "(?:-[a-z]+(?:-[a-z]+)*)?" : label ? `-${escapeRegExp(label)}` : "";
+  return new RegExp(`^${escapeRegExp(database)}-(\\d{4})(\\d{2})(\\d{2})-(\\d{2})(\\d{2})(\\d{2})${tail}\\.dump${partial ? "\\.partial" : ""}$`);
 }
 
-/** The copies of one database in a folder, newest first. Other files are not copies and are not listed. */
-export async function listCopies(folder, database) {
+// A copy whose name says it was made later than this from now was made by a clock that was wrong.
+const FUTURE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The copies of one kind (see copyPattern) in a folder, newest first by the time in their names. Other files
+ * are not copies and are not listed. A copy dated in the future (the clock of the computer was wrong when it
+ * was made) is not among them: it would sort as the newest for ever, keep the real copies from being counted
+ * and make the check of the nightly copy look at the wrong one. Those are in `future`; nothing deletes them.
+ */
+export async function listCopies(folder, database, { label, now = new Date() } = {}) {
   const names = await readdir(folder).catch((error) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
-  const pattern = copyPattern(database);
+  const pattern = copyPattern(database, { label });
   const copies = [];
-  for (const name of names.filter((item) => pattern.test(item)).sort().reverse()) {
+  const future = [];
+  for (const name of names.sort().reverse()) {
+    const match = pattern.exec(name);
+    if (!match) continue;
     const path = join(folder, name);
     const info = await stat(path).catch(() => undefined);
-    if (info?.isFile()) copies.push({ name, path, size: info.size, modifiedMs: info.mtimeMs });
+    if (!info?.isFile()) continue;
+    const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number);
+    const named = new Date(year, month - 1, day, hour, minute, second).getTime();
+    (named > now.getTime() + FUTURE_MS ? future : copies).push({ name, path, size: info.size, modifiedMs: info.mtimeMs });
   }
-  return copies;
+  return { copies, future };
 }
 
 export function megabytes(bytes) {

@@ -3,6 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, truncate, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
@@ -265,18 +266,150 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       expect(result.stdout).toContain("an unfinished copy from an earlier run");
     }, 60_000);
 
-    it("never deletes the copy it has just made, even when the clock was set back and older copies look newer", async () => {
+    /** The time in the name of a copy, as backup.mjs writes it: the clock of the machine, 20261001-143005. */
+    const stampOf = (date: Date) => {
+      const two = (n: number) => String(n).padStart(2, "0");
+      return `${date.getFullYear()}${two(date.getMonth() + 1)}${two(date.getDate())}-${two(date.getHours())}${two(date.getMinutes())}${two(date.getSeconds())}`;
+    };
+    const inTheFuture = () => stampOf(new Date(Date.now() + 5 * 365 * DAY));
+
+    it("does not count a copy dated in the future (the clock was wrong), does not delete it, and names it", async () => {
       const { settings, copies, name } = await install();
       await mkdir(copies, { recursive: true });
-      for (const year of ["2098", "2099"]) await writeFile(join(copies, `${name}-${year}0101-000000.dump`), "from the future");
+      const wrong = `${name}-${inTheFuture()}.dump`;
+      await writeFile(join(copies, wrong), "from a clock that was wrong");
+      for (const day of ["20200101", "20200102", "20200103"]) await writeFile(join(copies, `${name}-${day}-000000.dump`), "old");
+
+      const result = await backup(settings, ["--to", copies, "--keep", "2"]);
+
+      expect(result.code, result.stderr).toBe(0);
+      const left = (await readdir(copies)).sort();
+      // The two newest real copies stay (the new one, and the one of 2020-01-03), the older ones go; the wrong one is left alone.
+      expect(left).toHaveLength(3);
+      expect(left).toContain(wrong);
+      expect(left).toContain(`${name}-20200103-000000.dump`);
+      expect(result.stdout).toContain(`${wrong} is dated in the future`);
+      expect(result.stdout).toContain("Deleted 2 old copies");
+    }, 60_000);
+
+    it("never deletes the copy it has just made", async () => {
+      const { settings, copies, name } = await install();
+      await mkdir(copies, { recursive: true });
+      for (const day of ["20200101", "20200102"]) await writeFile(join(copies, `${name}-${day}-000000.dump`), "old");
 
       const result = await backup(settings, ["--to", copies, "--keep", "1"]);
 
       expect(result.code, result.stderr).toBe(0);
       const left = await readdir(copies);
-      expect(left).toHaveLength(2);
-      expect(left).toContain(`${name}-20990101-000000.dump`);
-      expect(left.some((item) => !item.includes("-209"))).toBe(true);
+      expect(left).toHaveLength(1);
+      expect(left[0]).not.toContain("2020");
+    }, 60_000);
+
+    it("keeps the copies made for a purpose apart from the nightly ones: neither pushes out the other", async () => {
+      const { settings, copies, name } = await install();
+      await mkdir(copies, { recursive: true });
+      const nightly = ["20200101", "20200102", "20200103"].map((day) => `${name}-${day}-030000.dump`);
+      const beforeUpdate = ["20200201", "20200202", "20200203", "20200204", "20200205", "20200206"].map((day) => `${name}-${day}-120000-before-update.dump`);
+      for (const file of [...nightly, ...beforeUpdate]) await writeFile(join(copies, file), "old");
+
+      // A copy before an update: the newest 5 of its kind stay, the nightly ones are not touched.
+      const labeled = await backup(settings, ["--to", copies, "--label", "before-update"]);
+      expect(labeled.code, labeled.stderr).toBe(0);
+      expect(labeled.stdout).toMatch(new RegExp(`Copy made: .*${name}-\\d{8}-\\d{6}-before-update\\.dump`));
+      let left = (await readdir(copies)).sort();
+      expect(left.filter((item) => item.endsWith("-before-update.dump"))).toHaveLength(5);
+      expect(left).not.toContain(beforeUpdate[0]);
+      expect(left).not.toContain(beforeUpdate[1]);
+      for (const file of nightly) expect(left).toContain(file);
+
+      // A nightly copy with --keep 2: the ones before an update are not touched.
+      const night = await backup(settings, ["--to", copies, "--keep", "2"]);
+      expect(night.code, night.stderr).toBe(0);
+      left = (await readdir(copies)).sort();
+      expect(left.filter((item) => item.endsWith("-before-update.dump"))).toHaveLength(5);
+      expect(left.filter((item) => !item.endsWith("-before-update.dump"))).toHaveLength(2);
+    }, 90_000);
+
+    it("looks only at the nightly copies for --status: a copy before an update says nothing about the nightly task", async () => {
+      const { settings, copies, name } = await install();
+      await mkdir(copies, { recursive: true });
+      await writeFile(join(copies, `${name}-${stampOf(new Date())}-before-update.dump`), "just now, but not a nightly copy");
+
+      const status = await backup(settings, ["--to", copies, "--status"]);
+
+      expect(status.code).toBe(1);
+      expect(status.stderr).toContain("There is no copy");
+    }, 60_000);
+
+    it("does not let a copy dated in the future be the newest one for --status", async () => {
+      const { settings, copies, name } = await install();
+      await mkdir(copies, { recursive: true });
+      const wrong = `${name}-${inTheFuture()}.dump`;
+      await writeFile(join(copies, wrong), "from a clock that was wrong");
+      await writeFile(join(copies, `${name}-20200101-000000.dump`), "years old");
+      await utimes(join(copies, `${name}-20200101-000000.dump`), new Date(Date.now() - 100 * DAY), new Date(Date.now() - 100 * DAY));
+
+      const status = await backup(settings, ["--to", copies, "--status"]);
+
+      // The check says that the newest real copy is old, and not that the nightly copy works because of the wrong one.
+      expect(status.code).toBe(1);
+      expect(status.stdout).toContain(`${wrong} is dated in the future`);
+      expect(status.stdout).toContain(`Newest copy: ${name}-20200101-000000.dump`);
+      expect(status.stderr).toContain("older than 26 hours");
+    }, 60_000);
+
+    it("says where the copies go, with --where: --to, then BACKUP_DIR, then the folder it is given as a default", async () => {
+      const { settings, copies } = await install();
+      const other = join(copies, "..", "another folder");
+      await writeFile(settings, `${await readFile(settings, "utf8")}\nBACKUP_DIR=${copies}\n`);
+
+      const fromSettings = await backup(settings, ["--where"]);
+      const fromTo = await backup(settings, ["--where", "--to", other]);
+      await writeFile(settings, (await readFile(settings, "utf8")).replace(/^BACKUP_DIR=.*$/m, ""));
+      const fromDefault = await backup(settings, ["--where", "--default-folder", other]);
+      const none = await backup(settings, ["--where"]);
+
+      expect(fromSettings.stdout.trim()).toBe(copies);
+      expect(fromTo.stdout.trim()).toBe(other);
+      expect(fromDefault.stdout.trim()).toBe(other);
+      expect(none.code).toBe(1);
+      expect(none.stderr).toContain("Where to put the copies?");
+      expect(await readdir(join(copies, "..")).then((items) => items.includes("another folder"))).toBe(false); // it only says
+    }, 60_000);
+
+    it("fails, and writes it in the log, when BACKUP_KEEP in the settings file is not a number", async () => {
+      const { settings, copies, folder } = await install();
+      const log = join(folder, "logs", "backup.log");
+      for (const value of ["", "0", "many", "2.5"]) {
+        await writeFile(settings, `${(await readFile(settings, "utf8")).replace(/^BACKUP_KEEP=.*\n?/m, "")}\nBACKUP_KEEP=${value}\n`);
+
+        const result = await backup(settings, ["--to", copies, "--log", log]);
+
+        expect(result.code, `BACKUP_KEEP=${value}`).toBe(1);
+        expect(result.stderr).toContain("BACKUP_KEEP in the settings file must be a whole number");
+      }
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      expect(lines).toHaveLength(4);
+      expect(lines.every((line) => line.includes("FAILED  BACKUP_KEEP in the settings file"))).toBe(true);
+      expect(await readdir(copies).catch(() => [])).toEqual([]);
+    }, 60_000);
+
+    it("refuses a # in BACKUP_DIR that would be read as a comment, and takes it when the path is in single quotes", async () => {
+      const { settings, folder } = await install();
+      const base = await readFile(settings, "utf8");
+      const copies = join(folder, "copies #1");
+      const log = join(folder, "logs", "backup.log");
+
+      await writeFile(settings, `${base}\nBACKUP_DIR=${copies}\n`);
+      const bare = await backup(settings, ["--log", log]);
+      await writeFile(settings, `${base}\nBACKUP_DIR='${copies}'\n`);
+      const quoted = await backup(settings, ["--log", log]);
+
+      expect(bare.code).toBe(1);
+      expect(bare.stderr).toContain("single quotes");
+      expect(await readFile(log, "utf8")).toContain("single quotes");
+      expect(quoted.code, quoted.stderr).toBe(0);
+      expect(quoted.stdout).toContain(`Copy made: ${copies}`);
     }, 60_000);
 
     it("finds pg_dump in the folder it is told about, also when that folder has a space in its name", async () => {
@@ -563,6 +696,69 @@ describe("deploy/backup.mjs and deploy/restore.mjs: copies of the database, and 
       expect(replace.stderr).toContain("newer version of Kassa");
       await expectUntouched(machine);
     }, 60_000);
+
+    it("puts back a copy made by an older version, which has not got what a later one added: that is the way back after an update", async () => {
+      const machine = await installWithACopy();
+      // A database as an older version left it: the first three migrations, no deleting, no history of changes.
+      const older = await createBlankDatabase();
+      cleanups.push(() => older.drop());
+      const client = new pg.Client({ connectionString: older.url });
+      await client.connect();
+      await client.query("CREATE TABLE schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())");
+      for (const file of ["0001_users_and_sessions.sql", "0002_operations.sql", "0003_expenses.sql"]) {
+        await client.query(await readFile(fileURLToPath(new URL(`../migrations/${file}`, import.meta.url)), "utf8"));
+        await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [file]);
+      }
+      await client.end();
+      const copy = join(machine.folder, "from-an-older-version.dump");
+      await execFileAsync("pg_dump", ["--format=custom", "--no-owner", "--no-privileges", "--file", copy, "--dbname", older.url]);
+
+      const check = await restore(machine.settings, copy, "--check");
+      const replace = await restore(machine.settings, copy, "--replace");
+
+      expect(check.code, check.stderr).toBe(0);
+      expect(check.stdout).toContain("no history of changes yet (a copy of an older version)");
+      expect(check.stdout).toContain("The copy is from an older version of Kassa");
+      expect(replace.code, replace.stderr).toBe(0);
+      // The current code takes the restored database forward, as the server does when it starts.
+      expect(await migrateDatabase(machine.url)).toEqual(["0004_corrections.sql"]);
+    }, 60_000);
+
+    it("names the database it keeps by what PostgreSQL really keeps, also for a long name outside ASCII, so that a second restore works", async () => {
+      const machine = await installWithACopy();
+      const long = "кассакассакассакассакассакассакасса".slice(0, 30); // 60 bytes: a name PostgreSQL accepts
+      const url = new URL(machine.url);
+      await withAdmin((client) => client.query(`CREATE DATABASE ${client.escapeIdentifier(long)} OWNER ${machine.name} ENCODING 'UTF8' TEMPLATE template0`));
+      cleanups.push(() =>
+        withAdmin(async (client) => {
+          for (const database of await databasesOf(long.slice(0, 15))) {
+            await client.query(`DROP DATABASE IF EXISTS ${client.escapeIdentifier(database)} WITH (FORCE)`);
+          }
+        }),
+      );
+      url.pathname = `/${encodeURIComponent(long)}`;
+      await migrateDatabase(url.toString());
+      await writeFile(machine.settings, (await readFile(machine.settings, "utf8")).replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url.toString()}`));
+      const made = await backup(machine.settings, ["--to", machine.copies]);
+      expect(made.code, made.stderr).toBe(0);
+      const copies = (await readdir(machine.copies)).filter((item) => item.startsWith(long));
+      expect(copies).toHaveLength(1);
+
+      const first = await restore(machine.settings, join(machine.copies, copies[0]!), "--replace");
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const second = await restore(machine.settings, join(machine.copies, copies[0]!), "--replace");
+
+      expect(first.code, first.stderr).toBe(0);
+      expect(second.code, second.stderr).toBe(0);
+      // Every name that was printed is a database that exists, byte for byte.
+      const printed = [...first.stdout.matchAll(/kept as "([^"]+)"/g), ...second.stdout.matchAll(/kept as "([^"]+)"/g)].map((match) => match[1]!);
+      expect(printed).toHaveLength(2);
+      const existing = await databasesOf(long.slice(0, 15));
+      for (const name of printed) {
+        expect(Buffer.byteLength(name)).toBeLessThanOrEqual(63);
+        expect(existing).toContain(name);
+      }
+    }, 90_000);
 
     it("says what is wrong when the administrator password is missing or wrong, and touches nothing", async () => {
       const machine = await installWithACopy();

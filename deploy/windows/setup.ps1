@@ -15,7 +15,7 @@
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa'
 )
@@ -27,6 +27,11 @@ Invoke-Main {
     $layout = Get-KassaLayout -Root $Root
     Assert-Node
     Assert-Tool -Name git -Hint 'Install Git for Windows from https://git-scm.com, then open a new PowerShell window.'
+    # npm ci below deletes the packages the application runs from: not while it is running (an update is update.ps1).
+    $application = Get-ServiceOrNull -Name 'KassaApp'
+    if ($application -and $application.Status -ne 'Stopped') {
+        throw 'The service KassaApp is running, and this script reinstalls the packages it runs from. For a new version use update.ps1. To run this anyway, stop the service first: Stop-Service KassaApp'
+    }
     $postgres = @(Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue)
     if ($postgres.Count -eq 0) {
         throw 'No PostgreSQL service found. Install PostgreSQL 16 (https://www.postgresql.org/download/windows/) first.'

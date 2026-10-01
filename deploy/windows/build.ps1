@@ -21,7 +21,7 @@
 .PARAMETER NoMigrate
   Build only. update.ps1 uses this to apply the migrations as a step of its own.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa',
     [switch]$NoInstall,

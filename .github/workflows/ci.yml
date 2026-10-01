@@ -104,8 +104,11 @@ jobs:
         env:
           CASHIER_NAME: Иван Петров
         run: |
+          # A script that ends with exit 1 does not stop this step: only the exit code of the last line counts.
           .\deploy\windows\kassa.ps1 create-user --login ci --role cashier --name $env:CASHIER_NAME
+          if ($LASTEXITCODE -ne 0) { throw "create-user failed ($LASTEXITCODE)" }
           .\deploy\windows\kassa.ps1 list-users
+          if ($LASTEXITCODE -ne 0) { throw "list-users failed ($LASTEXITCODE)" }
 
       - name: download-tools.ps1 (WinSW and Caddy, checked against their SHA-256)
         run: .\deploy\windows\download-tools.ps1
@@ -125,9 +128,15 @@ jobs:
       - name: The nightly copy as a task of the Task Scheduler (run by the system account)
         run: |
           .\deploy\windows\schedule-backup.ps1
+          if ($LASTEXITCODE -ne 0) { throw "schedule-backup.ps1 failed ($LASTEXITCODE)" }
           Start-ScheduledTask -TaskName 'Kassa backup'
-          Start-Sleep -Seconds 20
-          $info = Get-ScheduledTask -TaskName 'Kassa backup' | Get-ScheduledTaskInfo
+          # Wait until it has run (a cold PowerShell, node and pg_dump take a while), up to five minutes.
+          $deadline = (Get-Date).AddMinutes(5)
+          do {
+              Start-Sleep -Seconds 5
+              $task = Get-ScheduledTask -TaskName 'Kassa backup'
+              $info = $task | Get-ScheduledTaskInfo
+          } while (($task.State -eq 'Running' -or $info.LastTaskResult -in 267009, 267011) -and (Get-Date) -lt $deadline)
           Write-Host "Last result: $($info.LastTaskResult)"
           Get-Content C:\kassa\logs\backup.log
           if ($info.LastTaskResult -ne 0) { throw 'The scheduled copy did not succeed.' }
@@ -141,8 +150,10 @@ jobs:
       - name: Nothing to update; a copy put in place of the live database; a look at everything
         run: |
           .\deploy\windows\update.ps1 -Ref $env:GITHUB_SHA
-          $copy = (Get-ChildItem C:\kassa\backups\*.dump | Select-Object -First 1).FullName
-          .\deploy\windows\restore.ps1 -From $copy
+          if ($LASTEXITCODE -ne 0) { throw "update.ps1 failed ($LASTEXITCODE)" }
+          $copy = (Get-ChildItem C:\kassa\backups\*.dump | Sort-Object LastWriteTime | Select-Object -Last 1).FullName
+          .\deploy\windows\restore.ps1 -From $copy -Replace
+          if ($LASTEXITCODE -ne 0) { throw "restore.ps1 failed ($LASTEXITCODE)" }
           .\deploy\windows\verify.ps1 -PostgresService postgresql-x64-16
 
       - name: power.ps1
@@ -151,7 +162,9 @@ jobs:
       - name: uninstall-services.ps1, and the task is removed
         run: |
           .\deploy\windows\uninstall-services.ps1
+          if ($LASTEXITCODE -ne 0) { throw "uninstall-services.ps1 failed ($LASTEXITCODE)" }
           .\deploy\windows\schedule-backup.ps1 -Remove
+          if ($LASTEXITCODE -ne 0) { throw "schedule-backup.ps1 -Remove failed ($LASTEXITCODE)" }
           if (Get-Service KassaApp, KassaProxy -ErrorAction SilentlyContinue) { throw 'The services are still there.' }
           if (Get-NetFirewallRule -DisplayName 'Kassa*' -ErrorAction SilentlyContinue) { throw 'The firewall rules are still there.' }
 

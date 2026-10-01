@@ -28,8 +28,14 @@ __SITE__ {
 	# forward to. People get a sentence instead of a blank page, and the app on a phone
 	# (which keeps entries until the server answers) sees an answer that is not the app.
 	handle_errors {
-		header Content-Type "text/plain; charset=utf-8"
-		header Retry-After 60
+		# The same headers as above: this answer is made by the error handler, and does not get the ones of the site.
+		header {
+			Content-Type "text/plain; charset=utf-8"
+			Retry-After 60
+			X-Content-Type-Options nosniff
+			Referrer-Policy no-referrer
+			-Server
+		}
 		respond "Касса обновляется или временно недоступна. Подождите минуту и обновите страницу." 503
 	}
 

@@ -22,7 +22,7 @@
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa',
     [string]$At = '03:00',
@@ -55,7 +55,7 @@ Invoke-Main {
     # The system account, by its SID: the name of the account is translated on a Windows in another language.
     $system = (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')).Translate([Security.Principal.NTAccount]).Value
     $principal = New-ScheduledTaskPrincipal -UserId $system -LogonType ServiceAccount -RunLevel Highest
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
     Register-ScheduledTask -TaskName $TaskName -Description 'A copy of the Kassa database (deploy\windows\backup.ps1).' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 

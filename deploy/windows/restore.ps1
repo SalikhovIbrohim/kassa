@@ -1,22 +1,27 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Tries a copy of the database (-Check), or puts it in place of the live database (without -Check).
+  Tries a copy of the database (-Check), or puts it in place of the live database (-Replace).
 
 .DESCRIPTION
+  One of -Check and -Replace has to be given: the script does not guess, because -Replace changes the live
+  database.
+
   -Check restores the copy into a scratch database, says what is in it, and deletes the scratch
   database again. Nothing that is in use is touched: do this now and then, a copy that was never
   tried is only a hope.
 
-  Without -Check the application is stopped, the copy is restored into a new database, and only if
-  that worked completely it takes the place of the live one. The database that was live is not
-  deleted: it is renamed (kassa_before_restore_<date>), so that the step can be undone, and it can be
-  deleted when the restored data has been looked at. If anything fails, the live database stays as
-  it was and the application is started again. Entries made after the copy was made are not in it.
+  -Replace stops the application, restores the copy into a new database, and only if that worked
+  completely it takes the place of the live one. The database that was live is not deleted: it is renamed
+  (kassa_before_restore_<date>), so that the step can be undone, and it can be deleted when the restored
+  data has been looked at. If anything fails, the live database stays as it was and the application is
+  started again. Entries made after the copy was made are not in it.
 
   The application is started again at the end, unless -NoStart is given: going back to an earlier
   version of the program takes this step first and update.ps1 -Ref <version> after it, and the
-  application must not start in between.
+  application must not start in between. With -NoStart the service is also set not to start with the
+  machine until update.ps1 has run (it sets that back), so that a restart of the computer in between
+  does not start the new version on the old data.
 
   The password of the PostgreSQL administrator ("postgres") is asked for, because making a database is
   not something the application's own role may do. If PGPASSWORD is set in the window, that is used.
@@ -27,16 +32,20 @@
 .PARAMETER Check
   Only try the copy, in a scratch database.
 
+.PARAMETER Replace
+  Put the copy in place of the live database.
+
 .PARAMETER NoStart
   Do not start the application afterwards.
 
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory)][string]$From,
     [switch]$Check,
+    [switch]$Replace,
     [switch]$NoStart,
     [string]$Root = 'C:\kassa'
 )
@@ -44,6 +53,10 @@ param(
 . "$PSScriptRoot\common.ps1"
 
 Invoke-Main {
+    if ($Check -and $Replace) { throw 'Give -Check (try the copy) or -Replace (put it in place of the live database), not both.' }
+    if (-not $Check -and -not $Replace) {
+        throw 'Say what to do with the copy: -Check tries it in a scratch database and changes nothing; -Replace puts it in place of the live database (the one that is live is kept under another name).'
+    }
     Assert-Administrator
     $layout = Get-KassaLayout -Root $Root
     Assert-Node
@@ -83,6 +96,11 @@ Invoke-Main {
             }
         }
         if ($failed) { throw $failed }
+
+        if ($NoStart -and -not $Check -and $service) {
+            # A restart of the computer between this step and update.ps1 must not start the new version on the restored data.
+            Invoke-Native -File 'sc.exe' -Arguments @('config', 'KassaApp', 'start=', 'demand')
+        }
     }
     finally {
         Pop-Location
@@ -94,7 +112,10 @@ Invoke-Main {
         Write-Host 'The copy can be restored.' -ForegroundColor Green
     }
     elseif ($NoStart) {
-        Write-Host 'Restored. The application is not started (-NoStart): go on with update.ps1 -Ref <version>, or start it with Start-Service KassaApp.' -ForegroundColor Green
+        Write-Host 'Restored. The application is not started (-NoStart): go on with update.ps1 -Ref <version>.' -ForegroundColor Green
+        if ($service) {
+            Write-Host 'Until then the service does not start with the computer. To start it as it is: Start-Service KassaApp, then  sc.exe config KassaApp start= delayed-auto' -ForegroundColor Yellow
+        }
     }
     else {
         Write-Host 'Restored.' -ForegroundColor Green

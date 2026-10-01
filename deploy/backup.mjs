@@ -8,10 +8,12 @@
 // The exit code is 0 only if a good copy was made, so that the Task Scheduler shows a failure.
 import { existsSync } from "node:fs";
 import { appendFile, chmod, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
+  LABEL,
   Problem,
+  backupFolder,
   connectionFrom,
   copyPattern,
   findTool,
@@ -27,21 +29,28 @@ import {
 } from "./backup-lib.mjs";
 
 const USAGE = `Usage:
-  node deploy/backup.mjs --settings <settings file> [--to <folder>] [--keep <number>] [--pg-bin <folder>] [--log <file>]
+  node deploy/backup.mjs --settings <settings file> [--to <folder>] [--keep <number>] [--label <word>] [--pg-bin <folder>] [--log <file>]
   node deploy/backup.mjs --settings <settings file> --status [--to <folder>] [--max-age-hours <hours>]
+  node deploy/backup.mjs --settings <settings file> --where [--to <folder>] [--default-folder <folder>]
 
 Makes a compressed copy of the database named by DATABASE_URL in the settings file, and puts it in the
-folder given by --to, or by BACKUP_DIR in the settings file (a full path, written without quotes).
-The newest 14 copies are kept (--keep, or BACKUP_KEEP); older copies of the same database are deleted,
-but only after the new copy is made and checked. Nothing else in the folder is touched.
+folder given by --to, or by BACKUP_DIR in the settings file (a full path; if it has a # in it, in single
+quotes), or by --default-folder. The newest 14 copies are kept (--keep, or BACKUP_KEEP); older copies of
+the same database are deleted, but only after the new copy is made and checked. Nothing else in the
+folder is touched.
+--label makes a copy for a purpose, named kassa-<time>-<label>.dump (update.ps1 uses before-update). Those
+are kept apart from the nightly ones, the newest 5 of each label, so that neither pushes out the other.
 pg_dump is found on the PATH, or in the folder given by --pg-bin (or PG_BIN in the settings file).
 --log adds a line to that file for every run, with the time: OK and the file made, or FAILED and why.
+--where only prints the folder the copies go to.
 
 Exit code 0: the copy was made. 1: it was not (the reason is printed). 2: wrong use.
-With --status nothing is copied: the exit code is 0 if the newest copy is not older than
+With --status nothing is copied: the exit code is 0 if the newest nightly copy is not older than
 --max-age-hours (default 26), and 1 if there is none or it is older.`;
 
 const DEFAULT_KEEP = 14;
+// How many copies of each label (not the nightly ones) are kept.
+const KEEP_LABELED = 5;
 const DEFAULT_MAX_AGE_HOURS = 26;
 // A database this small is copied in seconds. A copy that has not finished by then is stuck (on a
 // lock, say), and a stuck copy would also keep the Task Scheduler from starting tomorrow's.
@@ -60,10 +69,13 @@ try {
     options: {
       settings: { type: "string" },
       to: { type: "string" },
+      "default-folder": { type: "string" },
       keep: { type: "string" },
+      label: { type: "string" },
       "pg-bin": { type: "string" },
       log: { type: "string" },
       status: { type: "boolean" },
+      where: { type: "boolean" },
       "max-age-hours": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -76,10 +88,16 @@ if (options.help) {
   process.exit(0);
 }
 if (!options.settings) usageError("--settings is required");
+if (options.label !== undefined && !LABEL.test(options.label)) usageError(`--label must be lower-case words joined by hyphens (before-update), got "${options.label}"`);
 
-function wholeNumber(text, what, minimum) {
+/** A whole number from the command line: a mistake there is a wrong use. From the settings file it is a problem of the machine. */
+function wholeNumber(text, what, minimum, { fromSettings = false } = {}) {
   const number = Number(text);
-  if (!/^\d+$/.test(String(text).trim()) || number < minimum) usageError(`${what} must be a whole number, ${minimum} or more, got "${text}"`);
+  if (!/^\d+$/.test(String(text).trim()) || number < minimum) {
+    const message = `${what} must be a whole number, ${minimum} or more, got "${text}"`;
+    if (fromSettings) throw new Problem(message);
+    usageError(message);
+  }
   return number;
 }
 
@@ -87,24 +105,20 @@ try {
   const settingsPath = resolve(options.settings);
   const settings = await readSettings(settingsPath);
   const connection = connectionFrom(settings, settingsPath);
+  const folder = backupFolder({ to: options.to, settings, defaultFolder: options["default-folder"] });
 
-  const folder = options.to ?? settings.BACKUP_DIR;
-  if (!folder) {
-    throw new Problem("Where to put the copies? Give --to <folder>, or write BACKUP_DIR=<folder> in the settings file.");
-  }
-  if (/[\r\n\t]/.test(folder)) {
-    throw new Problem("BACKUP_DIR contains a line break or a tab: write the path without quotes (BACKUP_DIR=D:\\kassa-copies).");
-  }
-  if (!isAbsolute(folder)) {
-    throw new Problem(`"${folder}" is not a full path (like D:\\kassa-copies): a scheduled task does not start in the folder you expect.`);
-  }
-
-  if (options.status) {
+  if (options.where) {
+    console.log(folder);
+  } else if (options.status) {
     const maxAge = wholeNumber(options["max-age-hours"] ?? DEFAULT_MAX_AGE_HOURS, "--max-age-hours", 1);
     await status(folder, connection.database, maxAge);
   } else {
-    const keep = wholeNumber(options.keep ?? settings.BACKUP_KEEP ?? DEFAULT_KEEP, "--keep (or BACKUP_KEEP)", 1);
-    const made = await backup({ folder, connection, keep, pgBin: options["pg-bin"] ?? settings.PG_BIN });
+    const keep = options.label
+      ? KEEP_LABELED
+      : options.keep === undefined
+        ? wholeNumber(settings.BACKUP_KEEP ?? DEFAULT_KEEP, "BACKUP_KEEP in the settings file", 1, { fromSettings: true })
+        : wholeNumber(options.keep, "--keep", 1);
+    const made = await backup({ folder, connection, keep, label: options.label, pgBin: options["pg-bin"] ?? settings.PG_BIN });
     await writeLog(`OK      Copy made: ${made.path} (${megabytes(made.size)})`);
   }
 } catch (error) {
@@ -125,7 +139,7 @@ async function writeLog(text) {
   }
 }
 
-async function backup({ folder, connection, keep, pgBin }) {
+async function backup({ folder, connection, keep, label, pgBin }) {
   const pgDump = await findTool("pg_dump", pgBin);
   const pgRestore = await findTool("pg_restore", pgBin);
 
@@ -143,7 +157,7 @@ async function backup({ folder, connection, keep, pgBin }) {
   let finalPath;
   let partial;
   for (let attempt = 0; ; attempt++) {
-    name = `${connection.database}-${stamp()}.dump`;
+    name = `${connection.database}-${stamp()}${label ? `-${label}` : ""}.dump`;
     finalPath = join(folder, name);
     partial = `${finalPath}.partial`;
     if (!existsSync(finalPath)) {
@@ -194,17 +208,18 @@ async function backup({ folder, connection, keep, pgBin }) {
   const size = (await stat(finalPath)).size;
   console.log(`Copy made: ${finalPath} (${megabytes(size)})`);
 
-  await tidy(folder, connection.database, keep, name);
+  await tidy(folder, connection.database, keep, name, label);
   return { path: finalPath, size };
 }
 
 /**
- * Deletes the copies beyond the newest `keep`, and what a copy that was cut off long ago left behind.
- * The copy just made is never deleted, even if the clock of the machine was set back and the names of
- * the older copies look newer than it.
+ * Deletes the copies of this kind (nightly, or of this label) beyond the newest `keep`, and what a copy that
+ * was cut off long ago left behind. The copy just made is never deleted. A copy dated in the future (the
+ * clock was wrong when it was made) is not counted and not deleted: it is named, so that somebody looks.
  */
-async function tidy(folder, database, keep, justMade) {
-  const stale = (await listCopies(folder, database)).slice(keep).filter((copy) => copy.name !== justMade);
+async function tidy(folder, database, keep, justMade, label) {
+  const { copies, future } = await listCopies(folder, database, { label });
+  const stale = copies.slice(keep).filter((copy) => copy.name !== justMade);
   const removed = [];
   for (const copy of stale) {
     try {
@@ -215,9 +230,12 @@ async function tidy(folder, database, keep, justMade) {
     }
   }
   if (removed.length > 0) console.log(`Deleted ${removed.length} old ${removed.length === 1 ? "copy" : "copies"} (the newest ${keep} are kept).`);
+  for (const copy of future) {
+    console.log(`Warning: ${copy.name} is dated in the future: the clock of this computer was wrong when it was made. It is not counted and not deleted; delete it when you have looked at it.`);
+  }
 
   // A copy that was cut off (power loss, the task killed) leaves its unfinished file. Not one that may be running now.
-  const partials = copyPattern(database, { partial: true });
+  const partials = copyPattern(database, { partial: true, anyLabel: true });
   for (const name of (await readdir(folder)).filter((item) => partials.test(item))) {
     const path = join(folder, name);
     const info = await stat(path).catch(() => undefined);
@@ -229,7 +247,11 @@ async function tidy(folder, database, keep, justMade) {
 }
 
 async function status(folder, database, maxAgeHours) {
-  const copies = await listCopies(folder, database);
+  // Only the copies without a label: one made before an update says nothing about the nightly task.
+  const { copies, future } = await listCopies(folder, database);
+  for (const copy of future) {
+    console.log(`Warning: ${copy.name} is dated in the future (the clock was wrong when it was made) and is not counted.`);
+  }
   if (copies.length === 0) {
     throw new Problem(`There is no copy of "${database}" in ${folder}. The nightly copy has never worked, or it writes somewhere else.`);
   }

@@ -21,7 +21,7 @@
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa',
     [string]$Site,
@@ -103,7 +103,7 @@ Invoke-Main {
         $open = @()
         foreach ($rule in $rules) {
             $filter = $rule | Get-NetFirewallPortFilter
-            if (@($filter.LocalPort | Where-Object { $_ -eq [string]$appPort -or $_ -eq '5432' }).Count -gt 0) { $open += $rule.DisplayName }
+            if ((Test-PortListed -Values $filter.LocalPort -Port $appPort) -or (Test-PortListed -Values $filter.LocalPort -Port 5432)) { $open += $rule.DisplayName }
         }
         if ($open.Count -gt 0) { Write-Report 'FAIL' 'firewall' ("inbound rules open port $appPort (the application) or 5432 (the database) to the network: " + ($open -join ', ')) }
         else { Write-Report 'ok' 'firewall' "no rule opens the application ($appPort) or the database (5432) to the network" }

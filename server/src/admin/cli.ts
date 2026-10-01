@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
 import { formatAmount } from "../money.js";
-import { DatabaseSetupError, migrate } from "../migrate.js";
+import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -16,6 +16,8 @@ import {
 
 /** The database is not as this version needs it. Not a failure of the command: nothing was changed. */
 const EXIT_DATABASE_NOT_AS_NEEDED = 3;
+/** A migration failed and none was applied: the database is as it was (the update script goes back to the old version). */
+const EXIT_NOTHING_APPLIED = 4;
 
 const USAGE = `Usage: npm run admin -- <command> [options]
 
@@ -188,6 +190,10 @@ main().catch((error: unknown) => {
   if (error instanceof DatabaseSetupError) {
     console.error(`Error: ${error.message}`);
     process.exit(EXIT_DATABASE_NOT_AS_NEEDED);
+  } else if (error instanceof MigrationFailedError) {
+    const before = error.applied.length === 0 ? " Nothing was applied: the database is as it was." : ` Applied before it: ${error.applied.join(", ")}.`;
+    console.error(`Error: ${error.message}.${before}`);
+    process.exit(error.applied.length === 0 ? EXIT_NOTHING_APPLIED : 1);
   } else if (error instanceof AdminError) {
     console.error(`Error: ${error.message}`);
   } else if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {

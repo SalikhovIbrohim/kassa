@@ -60,8 +60,9 @@ try {
 }
 
 // The password is in the text of the statements that make the role. Keep them out of PostgreSQL's own log,
-// which would get the whole statement if one failed, or every one with log_statement set to ddl or all.
-for (const statement of ["SET log_min_error_statement = 'panic'", "SET log_statement = 'none'"]) {
+// which would get the whole statement if one failed, or every one with log_statement set to ddl or all, or
+// with log_min_duration_statement set to 0 (some people turn that on to see what is slow).
+for (const statement of ["SET log_min_error_statement = 'panic'", "SET log_statement = 'none'", "SET log_min_duration_statement = -1"]) {
   await admin.query(statement).catch(() => {});
 }
 

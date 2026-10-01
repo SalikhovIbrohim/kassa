@@ -32,7 +32,7 @@
 .PARAMETER ServiceAccount
   VirtualAccount (default), or LocalSystem as a way out if the services will not start under their own accounts.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory)][string]$Site,
     [string]$WinSW,

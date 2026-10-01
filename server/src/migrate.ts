@@ -11,6 +11,20 @@ const LOCK_ID = 7_301_001;
 export class DatabaseSetupError extends Error {}
 
 /**
+ * A migration failed. Each one runs in one transaction, so the one that failed left nothing behind;
+ * `applied` are the ones that ran before it in this run. When that is empty the database is as it was,
+ * and the version that ran before can still run on it (the update script goes back to it).
+ */
+export class MigrationFailedError extends Error {
+  constructor(
+    message: string,
+    readonly applied: string[],
+  ) {
+    super(message);
+  }
+}
+
+/**
  * Names, comments and everything else people type are Russian. A database that stores text in a
  * Windows code page (PostgreSQL on Windows may be set up that way, by the locale of the machine)
  * cannot keep most of it: the first Russian name fails to save. Better to refuse at the start.
@@ -83,7 +97,7 @@ export async function migrate(pool: pg.Pool, options: MigrateOptions = {}): Prom
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");
-        throw new Error(`Migration ${file} failed: ${(error as Error).message}`);
+        throw new MigrationFailedError(`Migration ${file} failed: ${(error as Error).message}`, [...ran]);
       }
       ran.push(file);
     }

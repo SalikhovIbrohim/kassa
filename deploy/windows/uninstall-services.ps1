@@ -4,7 +4,7 @@
   Stops and removes the services KassaApp and KassaProxy and closes ports 80 and 443 again.
   The data (database, settings, logs, copies) stays.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa'
 )
@@ -19,7 +19,9 @@ Invoke-Main {
         $exe = [IO.Path]::Combine($layout.Services, $id, "$id.exe")
         if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
             Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
-            Invoke-Native -File $exe -Arguments @('uninstall')
+            # Without the wrapper (its folder was deleted) the service is removed by Windows itself.
+            if (Test-Path -LiteralPath $exe) { Invoke-Native -File $exe -Arguments @('uninstall') }
+            else { Invoke-Native -File 'sc.exe' -Arguments @('delete', $id) }
             Wait-ServiceRemoved -Name $id
             Write-Host "Removed the service $id"
         }

@@ -20,7 +20,7 @@
 .PARAMETER Force
   Download again even if the file is there.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Root = 'C:\kassa',
     [switch]$Force

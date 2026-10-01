@@ -13,7 +13,7 @@
   (see docs/deploy-windows.md), and the active hours in Settings > Update & Security > Windows Update
   decide when it may do that.
 #>
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param()
 
 . "$PSScriptRoot\common.ps1"
