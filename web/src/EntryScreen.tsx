@@ -63,17 +63,6 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
 
   return (
     <>
-      <ShiftBar
-        login={login}
-        state={shift.state}
-        opening={shift.opening}
-        problem={shift.problem}
-        lastClosed={shift.lastClosed}
-        onDismissClosed={shift.dismissClosed}
-        onOpen={shift.open}
-        onClose={shift.close}
-      />
-
       <div className="tabs" role="group" aria-label="Раздел">
         <button
           type="button"
@@ -105,6 +94,21 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
         >
           Журнал
         </button>
+      </div>
+
+      {/* The shift is not touched with every entry, so it lives under the journal and takes no room on the forms.
+          It stays mounted while hidden: a count typed for closing survives a look at another tab. */}
+      <div hidden={!journalOpen}>
+        <ShiftBar
+          login={login}
+          state={shift.state}
+          opening={shift.opening}
+          problem={shift.problem}
+          lastClosed={shift.lastClosed}
+          onDismissClosed={shift.dismissClosed}
+          onOpen={shift.open}
+          onClose={shift.close}
+        />
       </div>
 
       <div hidden={journalOpen || form !== "income"} onInputCapture={() => (currencyTouched.current = true)}>

@@ -57,6 +57,13 @@ describe("shifts on the cashier's screen", () => {
   }
 
   const bar = (page: Page) => page.getByRole("region", { name: "Смена", exact: true });
+  /** The shift is under the journal tab, not on the forms. */
+  const showShift = (page: Page) => page.getByRole("button", { name: "Журнал", exact: true }).click();
+  async function startShift(page: Page) {
+    await showShift(page);
+    await page.getByRole("button", { name: "Открыть смену" }).click();
+    await seeText(bar(page), "Смена открыта");
+  }
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
 
   async function enterIncome(page: Page, amount: string, clientCode: string) {
@@ -68,10 +75,10 @@ describe("shifts on the cashier's screen", () => {
 
   it("shows that no shift is open, opens one, and says since when and with what balances", async () => {
     const { ivan } = await desk();
+    await showShift(ivan.page);
     await seeText(bar(ivan.page), "Смена не открыта");
 
     await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-
     await seeText(bar(ivan.page), "Смена открыта");
     await expandShift(ivan.page);
     // The thousands are separated by a no-break space, which `\s` covers.
@@ -81,8 +88,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("puts what is entered into the shift, and starts the journal with the shift's operations", async () => {
     const { ivan, serverOperations } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
 
     await enterIncome(ivan.page, "654", "SH-1");
     await seeText(ivan.page.locator(".success"), "Записано: приход");
@@ -102,8 +108,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("puts an entry made without a connection into the shift that was open on the phone", async () => {
     const { ivan, serverOperations } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
     await ivan.page.evaluate(() => navigator.serviceWorker.ready);
     await ivan.page.waitForFunction(() => navigator.serviceWorker.controller !== null);
 
@@ -121,17 +126,20 @@ describe("shifts on the cashier's screen", () => {
 
   it("tells another cashier whose shift is open, and offers no second one", async () => {
     const { ivan, phoneOf } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
 
     const petr = await phoneOf("petr", "another good one");
+    await showShift(petr.page);
 
     await seeText(bar(petr.page), "Открыта смена кассира Иван");
     expect(await petr.page.getByRole("button", { name: "Открыть смену" }).count()).toBe(0);
   }, 90_000);
 
   /** The details of the open shift are folded under its line. */
-  const expandShift = (page: Page) => bar(page).getByRole("button", { name: /Смена открыта/ }).click();
+  async function expandShift(page: Page) {
+    await showShift(page);
+    await bar(page).getByRole("button", { name: /Смена открыта/ }).click();
+  }
 
   const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
 
@@ -145,8 +153,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("closes the shift with the count of the cash and says how it came out, and the books say what was counted", async () => {
     const { ivan } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
     await enterIncome(ivan.page, "654", "SH-CLOSE");
     await seeText(ivan.page.locator(".success"), "Записано: приход");
 
@@ -162,8 +169,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("asks for a count of both currencies, and takes zero as a count", async () => {
     const { ivan } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
     await expandShift(ivan.page);
     await ivan.page.getByRole("button", { name: "Закрыть смену" }).click();
 
@@ -178,8 +184,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("shows the owner the shift with its difference, in the list of shifts and in the totals", async () => {
     const { ivan, phoneOf } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
     await closeWith(ivan.page, "990", "50");
     await seeText(bar(ivan.page), "Смена закрыта");
 
@@ -199,8 +204,7 @@ describe("shifts on the cashier's screen", () => {
 
   it("does not close the shift while an entry waits on the phone", async () => {
     const { ivan } = await desk();
-    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
-    await seeText(bar(ivan.page), "Смена открыта");
+    await startShift(ivan.page);
     await ivan.page.evaluate(() => navigator.serviceWorker.ready);
     await ivan.page.waitForFunction(() => navigator.serviceWorker.controller !== null);
     await ivan.context.setOffline(true);
