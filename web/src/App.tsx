@@ -18,6 +18,7 @@ import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 import { ViewerScreen } from "./ViewerScreen";
+import { focusWhenShown } from "./focus-when-shown";
 
 type State =
   | { kind: "loading" }
@@ -244,7 +245,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           aria-labelledby="leave-title"
           aria-describedby="leave-text"
           tabIndex={-1}
-          ref={(node) => node?.focus()}
+          ref={focusWhenShown}
         >
           <p className="queue-title" id="leave-title">
             Не отправлено: {kept} {plural(kept, "запись", "записи", "записей")}

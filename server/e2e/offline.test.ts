@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
@@ -367,6 +368,39 @@ describe("making entries without a connection", () => {
     await seeText(page.locator(".success"), "Записано: приход");
   });
 
+  it("does not write one entry over the other when the second form is pressed while the first is still on its way", async () => {
+    const { page, onServer } = await desk({ RUB: "1000" });
+    // Both forms are filled in before anything is pressed, so that the second press comes within a moment.
+    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await amountField(page).fill("10");
+    await page.getByText("Топливо и дорога").click();
+    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await amountField(page).fill("654");
+    await page.locator("input[name=clientCode]").fill("BUSY-1");
+    // The server holds the answer to the first entry until the test lets it go.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/api/operations", async (route) => {
+      if (route.request().method() === "POST") await gate;
+      await route.continue();
+    });
+
+    await page.getByRole("button", { name: "Записать приход" }).click();
+    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("button", { name: "Записать расход" }).click();
+
+    await seeVisible(page.getByRole("alert").filter({ hasText: "Предыдущая запись ещё отправляется" }));
+    // What was typed in the expense form is still there.
+    await seeValue(amountField(page), "10");
+    release();
+    await seeText(page.locator(".success").filter({ hasText: "Записано: приход" }), "654,00");
+
+    await page.getByRole("button", { name: "Записать расход" }).click();
+
+    await seeText(page.locator(".success").filter({ hasText: "Топливо и дорога" }), "10,00");
+    expect(await onServer("BUSY-1")).toBe(1);
+  });
+
   it("opens the app from the phone while the proxy answers 502 for everything, and keeps entries until the server is back", async () => {
     const { page, context, banner, onServer } = await desk();
     await waitUntilKeptOnThePhone(page);
@@ -453,5 +487,71 @@ describe("making entries without a connection", () => {
     await page.getByRole("button", { name: "Выйти" }).waitFor();
 
     expect(await page.getByRole("radio", { name: "Доллары" }).isChecked()).toBe(true);
+  });
+
+  /** Ivan made an entry on another device: what the server knows as the currency he worked in last. */
+  async function enteredElsewhere(started: TestApp, currency: "RUB" | "USD") {
+    const cookie = await loginAs(started, "ivan", "correct horse");
+    const response = await postJson(
+      started,
+      "/api/operations",
+      { id: randomUUID(), type: "income", amountMinor: 1_000, currency, clientCode: "ELSE-1" },
+      cookie,
+    );
+    expect(response.status).toBe(201);
+  }
+
+  const holdDefaults = (context: BrowserContext) =>
+    context.route("**/api/operations/defaults", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await route.continue();
+    });
+
+  it("does not change the currency under the hands of a cashier who has started typing, when the server's idea of it comes late", async () => {
+    const { started, page, context } = await desk();
+    await enteredElsewhere(started, "USD");
+    await holdDefaults(context);
+    await page.reload({ waitUntil: "load" });
+    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    expect(await page.getByRole("radio", { name: "Рубли" }).isChecked()).toBe(true);
+
+    await amountField(page).fill("250");
+    await page.waitForTimeout(3_500);
+
+    expect(await page.getByRole("radio", { name: "Рубли" }).isChecked()).toBe(true);
+  });
+
+  it("keeps the currency that the phone remembers, also when the server's last entry of the cashier was in another one", async () => {
+    const { started, page } = await desk();
+    await enteredElsewhere(started, "RUB");
+    await page.evaluate(() => localStorage.setItem("kassa.currency", "USD"));
+    await page.reload({ waitUntil: "load" });
+    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.waitForTimeout(1_500);
+
+    expect(await page.getByRole("radio", { name: "Доллары" }).isChecked()).toBe(true);
+  });
+
+  it("keeps the form and says what to do when the session has ended and the phone cannot keep the entry", async () => {
+    const { page, context } = await desk();
+    // A phone whose storage refuses to open (full, private mode); the server says the session has ended.
+    await context.addInitScript(() => {
+      IDBFactory.prototype.open = function () {
+        throw new DOMException("denied", "SecurityError");
+      };
+    });
+    await page.reload({ waitUntil: "load" });
+    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.route("**/api/operations", (route) =>
+      route.request().method() === "POST"
+        ? route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized" }) })
+        : route.continue(),
+    );
+
+    await enterIncome(page, "4321", "B5-1");
+
+    await seeVisible(page.getByRole("alert").filter({ hasText: "Нужно войти заново, а на телефоне запись сохранить не удалось" }));
+    await seeValue(amountField(page), "4321");
+    expect(await page.getByLabel("Логин").count()).toBe(0);
   });
 });

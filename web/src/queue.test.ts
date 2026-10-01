@@ -238,6 +238,79 @@ describe("the queue of entries made without a connection", () => {
     expect(order).toEqual([`start ${a.id}`, `end ${a.id}`, `start ${b.id}`, `end ${b.id}`]);
   });
 
+  describe("two entries made close together", () => {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("does not let a second entry with the same id take the place of the first, which is still on its way", async () => {
+      const answers: Array<() => void> = [];
+      const t = setup({
+        send: (input) =>
+          new Promise<OperationResult>((resolve) =>
+            answers.push(() => resolve({ ok: true, operation: operationOf(input), balances: balances(0) })),
+          ),
+      });
+      const first = income(50_000);
+      // The other form builds its entry with the id that the screen still holds.
+      const second = { ...expense(7_000), id: first.id };
+
+      const sending = t.queue.submit(first, "ivan");
+      await tick();
+      const outcome = await t.queue.submit(second, "ivan");
+
+      expect(outcome).toEqual({ kind: "busy" });
+      expect((await t.store.list()).map((entry) => entry.input)).toEqual([first]);
+
+      answers[0]!();
+      expect(await sending).toMatchObject({ kind: "saved", operation: { id: first.id, type: "income" } });
+      expect(await t.stored()).toEqual([]);
+      expect(answers).toHaveLength(1);
+    });
+
+    it("still takes the same entry again, as a retry", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const entry = income();
+      await t.queue.submit(entry, "ivan");
+
+      t.server.offline = false;
+      const outcome = await t.queue.submit(entry, "ivan");
+
+      expect(outcome.kind).toBe("saved");
+      expect([...t.server.saved.keys()]).toEqual([entry.id]);
+    });
+
+    it("tells a form what became of its entry when a run that was already under way sent it", async () => {
+      const t = setup();
+      t.server.offline = true;
+      const older = income(10_000);
+      await t.queue.submit(older, "ivan");
+
+      // The connection is back, and the first request of the run that starts is slow.
+      t.server.offline = false;
+      const quick = t.server.send.bind(t.server);
+      let release!: () => void;
+      t.server.send = async (input, login) => {
+        await new Promise<void>((resolve) => (release = resolve));
+        t.server.send = quick;
+        return quick(input, login);
+      };
+      const running = t.queue.nudge();
+      await tick();
+      await tick();
+
+      // The cashier presses the button for a new entry while that request is in flight: the run takes it along.
+      const newer = income(20_000);
+      const outcome = t.queue.submit(newer, "ivan");
+      await tick();
+      release();
+      await running;
+
+      expect(await outcome).toMatchObject({ kind: "saved", operation: { id: newer.id } });
+      expect([...t.server.saved.keys()]).toEqual([older.id, newer.id]);
+      expect(await t.stored()).toEqual([]);
+    });
+  });
+
   describe("an entry the server refuses for what it says", () => {
     it("is not kept when it was typed just now: the form shows the reason", async () => {
       const t = setup();
@@ -671,6 +744,35 @@ describe("the queue of entries made without a connection", () => {
       expect(t.timers.filter((timer) => !timer.cleared)).toHaveLength(1);
     });
 
+    it("looks again by itself when the first read at the start failed, so that entries left on the phone are not invisible", async () => {
+      const store = memoryStore();
+      const left = income(30_000);
+      await store.put({ id: left.id, input: left, login: "ivan", queuedAt: "2026-03-05T08:30:00.000Z", status: "waiting", problem: null });
+      let unreadable = true;
+      const flaky = {
+        put: (entry: QueuedEntry) => store.put(entry),
+        remove: (id: string) => store.remove(id),
+        list: async () => {
+          if (unreadable) throw new Error("unreadable");
+          return store.list();
+        },
+      };
+      const t = setup({ store: flaky });
+
+      await t.queue.start().catch(() => {});
+      expect(t.queue.getState().entries).toEqual([]);
+      const [timer] = t.timers.filter((item) => !item.cleared);
+      expect(timer).toBeDefined();
+
+      unreadable = false;
+      timer!.callback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect([...t.server.saved.keys()]).toEqual([left.id]);
+      expect(await t.stored()).toEqual([]);
+    });
+
     it("does not let a read that began before a write hide the entry that was written", async () => {
       const store = memoryStore();
       let gate: (() => void) | undefined;
@@ -901,6 +1003,28 @@ describe("the entries on the phone (IndexedDB)", () => {
     const [left] = await store.list();
     expect(await store.list()).toHaveLength(1);
     expect(left).toMatchObject({ id: "a", status: "blocked", problem: { kind: "rejected" } });
+  });
+
+  it("opens the storage again when the browser closed the connection without saying so", async () => {
+    const factory = new IDBFactory();
+    const connections: IDBDatabase[] = [];
+    const open = factory.open.bind(factory);
+    factory.open = ((name: string, version?: number) => {
+      const request = open(name, version);
+      request.addEventListener("success", () => connections.push(request.result));
+      return request;
+    }) as typeof factory.open;
+    const store = indexedDbStore(factory);
+    await store.put(entry("a", "2026-03-05T08:30:00.000Z"));
+
+    // Closed behind the app's back: no close event, as on a phone that took the storage away in the background.
+    connections[0]!.close();
+    await store.put(entry("b", "2026-03-05T08:31:00.000Z"));
+    connections[1]!.close();
+    await store.remove("a");
+
+    expect((await store.list()).map((item) => item.id)).toEqual(["b"]);
+    expect(connections).toHaveLength(3);
   });
 
   it("works under the queue the way the memory store does", async () => {

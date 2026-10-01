@@ -4,6 +4,7 @@ import { plural } from "./plural";
 import type { QueuedEntry } from "./queue";
 import { queue, useQueueState } from "./queue-instance";
 import { entryText, phoneTime, problemText } from "./queue-text";
+import { focusWhenShown } from "./focus-when-shown";
 
 type Props = {
   /** The cashier signed in now. */
@@ -124,7 +125,7 @@ export function QueueBanner({ login, onSignIn }: Props) {
                 ))}
               </ul>
               <p className="queue-hint">
-                Если {otherLogins.length === 1 ? "он больше не работает" : "они больше не работают"} и войти не смогут, записи можно удалить: деньги по ним нигде не учтены.
+                Если {otherLogins.length === 1 ? "он больше не работает" : "они больше не работают"} и войти не смогут, записи можно удалить. Сначала посмотрите журнал: если запись там уже есть, удалять её не нужно.
               </p>
             </>
           )}
@@ -166,9 +167,9 @@ function Row({ entry, categories, removing, onRemoving, theirs = false }: RowPro
         <span className="queue-entry-actions">
           {removing === entry.id ? (
             <>
-              <span className="queue-warning" tabIndex={-1} ref={(node) => node?.focus()}>
-                Удалить эту запись с телефона? На сервере её нет, в журнал и остаток она не попадёт, владелец её не увидит.
-                Если деньги выданы или получены, внесите запись заново.
+              <span className="queue-warning" tabIndex={-1} ref={focusWhenShown}>
+                Удалить эту запись с телефона? Если сервер её не принимал, в журнал и остаток она не попадёт, владелец её не
+                увидит. Если деньги выданы или получены, сначала посмотрите журнал, а потом при необходимости внесите запись заново.
               </span>
               <button
                 key="really"

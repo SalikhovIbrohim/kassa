@@ -84,23 +84,39 @@ export function indexedDbStore(factory: IDBFactory = indexedDB): QueueStore {
     return result;
   }
 
+  /**
+   * A phone may close the connection without saying so (it is told of iPhones that did it while the app was in
+   * the background). Every operation here can safely be done twice, so the first such failure is met by
+   * opening a new connection and trying once more.
+   */
+  async function inStoreAgain<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+    try {
+      return await inStore(mode, work);
+    } catch (error) {
+      const name = (error as { name?: string } | null)?.name;
+      if (name !== "InvalidStateError" && name !== "UnknownError") throw error;
+      database = undefined;
+      return inStore(mode, work);
+    }
+  }
+
   return {
     async list() {
       const all = await within(
-        inStore("readonly", (store) => store.getAll() as IDBRequest<QueuedEntry[]>),
+        inStoreAgain("readonly", (store) => store.getAll() as IDBRequest<QueuedEntry[]>),
         "Reading the entries",
       );
       return all.sort((a, b) => a.queuedAt.localeCompare(b.queuedAt) || a.id.localeCompare(b.id));
     },
     async put(entry) {
       await within(
-        inStore("readwrite", (store) => store.put(entry)),
+        inStoreAgain("readwrite", (store) => store.put(entry)),
         "Writing an entry",
       );
     },
     async remove(id) {
       await within(
-        inStore("readwrite", (store) => store.delete(id)),
+        inStoreAgain("readwrite", (store) => store.delete(id)),
         "Removing an entry",
       );
     },

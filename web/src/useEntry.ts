@@ -136,7 +136,12 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
       if (outcome.kind === "not-kept") {
         // Neither the server nor the phone has it: only this form does, with the same id for the next try.
         if (outcome.why === "login") {
-          onSessionExpired();
+          // The session has ended and the phone cannot keep the entry. The screen must not go away with the only
+          // copy of what was typed: it stays, and says what to do.
+          setError(
+            `Нужно войти заново, а на телефоне запись сохранить не удалось: ${entryText(input, categories ?? [])}. ` +
+              "Нажмите «Выйти», войдите снова и внесите её.",
+          );
           return false;
         }
         setError(
@@ -144,6 +149,14 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
             ? "Нет связи с сервером, и запись не удалось сохранить на телефоне. Нажмите кнопку ещё раз, когда появится интернет: дубля не будет."
             : SERVER_MAY_HAVE_SAVED,
         );
+        return false;
+      }
+
+      if (outcome.kind === "busy") {
+        // The id is the one of an entry made in the other form a moment ago, still on its way: nothing was taken
+        // and nothing was replaced. This form gets an id of its own, and what is typed stays for the next press.
+        entryId.current = crypto.randomUUID();
+        setError("Предыдущая запись ещё отправляется. Подождите секунду и нажмите кнопку ещё раз.");
         return false;
       }
 

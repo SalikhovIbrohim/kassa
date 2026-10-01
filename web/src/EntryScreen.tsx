@@ -26,10 +26,15 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
   const [changed, setChanged] = useState<Operation | null>(null);
   // The currency of the last entry is known without the server: a form opened offline starts with it.
   const [currency, setCurrency] = useState<Currency>(() => rememberedCurrency() ?? "RUB");
+  // Set when the cashier picks a currency or types anything: from then on the server's idea of it is not to
+  // change what they see, or an amount typed as dollars would be booked as rubles.
   const currencyTouched = useRef(false);
   const entryId = useRef(crypto.randomUUID());
 
   useEffect(() => {
+    // The phone remembers the last entry made on it, also one that has not reached the server yet, which the
+    // server cannot know about: that wins. The server's idea is for a phone that remembers nothing.
+    if (rememberedCurrency() !== null) return;
     fetchDefaultCurrency().then(
       (last) => {
         if (!currencyTouched.current) setCurrency(last);
@@ -86,10 +91,10 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
         </button>
       </div>
 
-      <div hidden={journalOpen || form !== "income"}>
+      <div hidden={journalOpen || form !== "income"} onInputCapture={() => (currencyTouched.current = true)}>
         <IncomeForm {...shared} active={!journalOpen && form === "income"} />
       </div>
-      <div hidden={journalOpen || form !== "expense"}>
+      <div hidden={journalOpen || form !== "expense"} onInputCapture={() => (currencyTouched.current = true)}>
         <ExpenseForm {...shared} active={!journalOpen && form === "expense"} />
       </div>
       {journalOpen && (

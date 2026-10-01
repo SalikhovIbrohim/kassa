@@ -22,12 +22,24 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      await Promise.all(FILES.map((url) => cache.add(new Request(url, { cache: "reload" }))));
+      await Promise.all(FILES.map((url) => keepFile(cache, url)));
       // Complete: this version need not wait for every open page to close before it takes over.
       await self.skipWaiting();
     })(),
   );
 });
+
+// Fetches one file of the app afresh and keeps it. A sign-in page of a public Wi-Fi, or a proxy, answers every
+// address with 200 and a page of its own: that must not be kept as a script, or the app would stay blank for
+// this version until the next one.
+async function keepFile(cache, url) {
+  const request = new Request(url, { cache: "reload" });
+  const response = await fetch(request);
+  if (!response.ok) throw new Error(url + " answered " + response.status);
+  const type = response.headers.get("content-type") || "";
+  if (url !== "/" && type.toLowerCase().indexOf("text/html") === 0) throw new Error(url + " is a page, not the file");
+  await cache.put(request, response);
+}
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(

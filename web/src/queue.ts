@@ -68,7 +68,9 @@ export type SendOutcome =
   /** The server said no for what the entry says. It is not kept: the form shows why. */
   | { kind: "refused"; problem: Problem }
   /** The phone's storage did not take it, and sending did not work: only the form still has it. */
-  | { kind: "not-kept"; why: "offline" | "server" | "login" };
+  | { kind: "not-kept"; why: "offline" | "server" | "login" }
+  /** Another entry with this id is still on the phone: this one was not taken, and it did not replace that one. */
+  | { kind: "busy" };
 
 export type QueueDeps = {
   store: QueueStore;
@@ -113,6 +115,11 @@ export function createQueue(deps: QueueDeps) {
   let tail: Promise<unknown> = Promise.resolve();
   // Counts the writes to the phone's storage, so that a read that began before one can tell.
   let writes = 0;
+  // The last read of the phone's storage failed: what is on the phone may be more than is known here.
+  let unread = false;
+  // What became of the entries that a form is waiting for, whichever run sent them: a run that was already
+  // under way sends an entry made after it began, and the run of the entry itself then finds nothing to send.
+  const awaited = new Map<string, SendOutcome | undefined>();
 
   function setState(patch: Partial<QueueState>) {
     state = { ...state, ...patch };
@@ -133,8 +140,17 @@ export function createQueue(deps: QueueDeps) {
   async function reload() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const before = writes;
-      const entries = await deps.store.list();
+      let entries: QueuedEntry[];
+      try {
+        entries = await deps.store.list();
+      } catch (error) {
+        // There may be entries on the phone that are not known here: it is looked at again in a while.
+        unread = true;
+        failures++;
+        throw error;
+      }
       if (writes === before) {
+        unread = false;
         setState({ entries });
         return;
       }
@@ -149,7 +165,7 @@ export function createQueue(deps: QueueDeps) {
     if (timer !== undefined) clearTimer(timer);
     timer = undefined;
     const login = deps.currentLogin();
-    if (!started || !login || state.needsLogin || waitingFor(login).length === 0) return;
+    if (!started || !login || state.needsLogin || (waitingFor(login).length === 0 && !unread)) return;
     // After the first failure the first delay, and so on, staying at the last one.
     const delay = retryDelays[Math.min(Math.max(failures - 1, 0), retryDelays.length - 1)] ?? 60_000;
     timer = setTimer(() => {
@@ -264,6 +280,7 @@ export function createQueue(deps: QueueDeps) {
           if (deps.currentLogin() !== login) return stop({ kind: "kept", why: "login" });
           const outcome = await attempt(entry);
           if (entry.id === typed) typedOutcome = outcome;
+          if (awaited.has(entry.id)) awaited.set(entry.id, outcome);
           if (outcome.kind === "saved") progressed = true;
           else if (outcome.kind === "kept") return stop(outcome);
           else if (outcome.kind === "refused") {
@@ -356,6 +373,11 @@ export function createQueue(deps: QueueDeps) {
      * goes out by itself).
      */
     async submit(input: OperationInput, login: string): Promise<SendOutcome> {
+      // The two forms share the id until the entry is answered. Another entry with it, still on its way, is not
+      // ours to replace: writing over it would lose what the cashier typed first.
+      const taken = state.entries.find((item) => item.id === input.id);
+      if (taken && JSON.stringify(taken.input) !== JSON.stringify(input)) return { kind: "busy" };
+
       const entry: QueuedEntry = {
         id: input.id,
         input,
@@ -364,6 +386,7 @@ export function createQueue(deps: QueueDeps) {
         status: "waiting",
         problem: null,
       };
+      awaited.set(entry.id, undefined);
       let stored = true;
       try {
         await put(entry);
@@ -372,10 +395,15 @@ export function createQueue(deps: QueueDeps) {
       }
 
       const sent = serial(() => sendInOrder(login, entry.id, stored ? undefined : entry)).then(
-        (outcome): SendOutcome => outcome ?? { kind: "kept", why: "server" },
+        (outcome): SendOutcome => {
+          const known: SendOutcome = outcome ?? awaited.get(entry.id) ?? { kind: "kept", why: "server" };
+          awaited.delete(entry.id);
+          return known;
+        },
         (error): SendOutcome => {
           // Whatever went wrong inside, the entry is where it was put: on the phone, or only in the form.
           console.error("The entry could not be sent:", error);
+          awaited.delete(entry.id);
           return { kind: "kept", why: "server" };
         },
       );
