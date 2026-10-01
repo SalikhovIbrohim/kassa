@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "admin": "node dist/admin/cli.js",
-    "admin:dev": "tsx src/admin/cli.ts"
+    "admin:dev": "tsx src/admin/cli.ts",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@types/node": "^26.6.3",
     "@types/pg": "^8.23.1",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

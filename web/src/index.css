@@ -780,3 +780,86 @@ button.danger {
     width: 1%;
   }
 }
+
+/* Entries that are on the phone and not yet on the server. */
+.queued {
+  margin: 0;
+  padding: 12px 14px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+}
+
+.queue {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 14px;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+}
+
+.queue p {
+  margin: 0;
+}
+
+.queue-title {
+  font-weight: 700;
+}
+
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.queue-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-entry {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+}
+
+.queue-entry.blocked {
+  border-color: #fecaca;
+}
+
+.queue-entry .when {
+  color: #475569;
+}
+
+.queue-entry-state {
+  color: #92400e;
+  font-size: 0.9rem;
+}
+
+.queue-problem,
+.queue-warning {
+  color: #991b1b;
+}
+
+.queue-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-others {
+  color: #475569;
+}

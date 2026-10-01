@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchBalances,
+  fetchCategories,
   fetchCurrentUser,
   logOut,
+  NetworkError,
   SessionExpiredError,
   type Balance,
   type Role,
   type User,
 } from "./api";
-import { Balances } from "./Balances";
+import { Balances, type BalancesState } from "./Balances";
 import { EntryScreen } from "./EntryScreen";
 import { Journal } from "./Journal";
 import { LoginScreen } from "./LoginScreen";
+import { plural } from "./plural";
+import { QueueBanner } from "./QueueBanner";
+import { onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
+import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 
 type State =
   | { kind: "loading" }
@@ -30,15 +36,34 @@ export function App() {
   const load = useCallback(() => {
     setState({ kind: "loading" });
     fetchCurrentUser().then(
-      (user) => setState(user ? { kind: "logged-in", user } : { kind: "logged-out" }),
-      () => setState({ kind: "unreachable" }),
+      (user) => {
+        if (user) rememberUser(user);
+        else forgetUser();
+        setState(user ? { kind: "logged-in", user } : { kind: "logged-out" });
+      },
+      () => {
+        // The server could not be asked. A cashier who was signed in here before can still make
+        // entries: they are kept on the phone and go out when the server answers. Whether the
+        // session is still alive is found out then.
+        const remembered = rememberedUser();
+        setState(remembered?.role === "cashier" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
+      },
     );
   }, []);
 
   useEffect(load, [load]);
 
+  // The entries kept on the phone are read once, whoever is or is not signed in.
+  useEffect(() => {
+    void queue.start();
+    return () => queue.stop();
+  }, []);
+
   // Stable identity: SignedIn reloads its balances when this changes.
-  const showLoggedOut = useCallback(() => setState({ kind: "logged-out" }), []);
+  const showLoggedOut = useCallback(() => {
+    forgetUser();
+    setState({ kind: "logged-out" });
+  }, []);
 
   if (state.kind === "loading") {
     return (
@@ -65,7 +90,14 @@ export function App() {
   }
 
   if (state.kind === "logged-out") {
-    return <LoginScreen onLoggedIn={(user) => setState({ kind: "logged-in", user })} />;
+    return (
+      <LoginScreen
+        onLoggedIn={(user) => {
+          rememberUser(user);
+          setState({ kind: "logged-in", user });
+        }}
+      />
+    );
   }
 
   return <SignedIn user={state.user} onLoggedOut={showLoggedOut} />;
@@ -73,8 +105,9 @@ export function App() {
 
 function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }) {
   const [error, setError] = useState<string | null>(null);
-  // null: loading, undefined: failed to load.
-  const [balances, setBalances] = useState<Balance[] | null | undefined>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  // null: loading, undefined: failed to load, "offline": no connection.
+  const [balances, setBalances] = useState<BalancesState>(null);
 
   // Numbers the answers we are waiting for: only the newest one may update the screen,
   // so a slow older answer cannot replace a fresher balance.
@@ -91,7 +124,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         if (mine !== newest.current) return;
         // A dead session means the login screen, not an error message about balances.
         if (caught instanceof SessionExpiredError) onLoggedOut();
-        else setBalances(undefined);
+        else setBalances(caught instanceof NetworkError ? "offline" : undefined);
       },
     );
   }, [onLoggedOut]);
@@ -103,8 +136,46 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
   useEffect(loadBalances, [loadBalances]);
 
-  async function leave() {
+  // A cashier's entries go out under this login, as soon as the connection is there: when the screen
+  // opens, when the phone says it is online again, when the app comes back to the front, and after a
+  // while by itself (the queue sees to that).
+  const cashier = user.role === "cashier";
+  useEffect(() => {
+    if (!cashier) return;
+    setQueueLogin(user.login);
+    const sendWhatWaits = () => void queue.nudge();
+    const cameBack = () => {
+      if (document.visibilityState === "visible") sendWhatWaits();
+    };
+    const online = () => {
+      sendWhatWaits();
+      loadBalances();
+    };
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", cameBack);
+    // So that an expense can be entered later without a connection: the categories are kept on the phone.
+    fetchCategories().catch(() => {});
+    const stopListening = onQueuedEntrySaved(showSavedBalances);
+    sendWhatWaits();
+    return () => {
+      window.removeEventListener("online", online);
+      document.removeEventListener("visibilitychange", cameBack);
+      stopListening();
+      setQueueLogin(null);
+    };
+  }, [cashier, user.login, loadBalances, showSavedBalances]);
+
+  const kept = useQueueState().entries.filter((entry) => entry.login === user.login).length;
+
+  async function leave(sure = false) {
     setError(null);
+    // Entries that have not reached the server stay on the phone and go out at the next sign-in:
+    // say so before leaving, so nobody thinks they are lost (or that they went).
+    if (kept > 0 && !sure) {
+      setConfirmingLeave(true);
+      return;
+    }
+    setConfirmingLeave(false);
     try {
       if (await logOut()) {
         onLoggedOut();
@@ -127,10 +198,30 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
             <span className="role">{ROLE_LABEL[user.role]}</span>
           </p>
         </div>
-        <button type="button" className="secondary small" onClick={leave}>
+        <button type="button" className="secondary small" onClick={() => void leave()}>
           Выйти
         </button>
       </header>
+
+      {confirmingLeave && (
+        <div className="queue" role="alertdialog" aria-label="Выход с неотправленными записями">
+          <p className="queue-title">
+            Не отправлено: {kept} {plural(kept, "запись", "записи", "записей")}
+          </p>
+          <p>
+            Они останутся на этом телефоне и отправятся после вашего следующего входа. Пока они не дошли, их нет ни в
+            журнале, ни в остатке.
+          </p>
+          <div className="queue-actions">
+            <button type="button" className="small" onClick={() => void leave(true)}>
+              Всё равно выйти
+            </button>
+            <button type="button" className="secondary small" onClick={() => setConfirmingLeave(false)}>
+              Остаться
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="error" role="alert">
@@ -139,6 +230,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       )}
 
       <Balances balances={balances} onRetry={loadBalances} />
+
+      {cashier && <QueueBanner login={user.login} onSignIn={onLoggedOut} />}
 
       {user.role === "cashier" ? (
         <EntryScreen

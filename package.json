@@ -13,8 +13,9 @@
     "dev:server": "npm run dev -w server",
     "dev:web": "npm run dev -w web",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test -w server",
+    "test": "npm run test -w server && npm run test -w web",
     "build": "npm run build -w web && npm run build -w server",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "test:e2e": "npm run build -w web && npm run test:e2e -w server"
   }
 }

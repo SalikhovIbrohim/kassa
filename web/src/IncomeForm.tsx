@@ -65,6 +65,12 @@ export function IncomeForm({
     <form className="card" onSubmit={submit}>
       <h2>Приход</h2>
 
+      {entry.note && (
+        <p className="queued" role="status">
+          {entry.note}
+        </p>
+      )}
+
       {entry.saved?.type === "income" && (
         <p className="success" role="status">
           Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}, клиент{" "}

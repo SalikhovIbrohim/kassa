@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { logIn, NetworkError, type User } from "./api";
+import { plural } from "./plural";
+import { useQueueState } from "./queue-instance";
 
 type Props = {
   onLoggedIn: (user: User) => void;
@@ -12,20 +14,12 @@ export function formatWait(seconds: number): string {
   return `${minutes} ${plural(minutes, "минуту", "минуты", "минут")}`;
 }
 
-function plural(count: number, one: string, few: string, many: string): string {
-  const lastTwo = count % 100;
-  const last = count % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return many;
-  if (last === 1) return one;
-  if (last >= 2 && last <= 4) return few;
-  return many;
-}
-
 export function LoginScreen({ onLoggedIn }: Props) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const waiting = useQueueState().entries.length;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -65,6 +59,13 @@ export function LoginScreen({ onLoggedIn }: Props) {
       <form className="card" onSubmit={submit}>
         <h1>Касса</h1>
         <p className="hint">Войдите, чтобы продолжить</p>
+
+        {waiting > 0 && (
+          <p className="queued" role="status">
+            На телефоне ждут отправки: {waiting} {plural(waiting, "запись", "записи", "записей")}. Они отправятся после
+            входа того, кто их сделал.
+          </p>
+        )}
 
         <label>
           Логин

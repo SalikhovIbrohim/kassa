@@ -13,3 +13,11 @@ createRoot(container).render(
     <App />
   </StrictMode>,
 );
+
+// Once the app has been opened with a connection, it opens without one. Without this the app still
+// works, only not offline.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}

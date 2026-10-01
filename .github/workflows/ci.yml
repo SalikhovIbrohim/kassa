@@ -43,5 +43,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Tests in a real browser: the app without a connection.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
       # The Windows deployment scripts: they must parse and stay within Windows PowerShell 5.1.
       - run: pwsh -NoProfile -File deploy/windows/lint.ps1

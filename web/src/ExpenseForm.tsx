@@ -98,6 +98,12 @@ export function ExpenseForm({
     <form className="card" onSubmit={submit}>
       <h2>Расход</h2>
 
+      {entry.note && (
+        <p className="queued" role="status">
+          {entry.note}
+        </p>
+      )}
+
       {entry.saved?.type === "expense" && (
         <p className="success" role="status">
           Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.{" "}

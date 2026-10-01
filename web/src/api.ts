@@ -120,11 +120,39 @@ export async function fetchClientCodes(prefix: string): Promise<string[]> {
   }
 }
 
+const CATEGORIES_KEY = "kassa.categories";
+
+function keptCategories(): Category[] | null {
+  try {
+    const raw = localStorage.getItem(CATEGORIES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Category[]) : null;
+    return Array.isArray(parsed) && parsed.every((item) => typeof item?.code === "string" && typeof item?.label === "string") ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The expense categories. The list hardly ever changes, so the last one seen is kept on the phone and
+ * used when the server cannot be asked: an expense can be entered without a connection.
+ */
 export async function fetchCategories(): Promise<Category[]> {
-  const response = await request("/api/categories");
-  if (response.status === 401) throw new SessionExpiredError("Session ended");
-  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/categories`);
-  return ((await response.json()) as { categories: Category[] }).categories;
+  try {
+    const response = await request("/api/categories");
+    if (response.status === 401) throw new SessionExpiredError("Session ended");
+    if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/categories`);
+    const categories = ((await response.json()) as { categories: Category[] }).categories;
+    try {
+      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+    } catch {
+      // not kept; the next visit with a connection tries again
+    }
+    return categories;
+  } catch (error) {
+    const kept = error instanceof SessionExpiredError ? null : keptCategories();
+    if (kept) return kept;
+    throw error;
+  }
 }
 
 type EntryBase = {

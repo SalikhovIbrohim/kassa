@@ -2,9 +2,11 @@ import type { CSSProperties } from "react";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, type Currency } from "./money";
 import type { Balance } from "./api";
 
+/** Null while loading, undefined when loading failed, "offline" when the server could not be reached. */
+export type BalancesState = Balance[] | null | undefined | "offline";
+
 type Props = {
-  /** Null while loading, undefined when loading failed. */
-  balances: Balance[] | null | undefined;
+  balances: BalancesState;
   onRetry: () => void;
 };
 
@@ -22,9 +24,10 @@ export function Balances({ balances, onRetry }: Props) {
     );
   }
 
+  const known = Array.isArray(balances) ? balances : undefined;
   const shownFor = (currency: Currency) => {
-    const balance = balances?.find((item) => item.currency === currency);
-    return balance ? formatMoney(balance.amountMinor, currency) : "…";
+    const balance = known?.find((item) => item.currency === currency);
+    return balance ? formatMoney(balance.amountMinor, currency) : balances === "offline" ? "—" : "…";
   };
   // Both amounts share the size that fits the longer one, so the two cards match.
   const longest = Math.max(...CURRENCIES.map((currency) => shownFor(currency).length));
@@ -32,7 +35,7 @@ export function Balances({ balances, onRetry }: Props) {
   return (
     <section className="balances" aria-label="Остатки" style={{ "--chars": longest } as CSSProperties}>
       {CURRENCIES.map((currency) => {
-        const balance = balances?.find((item) => item.currency === currency);
+        const balance = known?.find((item) => item.currency === currency);
         const shown = shownFor(currency);
         return (
           <div className="balance" key={currency}>
@@ -46,6 +49,14 @@ export function Balances({ balances, onRetry }: Props) {
           </div>
         );
       })}
+      {balances === "offline" && (
+        <p className="hint balances-offline">
+          Нет связи: остатков не видно. Они появятся, когда связь вернётся.{" "}
+          <button type="button" className="link" onClick={onRetry}>
+            Проверить
+          </button>
+        </p>
+      )}
     </section>
   );
 }
