@@ -4,7 +4,7 @@ import { getBalances } from "./balances.js";
 import { EXPENSE_CATEGORIES } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation } from "./ledger.js";
-import { NO_NUL } from "./schemas.js";
+import { NO_NUL, UUID } from "./schemas.js";
 
 const MAX_SUGGESTIONS = 8;
 
@@ -82,7 +82,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
       onRequest: [app.authenticate, app.requireRole("cashier")],
       schema: {
         // The id is made by the client, so that sending the same entry twice stores it once.
-        body: entrySchema({ properties: { id: { type: "string", format: "uuid" } }, required: ["id"] }),
+        body: entrySchema({ properties: { id: UUID }, required: ["id"] }),
       },
     },
     async (request, reply) => {

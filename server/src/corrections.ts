@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type pg from "pg";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { changeOperation, readHistory, toOperation, type Change, type ChangeResult } from "./ledger.js";
-import { NO_NUL } from "./schemas.js";
+import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
+import { cleanText } from "./text.js";
 
 export type CorrectionsOptions = {
   pool: pg.Pool;
@@ -12,7 +13,7 @@ export type CorrectionsOptions = {
 const idParams = {
   type: "object",
   required: ["id"],
-  properties: { id: { type: "string", format: "uuid" } },
+  properties: { id: UUID },
 } as const;
 
 const reasonProperty = { type: "string", maxLength: 500, pattern: NO_NUL } as const;
@@ -22,7 +23,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
   const { pool, now } = options;
 
   async function apply(reply: FastifyReply, userId: string, id: string, change: Change) {
-    const result = await changeOperation(pool, { id, actorId: userId, at: now(), change });
+    const result = await changeOperation(pool, { id, actorId: userId, now, change });
     return answer(reply, result);
   }
 
@@ -35,6 +36,8 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       onRequest: [app.authenticate, app.requireRole("cashier")],
       schema: {
         params: idParams,
+        // The reason belongs in the body: one in the query string would be dropped unheard.
+        querystring: NO_QUERY,
         body: entrySchema({ properties: { reason: reasonProperty }, required: [] }),
       },
     },
@@ -43,12 +46,11 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
-      const reason = request.body.reason?.trim() || null;
       return apply(reply, request.user!.id, request.params.id, {
         action: "edit",
         kind: normalized.kind,
         next: normalized.fields,
-        reason,
+        reason: cleanText(request.body.reason ?? "") || null,
       });
     },
   );
@@ -59,7 +61,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     "/api/operations/:id/history",
     {
       onRequest: [app.authenticate, app.requireRole("viewer")],
-      schema: { params: idParams },
+      schema: { params: idParams, querystring: NO_QUERY },
     },
     async (request, reply) => {
       const history = await readHistory(pool, request.params.id);
@@ -77,6 +79,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       onRequest: [app.authenticate, app.requireRole("cashier")],
       schema: {
         params: idParams,
+        querystring: NO_QUERY,
         body: {
           anyOf: [
             { type: "null" },
@@ -86,7 +89,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       },
     },
     async (request, reply) => {
-      const reason = request.body?.reason?.trim() || null;
+      const reason = cleanText(request.body?.reason ?? "") || null;
       return apply(reply, request.user!.id, request.params.id, { action: "delete", reason });
     },
   );

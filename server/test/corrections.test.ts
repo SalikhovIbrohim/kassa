@@ -1120,10 +1120,14 @@ describe("correcting and deleting operations", () => {
       const { started, ivan } = await desk();
       const id = await record(started, ivan, income({ amountMinor: 50_000 }));
 
+      // The line has to say what the operation was before: the database checks it.
       await started.execute(`
         BEGIN;
         INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, state_before)
-          SELECT id, 1, 'edit', now(), author_id, '{"amountMinor": 50000}' FROM operations WHERE id = '${id}';
+          SELECT id, 1, 'edit', now(), author_id,
+                 jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'category', category,
+                                    'recipient', recipient, 'clientCode', client_code, 'comment', comment)
+            FROM operations WHERE id = '${id}';
         UPDATE operations SET amount_minor = 60000, revision = 1 WHERE id = '${id}';
         COMMIT;
       `);

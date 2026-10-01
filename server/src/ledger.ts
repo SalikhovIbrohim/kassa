@@ -189,60 +189,79 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
  *   them could each see enough money for itself and together overspend. Incomes only add
  *   money, so they need no lock.
  * - A retry of an entry that was accepted is answered as before even if the money is
- *   gone since: the check only applies to entries that are new.
+ *   gone since: the check only applies to entries that are new. The answer is read in one
+ *   snapshot (see `answerRetry`), so it never mixes two moments.
  *
  * Anything else that changes a balance later (correcting or deleting an operation) takes
  * the same locks and makes the same check: see `changeOperation`.
  */
 export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
-  return inTransaction(pool, async (client): Promise<RecordResult> => {
+  const recorded = await inTransaction(pool, async (client): Promise<RecordResult | "stored already"> => {
     if (wanted.kind === "expense") await lockBalances(client, [wanted.currency]);
 
     // The entry may be stored already: a retry, or a clash of ids.
-    let stored = await findOperation(client, wanted.id);
-    let created = false;
+    if (await findOperation(client, wanted.id)) return "stored already";
 
-    if (!stored) {
-      if (wanted.kind === "expense") {
-        // This reads every operation of the currency. Fine for one cash desk (tens of
-        // thousands of rows take tens of milliseconds); with far more, keep a running total.
-        const balance = (await getBalances(client)).find((item) => item.currency === wanted.currency);
-        const availableMinor = balance?.amountMinor ?? 0;
-        if (availableMinor < wanted.amountMinor) return { status: "insufficient_balance", availableMinor };
-      }
-
-      const inserted = await client.query(
-        `INSERT INTO operations
-           (id, kind, amount_minor, currency, category, recipient, client_code,
-            client_code_key, comment, author_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          wanted.id,
-          wanted.kind,
-          wanted.amountMinor,
-          wanted.currency,
-          wanted.category,
-          wanted.recipient,
-          wanted.clientCode,
-          wanted.clientCode?.toLowerCase() ?? null,
-          wanted.comment,
-          wanted.authorId,
-          wanted.createdAt,
-        ],
-      );
-      created = inserted.rowCount === 1;
-      // Zero rows: another request with this id got in between our look and our insert (an
-      // income takes no lock, and an expense in the other currency takes another one). The
-      // insert waited for it to finish, so its row is visible now.
-      stored = await findOperation(client, wanted.id);
+    if (wanted.kind === "expense") {
+      // This reads every operation of the currency. Fine for one cash desk (tens of
+      // thousands of rows take tens of milliseconds); with far more, keep a running total.
+      const balance = (await getBalances(client)).find((item) => item.currency === wanted.currency);
+      const availableMinor = balance?.amountMinor ?? 0;
+      if (availableMinor < wanted.amountMinor) return { status: "insufficient_balance", availableMinor };
     }
 
-    if (!stored) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
-    if (!created && !(await isSameEntry(client, stored, wanted))) return { status: "id_conflict" };
+    const inserted = await client.query(
+      `INSERT INTO operations
+         (id, kind, amount_minor, currency, category, recipient, client_code,
+          client_code_key, comment, author_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        wanted.id,
+        wanted.kind,
+        wanted.amountMinor,
+        wanted.currency,
+        wanted.category,
+        wanted.recipient,
+        wanted.clientCode,
+        wanted.clientCode?.toLowerCase() ?? null,
+        wanted.comment,
+        wanted.authorId,
+        wanted.createdAt,
+      ],
+    );
+    // Zero rows: another request with this id got in between our look and our insert (an
+    // income takes no lock, and an expense in the other currency takes another one). The
+    // insert waited for it to finish, so the entry is stored now.
+    if (inserted.rowCount !== 1) return "stored already";
 
-    return { status: created ? "created" : "replayed", row: stored, balances: await getBalances(client) };
+    const row = await findOperation(client, wanted.id);
+    if (!row) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
+    return { status: "created", row, balances: await getBalances(client) };
   });
+
+  return recorded === "stored already" ? answerRetry(pool, wanted) : recorded;
+}
+
+/**
+ * The answer to a request for an entry that is stored already: the same entry (nothing is
+ * added, here is what is stored) or a different one under the same id. Operation and balances
+ * come from one snapshot. Read statement by statement, a correction or a deletion that is
+ * committed in between would leave an answer showing the operation as it was and the
+ * balances as they are.
+ */
+async function answerRetry(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
+  return inTransaction(
+    pool,
+    async (client): Promise<RecordResult> => {
+      const stored = await findOperation(client, wanted.id);
+      // Nothing is ever physically deleted, so what was there a moment ago is still there.
+      if (!stored) throw new Error(`Operation ${wanted.id} was stored and is gone`);
+      if (!(await isSameEntry(client, stored, wanted))) return { status: "id_conflict" };
+      return { status: "replayed", row: stored, balances: await getBalances(client) };
+    },
+    "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+  );
 }
 
 /** What a cashier asks to do to one of their operations. */
@@ -277,14 +296,17 @@ export type ChangeResult =
  */
 export async function changeOperation(
   pool: pg.Pool,
-  request: { id: string; actorId: string; at: Date; change: Change },
+  request: { id: string; actorId: string; now: () => Date; change: Change },
 ): Promise<ChangeResult> {
-  const { id, actorId, at, change } = request;
+  const { id, actorId, now, change } = request;
 
   return inTransaction(pool, async (client): Promise<ChangeResult> => {
     // Both currencies, always: a correction may move money from one to the other. Taking
     // all of them also serialises every correction, so no row lock is needed on top.
     await lockBalances(client, CURRENCIES);
+    // The time of the change is read once the turn has come, not when the request arrived:
+    // a request that waited for the lock must not be dated before the change it waited for.
+    const at = now();
 
     const stored = await findOperation(client, id);
     if (!stored) return { status: "not_found" };

@@ -2,6 +2,7 @@ import { EXPENSE_CATEGORY_CODES, REFUND_CATEGORY, type ExpenseCategory } from ".
 import type { Snapshot } from "./ledger.js";
 import { CURRENCIES, MAX_AMOUNT_MINOR } from "./money.js";
 import { NO_NUL } from "./schemas.js";
+import { cleanText } from "./text.js";
 
 /**
  * What a cashier says about an operation, whether writing it for the first time or
@@ -73,23 +74,23 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
 export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot } | { error: string };
 
 /**
- * Trims the text, turns blanks into "nothing", and applies the rules the schema cannot:
- * an income and a client refund name a client, no other expense does.
+ * Cleans the text (see `cleanText`), turns blanks into "nothing", and applies the rules the
+ * schema cannot: an income and a client refund name a client, no other expense does.
  */
 export function normalizeEntry(body: Entry): NormalizedEntry {
-  const comment = body.comment?.trim() || null;
+  const comment = cleanText(body.comment ?? "") || null;
   let category: ExpenseCategory | null = null;
   let recipient: string | null = null;
   let clientCode: string | null = null;
 
   if (body.type === "income") {
-    clientCode = body.clientCode.trim();
+    clientCode = cleanText(body.clientCode);
     if (clientCode === "") return { error: "body/clientCode must not be blank" };
   } else {
     category = body.category;
-    recipient = body.recipient?.trim() || null;
+    recipient = cleanText(body.recipient ?? "") || null;
     if (category === REFUND_CATEGORY) {
-      clientCode = body.clientCode?.trim() ?? "";
+      clientCode = cleanText(body.clientCode ?? "");
       if (clientCode === "") return { error: "body/clientCode is required for a client refund" };
     } else if (body.clientCode !== undefined) {
       return { error: "body/clientCode is only allowed for a client refund" };

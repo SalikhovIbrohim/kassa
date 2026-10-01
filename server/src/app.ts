@@ -39,6 +39,16 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
   const database = createDatabase(options.databaseUrl);
 
+  // JSON as Fastify reads it, except that nothing at all is no body, not an error: a client
+  // that sends "Content-Type: application/json" with an empty DELETE has asked for nothing
+  // wrong. A route that needs a body says so in its schema, and an empty one is refused there.
+  const parseJson = app.getDefaultJsonParser("error", "error");
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    const text = body.toString();
+    if (text === "") return done(null, undefined);
+    parseJson(request, text, done);
+  });
+
   // Mistakes of the client keep Fastify's standard answer. Anything unexpected is logged here
   // and answered with fixed words: a database error must never travel to the browser.
   app.setErrorHandler((error: FastifyError, request, reply) => {

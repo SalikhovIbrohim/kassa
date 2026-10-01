@@ -90,16 +90,49 @@ $$;
 CREATE TRIGGER operations_guard_update BEFORE UPDATE ON operations
   FOR EACH ROW EXECUTE FUNCTION kassa_guard_operation_update();
 
--- Checked when the transaction ends, so the two writes may come in either order: a new
--- revision of an operation needs its line in the history, and a line of history needs an
--- operation that has reached that revision.
-CREATE FUNCTION kassa_require_history() RETURNS trigger LANGUAGE plpgsql AS $$
+-- A new operation is as it was first written: not changed, not deleted. A row that arrived
+-- at revision 3, or already deleted, would have no history to show for it.
+CREATE FUNCTION kassa_guard_operation_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM operation_changes WHERE operation_id = NEW.id AND revision = NEW.revision
-  ) THEN
+  IF NEW.revision <> 0 OR NEW.deleted_at IS NOT NULL OR NEW.deleted_by IS NOT NULL THEN
+    RAISE EXCEPTION 'An operation starts at revision 0 and is not deleted'
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER operations_guard_insert BEFORE INSERT ON operations
+  FOR EACH ROW EXECUTE FUNCTION kassa_guard_operation_insert();
+
+-- Checked when the transaction ends, so the two writes may come in either order: a new
+-- revision of an operation needs its line in the history, a line that tells the truth (what
+-- the operation said before, and for a deletion who deleted it and when), and a line of
+-- history needs an operation that has reached that revision.
+--
+-- The two functions below read the tables by their full names and pin the search path, so
+-- that a table of the same name made in somebody's own session (a temporary one) cannot
+-- stand in for the real one and let a change through that the real history never saw.
+CREATE FUNCTION kassa_require_history() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+  line public.operation_changes%ROWTYPE;
+BEGIN
+  SELECT * INTO line FROM public.operation_changes
+   WHERE operation_id = NEW.id AND revision = NEW.revision;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'Revision % of operation % has no line in its history', NEW.revision, NEW.id
       USING ERRCODE = 'restrict_violation';
+  END IF;
+
+  IF line.state_before IS DISTINCT FROM jsonb_build_object(
+       'amountMinor', OLD.amount_minor, 'currency', OLD.currency, 'category', OLD.category,
+       'recipient', OLD.recipient, 'clientCode', OLD.client_code, 'comment', OLD.comment)
+     OR (line.action = 'delete') <> (NEW.deleted_at IS NOT NULL)
+     OR (NEW.deleted_at IS NOT NULL
+         AND (line.changed_at <> NEW.deleted_at OR line.changed_by <> NEW.deleted_by)) THEN
+    RAISE EXCEPTION 'Revision % of operation % has a line in its history that does not describe the change made',
+      NEW.revision, NEW.id USING ERRCODE = 'restrict_violation';
   END IF;
   RETURN NULL;
 END
@@ -112,10 +145,11 @@ CREATE CONSTRAINT TRIGGER operations_change_recorded
   WHEN (NEW.revision IS DISTINCT FROM OLD.revision)
   EXECUTE FUNCTION kassa_require_history();
 
-CREATE FUNCTION kassa_require_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION kassa_require_revision() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM operations WHERE id = NEW.operation_id AND revision >= NEW.revision
+    SELECT 1 FROM public.operations WHERE id = NEW.operation_id AND revision >= NEW.revision
   ) THEN
     RAISE EXCEPTION 'A line of history for operation % claims revision %, which it never reached',
       NEW.operation_id, NEW.revision USING ERRCODE = 'restrict_violation';
