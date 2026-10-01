@@ -5,6 +5,8 @@ import { useQueueState } from "./queue-instance";
 
 type Props = {
   onLoggedIn: (user: User) => void;
+  /** Something to say above the form, e.g. that this Telegram account is not linked yet. */
+  note?: string;
 };
 
 /** 30 -> "30 секунд", 60 -> "1 минуту", 150 -> "3 минуты": rounded up, in Russian. */
@@ -14,7 +16,7 @@ export function formatWait(seconds: number): string {
   return `${minutes} ${plural(minutes, "минуту", "минуты", "минут")}`;
 }
 
-export function LoginScreen({ onLoggedIn }: Props) {
+export function LoginScreen({ onLoggedIn, note }: Props) {
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,11 @@ export function LoginScreen({ onLoggedIn }: Props) {
       <form className="card" onSubmit={submit}>
         <h1>Касса</h1>
         <p className="hint">Войдите, чтобы продолжить</p>
+        {note && (
+          <p className="hint" role="status">
+            {note}
+          </p>
+        )}
 
         {waiting > 0 && (
           <p className="queued" role="status">

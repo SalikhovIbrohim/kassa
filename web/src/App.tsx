@@ -3,6 +3,7 @@ import {
   fetchBalances,
   fetchCategories,
   fetchCurrentUser,
+  loginWithTelegram,
   logOut,
   NetworkError,
   SessionExpiredError,
@@ -18,6 +19,8 @@ import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 import { ViewerScreen } from "./ViewerScreen";
+import { TelegramLink } from "./TelegramLink";
+import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
 
 type State =
@@ -34,13 +37,32 @@ const ROLE_LABEL: Record<Role, string> = {
 export function App() {
   const [state, setState] = useState<State>({ kind: "loading" });
   const unsent = useQueueState().entries.length;
+  // Said above the login form: why Telegram did not sign this person in by itself.
+  const [telegramNote, setTelegramNote] = useState<string | undefined>(undefined);
   // The login of the screen that is showing, for noticing that somebody else has signed in from another tab.
   const shownLogin = useRef<string | null>(null);
   shownLogin.current = state.kind === "logged-in" ? state.user.login : null;
 
   const load = useCallback(() => {
     setState({ kind: "loading" });
-    fetchCurrentUser().then(
+    fetchCurrentUser()
+      .then(async (user) => {
+        // Opened inside Telegram by an account that is linked to a login: signed in by what Telegram says.
+        const launch = telegramLaunchData();
+        if (!user && launch) {
+          try {
+            const result = await loginWithTelegram(launch);
+            if (result.ok) return result.user;
+            if (result.reason === "not-linked") {
+              setTelegramNote("Этот Telegram ещё не привязан к логину. Войдите логином и паролем, а потом нажмите «Привязать Telegram».");
+            }
+          } catch {
+            // no connection: the ordinary login screen says so
+          }
+        }
+        return user;
+      })
+      .then(
       (user) => {
         if (user) rememberUser(user);
         else forgetUser();
@@ -57,6 +79,11 @@ export function App() {
   }, []);
 
   useEffect(load, [load]);
+
+  // Inside Telegram: say that the app is ready, and take the whole height of the window.
+  useEffect(() => {
+    if (inTelegram()) tellTelegramReady();
+  }, []);
 
   // The entries kept on the phone are read once, whoever is or is not signed in.
   useEffect(() => {
@@ -114,6 +141,7 @@ export function App() {
   if (state.kind === "logged-out") {
     return (
       <LoginScreen
+        note={telegramNote}
         onLoggedIn={(user) => {
           rememberUser(user);
           setState({ kind: "logged-in", user });
@@ -237,6 +265,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           Выйти
         </button>
       </header>
+
+      {inTelegram() && !user.telegramLinked && <TelegramLink />}
 
       {confirmingLeave && (
         <div

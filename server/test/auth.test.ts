@@ -50,7 +50,7 @@ describe("login", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      user: { login: "ivan", displayName: "Иван", role: "cashier" },
+      user: { login: "ivan", displayName: "Иван", role: "cashier", telegramLinked: false },
     });
   });
 

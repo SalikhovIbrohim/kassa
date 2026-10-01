@@ -16,6 +16,7 @@ const app = await buildApp({
   secureCookies: config.secureCookies,
   sessionDays: config.sessionDays,
   trustProxy: config.trustProxy,
+  telegramBotToken: config.telegramBotToken,
   logger: true,
 });
 

@@ -71,6 +71,11 @@ declare module "fastify" {
     requireRole(
       ...roles: Role[]
     ): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /**
+     * Starts a session for an active account that has proved who it is by other means than its password (a signed
+     * Telegram launch), and sets the cookie. False when the account is not active.
+     */
+    startSession(reply: FastifyReply, userId: string): Promise<boolean>;
   }
 }
 
@@ -108,6 +113,20 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       maxAge: sessionDays * DAY_MS / 1000,
     });
   }
+
+  app.decorate("startSession", async (reply: FastifyReply, userId: string): Promise<boolean> => {
+    const token = randomBytes(32).toString("base64url");
+    const started = now();
+    const created = await pool.query(
+      `INSERT INTO sessions (user_id, token_hash, created_at, last_seen_at, expires_at)
+       SELECT id, $2, $3, $3, $4 FROM users WHERE id = $1 AND active`,
+      [userId, hashToken(token), started, new Date(started.getTime() + sessionDays * DAY_MS)],
+    );
+    if (created.rowCount === 0) return false;
+    await pool.query("DELETE FROM sessions WHERE expires_at <= $1", [started]);
+    setSessionCookie(reply, token);
+    return true;
+  });
 
   app.decorate("authenticate", async (request: FastifyRequest, reply: FastifyReply) => {
     const token = request.cookies[SESSION_COOKIE];
@@ -154,8 +173,9 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
   }
 
   app.get("/api/me", { onRequest: app.authenticate }, async (request) => {
-    const { login, displayName, role } = request.user!;
-    return { user: { login, displayName, role } };
+    const { id, login, displayName, role } = request.user!;
+    const linked = await pool.query<{ linked: boolean }>("SELECT telegram_id IS NOT NULL AS linked FROM users WHERE id = $1", [id]);
+    return { user: { login, displayName, role, telegramLinked: linked.rows[0]?.linked ?? false } };
   });
 
   app.post("/api/logout", async (request, reply) => {

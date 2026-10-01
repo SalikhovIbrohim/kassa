@@ -71,6 +71,8 @@ type StartOptions = {
   loginProtection?: LoginProtectionOptions;
   /** Gets the server's log lines, for tests that look at what is logged. */
   logStream?: NodeJS.WritableStream;
+  /** The token of the Telegram bot, to turn Mini App sign-in on. */
+  telegramBotToken?: string;
 };
 
 /**
@@ -135,6 +137,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       secureCookies: options.secureCookies,
       sessionDays: options.sessionDays,
       trustProxy: options.trustProxy,
+      telegramBotToken: options.telegramBotToken,
       loginProtection: options.loginProtection,
       logger: options.logStream ? { stream: options.logStream } : undefined,
       now: () => clock,

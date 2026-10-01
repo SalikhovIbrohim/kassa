@@ -7,6 +7,7 @@ import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
 import { registerShifts } from "./shifts.js";
+import { registerTelegram } from "./telegram.js";
 import { registerSummary } from "./summary.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
@@ -31,6 +32,8 @@ export type AppOptions = {
    */
   trustProxy?: string | string[];
   loginProtection?: LoginProtectionOptions;
+  /** The token of the Telegram bot whose Mini App this is; without it, signing in inside Telegram is off. */
+  telegramBotToken?: string;
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
@@ -81,6 +84,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     secureCookies: options.secureCookies ?? false,
     loginProtection: options.loginProtection,
     proxyTrusted: options.trustProxy !== undefined,
+  });
+
+  await registerTelegram(app, {
+    pool: database.pool,
+    now: options.now ?? (() => new Date()),
+    botToken: options.telegramBotToken,
   });
 
   await registerOperations(app, {

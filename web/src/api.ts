@@ -4,6 +4,8 @@ export type User = {
   login: string;
   displayName: string;
   role: Role;
+  /** A Telegram account is linked to this login, so that the Mini App signs in by itself. */
+  telegramLinked?: boolean;
 };
 
 /** The server could not be reached at all (no connection, server down). */
@@ -66,6 +68,41 @@ export async function logIn(login: string, password: string): Promise<LoginResul
     };
   }
   return { ok: false, reason: response.status === 401 ? "wrong-credentials" : "failed" };
+}
+
+export type TelegramLoginResult =
+  | { ok: true; user: User }
+  /** The Telegram account is not linked to any login, or the launch data was refused (forged, old), or the server has no bot. */
+  | { ok: false; reason: "not-linked" | "invalid" | "disabled" | "failed" };
+
+/** Signs in with what Telegram gave when it opened the Mini App. Never throws on an answer, only on no connection. */
+export async function loginWithTelegram(initData: string): Promise<TelegramLoginResult> {
+  const response = await request("/api/telegram/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ initData }),
+  });
+  if (response.ok) {
+    const body = (await response.json()) as { user: User };
+    return { ok: true, user: body.user };
+  }
+  if (response.status === 403) return { ok: false, reason: "not-linked" };
+  if (response.status === 401) return { ok: false, reason: "invalid" };
+  if (response.status === 404) return { ok: false, reason: "disabled" };
+  return { ok: false, reason: "failed" };
+}
+
+/** Links the Telegram account that opened the Mini App to the login that is signed in. */
+export async function linkTelegram(initData: string): Promise<"linked" | "taken" | "invalid" | "failed"> {
+  const response = await request("/api/telegram/link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ initData }),
+  });
+  if (response.ok) return "linked";
+  if (response.status === 409) return "taken";
+  if (response.status === 401 || response.status === 404) return "invalid";
+  return "failed";
 }
 
 /** Returns false when the server could not end the session. */

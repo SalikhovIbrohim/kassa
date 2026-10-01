@@ -16,6 +16,8 @@ export type Config = {
   trustProxy: string[] | undefined;
   /** Start even though a newer version changed the database (see `migrate`). An emergency switch. */
   allowNewerSchema: boolean;
+  /** The Telegram bot of the Mini App. Unset: signing in inside Telegram is off. */
+  telegramBotToken: string | undefined;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -60,5 +62,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionDays,
     trustProxy: trustedProxies.length > 0 ? trustedProxies : undefined,
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
+    telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
   };
 }
