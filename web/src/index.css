@@ -1077,3 +1077,109 @@ button.danger {
 .journal .presets {
   margin-bottom: 8px;
 }
+
+.close-shift {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.shift-result {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+
+.shift-result p,
+.shift-result ul {
+  margin: 0;
+}
+
+.shift-result ul {
+  padding-left: 18px;
+}
+
+.shortage {
+  color: #b91c1c;
+}
+
+.surplus {
+  color: #b45309;
+}
+
+.agrees {
+  color: #166534;
+}
+
+/* ---- The owner's list of shifts ---- */
+
+.shifts {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.shift-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shift-card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.shift-card p {
+  margin: 0;
+}
+
+.shift-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.shift-card-times {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.shift-card dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.shift-row {
+  display: grid;
+  gap: 2px;
+}
+
+.shift-row dt {
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.shift-row dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.badge.open {
+  color: #166534;
+  background: #dcfce7;
+}

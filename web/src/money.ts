@@ -23,6 +23,21 @@ export function parseAmountInput(text: string): number | null {
   return minor >= 1 && minor <= MAX_AMOUNT_MINOR ? minor : null;
 }
 
+/** What was counted in the cash desk: like an amount, but nothing at all is a count too ("0"). Null when it is not one. */
+export function parseCountInput(text: string): number | null {
+  const cleaned = text.replace(/[\s ]/g, "");
+  if (cleaned === "") return null;
+  const match = /^(\d{1,13})(?:[.,](\d{1,2}))?$/.exec(cleaned);
+  if (!match) return null;
+  return Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+}
+
+/** A signed amount for a difference: "+20,00 ₽", "−20,00 ₽"; nothing found is just "0,00 ₽". */
+export function formatDifference(minor: number, currency: Currency): string {
+  if (minor === 0) return formatMoney(0, currency);
+  return `${minor > 0 ? "+" : "−"}${formatMoney(Math.abs(minor), currency)}`;
+}
+
 /** 150050 -> "1500,50", 150000 -> "1500": what a person would type, to prefill a field. */
 export function formatAmountInput(minor: number): string {
   const whole = Math.floor(minor / 100);

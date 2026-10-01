@@ -145,7 +145,7 @@ export async function inTransaction<T>(
  * end of the transaction. Always taken in the same order, so two transactions that each
  * need several can never wait for each other.
  */
-async function lockBalances(client: pg.ClientBase, currencies: readonly Currency[]): Promise<void> {
+export async function lockBalances(client: pg.ClientBase, currencies: readonly Currency[]): Promise<void> {
   for (const currency of [...currencies].sort()) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`kassa.balance.${currency}`]);
   }

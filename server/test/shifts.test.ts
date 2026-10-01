@@ -44,7 +44,7 @@ describe("shifts: opening, and what belongs to one", () => {
   async function closedShift(started: TestApp, cashier: string, closedAt: string, counted: { RUB: number; USD: number }) {
     const id = randomUUID();
     await started.execute(
-      "INSERT INTO shifts (id, cashier_id, opened_at, closed_at) VALUES ($1, (SELECT id FROM users WHERE login = $2), $3::timestamptz - interval '8 hours', $3)",
+      "INSERT INTO shifts (id, cashier_id, opened_at, closed_at, closed_by) VALUES ($1, (SELECT id FROM users WHERE login = $2), $3::timestamptz - interval '8 hours', $3, (SELECT id FROM users WHERE login = $2))",
       [id, cashier, closedAt],
     );
     for (const [currency, actual] of Object.entries(counted)) {
@@ -205,7 +205,7 @@ describe("shifts: opening, and what belongs to one", () => {
     const { started, ivan } = await desk();
     const { shift } = await (await open(started, ivan)).json();
     await started.execute(
-      "UPDATE shifts SET closed_at = $2 WHERE id = $1",
+      "UPDATE shifts SET closed_at = $2, closed_by = cashier_id WHERE id = $1",
       [shift.id, "2026-03-05T09:00:00Z"],
     );
     await started.execute("UPDATE shift_balances SET calculated_minor = opening_minor, actual_minor = opening_minor, difference_minor = 0 WHERE shift_id = $1", [shift.id]);

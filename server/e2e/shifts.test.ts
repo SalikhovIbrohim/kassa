@@ -128,4 +128,82 @@ describe("shifts on the cashier's screen", () => {
     await seeText(bar(petr.page), "Открыта смена кассира Иван");
     expect(await petr.page.getByRole("button", { name: "Открыть смену" }).count()).toBe(0);
   }, 90_000);
+
+  const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
+
+  async function closeWith(page: Page, rub: string, usd: string) {
+    await page.getByRole("button", { name: "Закрыть смену" }).click();
+    await countField(page, "RUB").fill(rub);
+    await countField(page, "USD").fill(usd);
+    await page.getByRole("button", { name: "Закрыть смену" }).last().click();
+  }
+
+  it("closes the shift with the count of the cash and says how it came out, and the books say what was counted", async () => {
+    const { ivan } = await desk();
+    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
+    await seeText(bar(ivan.page), "Смена открыта");
+    await enterIncome(ivan.page, "654", "SH-CLOSE");
+    await seeText(ivan.page.locator(".success"), "Записано: приход");
+
+    await closeWith(ivan.page, "1640", "50");
+
+    // The books said 1 654,00 (1 000,00 opening and 654,00 in): the cash desk was 14,00 short.
+    await seeText(bar(ivan.page), "Смена закрыта");
+    await seeText(bar(ivan.page), /Рубли: по книге 1\s654,00\s₽, насчитано 1\s640,00\s₽\. Недостача 14,00\s₽\./);
+    await seeText(bar(ivan.page), /Доллары: по книге 50,00\s\$, насчитано 50,00\s\$\. Сошлось\./);
+    await seeText(ivan.page.getByRole("region", { name: "Остатки" }), /1\s640,00\s₽/);
+    await seeVisible(ivan.page.getByRole("button", { name: "Открыть смену" }));
+  }, 90_000);
+
+  it("asks for a count of both currencies, and takes zero as a count", async () => {
+    const { ivan } = await desk();
+    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
+    await seeText(bar(ivan.page), "Смена открыта");
+    await ivan.page.getByRole("button", { name: "Закрыть смену" }).click();
+
+    await countField(ivan.page, "RUB").fill("1000");
+    await ivan.page.getByRole("button", { name: "Закрыть смену" }).last().click();
+    await seeVisible(ivan.page.getByRole("alert").filter({ hasText: "Введите, сколько насчитали, по каждой валюте" }));
+
+    await countField(ivan.page, "USD").fill("0");
+    await ivan.page.getByRole("button", { name: "Закрыть смену" }).last().click();
+    await seeText(bar(ivan.page), /Доллары: по книге 50,00\s\$, насчитано 0,00\s\$\. Недостача 50,00\s\$\./);
+  }, 90_000);
+
+  it("shows the owner the shift with its difference, in the list of shifts and in the totals", async () => {
+    const { ivan, phoneOf } = await desk();
+    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
+    await seeText(bar(ivan.page), "Смена открыта");
+    await closeWith(ivan.page, "990", "50");
+    await seeText(bar(ivan.page), "Смена закрыта");
+
+    const owner = await phoneOf("owner", "long enough pass");
+    await owner.page.getByRole("button", { name: "Смены", exact: true }).click();
+
+    const card = owner.page.locator(".shift-card").first();
+    await seeText(card, "Иван");
+    await seeText(card.locator('[data-currency="RUB"]'), /по книге 1\s000,00\s₽, насчитано 990,00\s₽/);
+    await seeText(card.locator('[data-currency="RUB"] [data-difference]'), /−10,00\s₽/);
+    await seeText(card.locator('[data-currency="USD"] [data-difference]'), "сошлось");
+
+    await owner.page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await seeText(owner.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
+    await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
+  }, 90_000);
+
+  it("does not close the shift while an entry waits on the phone", async () => {
+    const { ivan } = await desk();
+    await ivan.page.getByRole("button", { name: "Открыть смену" }).click();
+    await seeText(bar(ivan.page), "Смена открыта");
+    await ivan.page.evaluate(() => navigator.serviceWorker.ready);
+    await ivan.page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+    await ivan.context.setOffline(true);
+    await enterIncome(ivan.page, "100", "SH-WAIT");
+    await seeVisible(ivan.page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
+
+    await ivan.page.getByRole("button", { name: "Закрыть смену" }).click();
+
+    await seeVisible(ivan.page.getByRole("alert").filter({ hasText: "ждёт 1 запись" }));
+    expect(await ivan.page.getByRole("button", { name: "Закрыть смену" }).last().isDisabled()).toBe(true);
+  }, 90_000);
 });

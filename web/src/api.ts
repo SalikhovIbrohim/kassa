@@ -313,6 +313,8 @@ export type CurrencyTotals = {
   expenseMinor: number;
   expenseByCategory: Array<{ category: string; amountMinor: number }>;
   handoverMinor: number;
+  /** What counting the cash found at the end of the shifts closed in the period: a shortage is negative. */
+  differenceMinor: number;
 };
 
 export type Totals = { from: string; to: string; currencies: CurrencyTotals[] };
@@ -495,4 +497,70 @@ export async function openShift(): Promise<OpenShiftResult> {
     return { ok: false, reason: "already-open", shift: readShift(body?.shift ?? null) };
   }
   throw new Error(`Unexpected status ${response.status} from /api/shifts`);
+}
+
+/** A shift as the owner reads it: who worked, when, and how the count of the cash came out. */
+export type ShiftReport = {
+  id: string;
+  openedAt: string;
+  /** Null while the shift is open. */
+  closedAt: string | null;
+  cashier: { login: string; displayName: string };
+  closedBy: { login: string; displayName: string } | null;
+  currencies: Array<{
+    currency: Currency;
+    openingMinor: number;
+    /** What the books said at the end of the shift, what was counted, and the difference (counted minus books); null while open. */
+    calculatedMinor: number | null;
+    actualMinor: number | null;
+    differenceMinor: number | null;
+  }>;
+};
+
+function readReport(value: unknown): ShiftReport | null {
+  const report = value as Partial<ShiftReport> | null;
+  if (!report || typeof report.id !== "string" || typeof report.openedAt !== "string" || !Array.isArray(report.currencies) || typeof report.cashier?.login !== "string") {
+    return null;
+  }
+  return report as ShiftReport;
+}
+
+export type CloseShiftResult =
+  | { ok: true; shift: ShiftReport }
+  | { ok: false; reason: "not-yours" | "not-found" | "rejected" | "server-error" }
+  /** It was closed before, with another count. */
+  | { ok: false; reason: "already-closed"; shift: ShiftReport | null };
+
+/** Closes a shift with the count of the cash, one amount per currency (what was counted, not what the books say). */
+export async function closeShift(shiftId: string, counted: Balance[]): Promise<CloseShiftResult> {
+  const response = await request(`/api/shifts/${encodeURIComponent(shiftId)}/close`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ counted }),
+  });
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.ok) {
+    const shift = readReport(((await response.json().catch(() => null)) as { shift?: unknown } | null)?.shift ?? null);
+    return shift ? { ok: true, shift } : { ok: false, reason: "server-error" };
+  }
+  if (response.status === 403) return { ok: false, reason: "not-yours" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as { shift?: unknown } | null;
+    return { ok: false, reason: "already-closed", shift: readReport(body?.shift ?? null) };
+  }
+  return { ok: false, reason: response.status >= 500 ? "server-error" : "rejected" };
+}
+
+export type ShiftsPage = { shifts: ShiftReport[]; nextBefore: string | null };
+
+/** The shifts, newest first (the owner). `before` asks for the page after the one that ended there. */
+export async function fetchShifts(before?: string): Promise<ShiftsPage> {
+  const response = await request(`/api/shifts${before ? `?${new URLSearchParams({ before })}` : ""}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/shifts`);
+  const body = (await response.json()) as { shifts?: unknown[]; nextBefore?: unknown };
+  const shifts = (body.shifts ?? []).map(readReport);
+  if (!Array.isArray(body.shifts) || shifts.some((shift) => shift === null)) throw new Error("The answer of /api/shifts is not a list of shifts");
+  return { shifts: shifts as ShiftReport[], nextBefore: typeof body.nextBefore === "string" ? body.nextBefore : null };
 }

@@ -17,6 +17,7 @@ type Summary = {
     incomeMinor: number;
     expenseMinor: number;
     handoverMinor: number;
+    differenceMinor: number;
     closingMinor: number;
     expenseByCategory: Array<{ category: string; amountMinor: number }>;
   }>;
@@ -98,6 +99,7 @@ describe("the totals for a period", () => {
             incomeMinor: 400_000,
             expenseMinor: 195_000,
             handoverMinor: 40_000,
+            differenceMinor: 0,
             // 13 000,00 + 4 000,00 - 1 950,00 - 400,00
             closingMinor: 1_465_000,
             expenseByCategory: [
@@ -114,6 +116,7 @@ describe("the totals for a period", () => {
             incomeMinor: 0,
             expenseMinor: 0,
             handoverMinor: 0,
+            differenceMinor: 0,
             closingMinor: 5_000,
             expenseByCategory: [
               { category: "fuel_road", amountMinor: 0 },

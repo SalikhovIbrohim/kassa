@@ -17,6 +17,8 @@ export type CurrencySummary = {
   /** Everything paid out except the money handed to the owner (that is not a cost of the business). */
   expenseMinor: number;
   handoverMinor: number;
+  /** What counting the cash found at the end of the shifts closed in the period: a shortage is negative, a surplus positive. */
+  differenceMinor: number;
   /** The balance when the last day of the period ends. */
   closingMinor: number;
   /** Where the expense went, every category, in the order of the list, zeros included. */
@@ -30,8 +32,9 @@ type SummaryQuery = { from?: string; to?: string };
 
 /**
  * The totals of a period for the viewer, each currency on its own: the balance at the start, income, expense by
- * category, handover to the owner, the balance at the end. Whatever the period, opening + income - expense -
- * handover = closing. A deleted operation counts for nothing; a corrected one counts as it says now.
+ * category, handover to the owner, what counting the cash found, the balance at the end. Whatever the period,
+ * opening + income - expense - handover + difference = closing. A deleted operation counts for nothing; a
+ * corrected one counts as it says now.
  */
 export async function registerSummary(app: FastifyInstance, options: SummaryOptions) {
   const { pool, now } = options;
@@ -82,6 +85,10 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
                          FILTER (WHERE op.created_at < $1), 0) AS until_start,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'income' AND ${inPeriod}), 0) AS income,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = ${handover} AND ${inPeriod}), 0) AS handover,
+                COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
+                           WHERE sb.currency = c.currency AND s.closed_at < $2), 0) AS difference_until_end,
+                COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
+                           WHERE sb.currency = c.currency AND s.closed_at < $1), 0) AS difference_until_start,
                 ${categoryColumns.join(",\n                ")}
            FROM unnest($3::text[]) AS c(currency)
            LEFT JOIN opening_balances ob ON ob.currency = c.currency
@@ -99,11 +106,12 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
         }));
         return {
           currency: row.currency as Currency,
-          openingMinor: Number(row.opening_balance) + Number(row.until_start),
+          openingMinor: Number(row.opening_balance) + Number(row.until_start) + Number(row.difference_until_start),
           incomeMinor: Number(row.income),
           expenseMinor: expenseByCategory.reduce((sum, item) => sum + item.amountMinor, 0),
           handoverMinor: Number(row.handover),
-          closingMinor: Number(row.opening_balance) + Number(row.until_end),
+          differenceMinor: Number(row.difference_until_end) - Number(row.difference_until_start),
+          closingMinor: Number(row.opening_balance) + Number(row.until_end) + Number(row.difference_until_end),
           expenseByCategory,
         };
       });

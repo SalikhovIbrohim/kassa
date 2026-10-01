@@ -8,7 +8,7 @@ import {
   type Totals as TotalsData,
 } from "./api";
 import { formatDay, moscowToday, presetPeriod, type PeriodPreset } from "./days";
-import { CURRENCY_NAME, formatMoney } from "./money";
+import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
 
 type Props = {
   onSessionExpired: () => void;
@@ -217,6 +217,12 @@ function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code:
           <dt>Передано владельцу</dt>
           <dd data-total="handover">{signed(totals.handoverMinor, "−", currency)}</dd>
         </div>
+        {totals.differenceMinor !== 0 && (
+          <div className={totals.differenceMinor < 0 ? "total-row expense" : "total-row income"}>
+            <dt>Разница при сверке (смены закрыты)</dt>
+            <dd data-total="difference">{formatDifference(totals.differenceMinor, currency)}</dd>
+          </div>
+        )}
         <div className="total-row closing">
           <dt>Остаток на конец</dt>
           <dd data-total="closing">{formatMoney(totals.closingMinor, currency)}</dd>
