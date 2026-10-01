@@ -109,12 +109,5 @@ function answer(reply: FastifyReply, result: ChangeResult) {
       return reply.code(409).send({ error: "operation_deleted" });
     case "kind_changed":
       return reply.code(409).send({ error: "type_cannot_change" });
-    case "would_go_negative":
-      return reply.code(422).send({
-        error: "balance_would_go_negative",
-        currency: result.currency,
-        balanceMinor: result.balanceMinor,
-        balanceAfterMinor: result.balanceAfterMinor,
-      });
   }
 }

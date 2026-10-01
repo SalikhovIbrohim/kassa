@@ -96,16 +96,14 @@ describe("closing a shift with a count of the cash", () => {
     ]);
   });
 
-  it("does not let an expense take out more than was counted", async () => {
+  it("takes an expense above what was counted: the balance goes below zero", async () => {
     const { started, ivan, shift } = await workedShift();
     await close(started, shift.id, counted(139_000, 7_500), ivan);
 
     const tooMuch = await postJson(started, "/api/operations", expense({ amountMinor: 139_001 }), ivan);
-    const all = await postJson(started, "/api/operations", expense({ amountMinor: 139_000 }), ivan);
 
-    expect(tooMuch.status).toBe(422);
-    expect(await tooMuch.json()).toMatchObject({ error: "insufficient_balance", availableMinor: 139_000 });
-    expect(all.status).toBe(201);
+    expect(tooMuch.status).toBe(201);
+    expect((await tooMuch.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: -1 });
   });
 
   it("counts against everything the books hold, also what another cashier entered while this shift was open", async () => {

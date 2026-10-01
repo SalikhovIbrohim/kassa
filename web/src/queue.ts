@@ -14,13 +14,12 @@ import type { Currency } from "./money";
  *   send, and sent along, so that a session of somebody else (another tab, a sign-in that happened
  *   while a send was under way) is refused by the server and never gets the entry.
  * - A new entry does not overtake older ones that are waiting: money that came in earlier counts first.
- * - An entry the server refuses for what it says (not enough money, say) is not dropped and not
+ * - An entry the server refuses for what it says (data it cannot take, say) is not dropped and not
  *   sent again forever: it stays, marked with the reason, until the cashier decides.
  */
 
 /** Why the server did not take an entry. */
 export type Problem =
-  | { kind: "insufficient-balance"; currency: Currency; availableMinor: number }
   | { kind: "conflict" }
   | { kind: "rejected" }
   | { kind: "forbidden" };
@@ -240,11 +239,6 @@ export function createQueue(deps: QueueDeps) {
     failures = 0;
     setState({ offline: false });
     switch (result.reason) {
-      case "insufficient-balance":
-        return {
-          kind: "refused",
-          problem: { kind: "insufficient-balance", currency: result.currency, availableMinor: result.availableMinor },
-        };
       case "conflict":
         return { kind: "refused", problem: { kind: "conflict" } };
       case "forbidden":
@@ -270,31 +264,17 @@ export function createQueue(deps: QueueDeps) {
       console.error("The entries on the phone could not be read:", error);
     }
     setState({ sending: true });
-    // Refused in this run and not recorded on the entry (the one just typed): not sent a second time in it.
-    const refusedHere = new Set<string>();
     try {
-      for (let pass = 0; pass < 2; pass++) {
-        let progressed = false;
-        const line = [...waitingFor(login).filter((entry) => !refusedHere.has(entry.id)), ...(unstored && pass === 0 ? [unstored] : [])];
-        for (const entry of line) {
-          if (deps.currentLogin() !== login) return stop({ kind: "kept", why: "login" });
-          const outcome = await attempt(entry);
-          if (entry.id === typed) typedOutcome = outcome;
-          if (awaited.has(entry.id)) awaited.set(entry.id, outcome);
-          if (outcome.kind === "saved") progressed = true;
-          else if (outcome.kind === "kept") return stop(outcome);
-          else if (outcome.kind === "refused") {
-            if (entry.id === typed) refusedHere.add(entry.id);
-            else await put({ ...entry, status: "blocked", problem: outcome.problem });
-          }
-        }
-        if (!progressed || pass === 1) break;
-        // Money that came in may now cover an expense that was refused for lack of it: once more.
-        for (const old of [...state.entries]) {
-          const entry = state.entries.find((item) => item.id === old.id);
-          if (entry && entry.login === login && entry.problem?.kind === "insufficient-balance") {
-            await put({ ...entry, status: "waiting", problem: null });
-          }
+      const line = [...waitingFor(login), ...(unstored ? [unstored] : [])];
+      for (const entry of line) {
+        if (deps.currentLogin() !== login) return stop({ kind: "kept", why: "login" });
+        const outcome = await attempt(entry);
+        if (entry.id === typed) typedOutcome = outcome;
+        if (awaited.has(entry.id)) awaited.set(entry.id, outcome);
+        if (outcome.kind === "kept") return stop(outcome);
+        // A refusal of the entry just typed is not recorded on it: the form shows why.
+        if (outcome.kind === "refused" && entry.id !== typed) {
+          await put({ ...entry, status: "blocked", problem: outcome.problem });
         }
       }
       return typedOutcome;

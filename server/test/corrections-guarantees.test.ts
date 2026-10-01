@@ -418,49 +418,6 @@ describe("correcting and deleting: the guarantees at the edges", () => {
       const { changes } = await historyOf(started, owner, id);
       expect(changes.map((change: { at: string }) => change.at)).toEqual([NOW.toISOString(), LATER.toISOString()]);
     });
-
-    it("a move into dollars waits for a dollar expense that is still being recorded", async () => {
-      const { started, ivan, petr } = await desk({ RUB: "1000", USD: "100" });
-      const id = await record(started, ivan, expense({ amountMinor: 1_000 }));
-      await slowDown(started, "INSERT", "NEW.comment = 'slow'");
-      const spend = postJson(started, "/api/operations", expense({ currency: "USD", amountMinor: 10_000, comment: "slow" }), petr);
-      await untilSlowedDown(started);
-      // All the dollars are being spent; moving this expense into dollars must see that.
-      const move = edit(started, ivan, id, expenseEdit({ currency: "USD", amountMinor: 10_000 }));
-
-      const [spent, moved] = await Promise.all([spend, move]);
-
-      expect([spent.status, moved.status]).toEqual([201, 422]);
-      expect((await balances(started, ivan))[1]).toEqual({ currency: "USD", amountMinor: 0 });
-    });
-
-    it("a deletion that is still being written holds back an expense that would spend what it takes away", async () => {
-      const { started, ivan, petr } = await desk();
-      const funds = await record(started, ivan, income({ amountMinor: 50_000 }));
-      await slowDown(started, "UPDATE", "NEW.deleted_at IS NOT NULL");
-      const deletion = remove(started, ivan, funds);
-      await untilSlowedDown(started);
-      const spend = postJson(started, "/api/operations", expense({ amountMinor: 50_000 }), petr);
-
-      const [deleted, spent] = await Promise.all([deletion, spend]);
-
-      expect([deleted.status, spent.status]).toEqual([200, 422]);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 0 });
-    });
-
-    it("a correction that is still being written holds back an expense that would spend what it takes", async () => {
-      const { started, ivan, petr } = await desk({ RUB: "1000" });
-      const id = await record(started, ivan, expense({ amountMinor: 10_000 }));
-      await slowDown(started, "UPDATE", "NEW.revision = 1");
-      const raise = edit(started, ivan, id, expenseEdit({ amountMinor: 80_000 }));
-      await untilSlowedDown(started);
-      const spend = postJson(started, "/api/operations", expense({ amountMinor: 50_000 }), petr);
-
-      const [raised, spent] = await Promise.all([raise, spend]);
-
-      expect([raised.status, spent.status]).toEqual([200, 422]);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 20_000 });
-    });
   });
 
   describe("what the database refuses to whoever writes to it, the application or not", () => {

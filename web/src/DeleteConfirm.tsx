@@ -37,10 +37,10 @@ export function DeleteConfirm({ operation, description, onDeleted, onCancel, onS
         return;
       }
       if (result.reason === "deleted" || result.reason === "not-found") {
-        onGone(`${explainFailure(result, "delete", operation.type)} Журнал обновлён.`);
+        onGone(`${explainFailure(result)} Журнал обновлён.`);
         return;
       }
-      setError(explainFailure(result, "delete", operation.type));
+      setError(explainFailure(result));
     } catch (caught) {
       setError(caught instanceof NetworkError ? NO_CONNECTION : "Не получилось удалить. Попробуйте ещё раз.");
     }

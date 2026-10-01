@@ -29,11 +29,6 @@ export function phoneTime(iso: string, now: Date = new Date()): string {
 /** What the server's refusal means for the cashier, and what to do about it. */
 export function problemText(problem: Problem): string {
   switch (problem.kind) {
-    case "insufficient-balance":
-      return (
-        `В кассе не хватило денег: было ${formatMoney(problem.availableMinor, problem.currency)}. ` +
-        "Сначала внесите недостающий приход, потом нажмите «Отправить снова». Ошиблись в сумме? Удалите запись и внесите заново."
-      );
     case "conflict":
       return "Похоже, такая запись уже есть на сервере. Проверьте «Журнал»: если она там, удалите эту.";
     case "forbidden":

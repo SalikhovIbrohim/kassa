@@ -104,9 +104,7 @@ export type RecordResult =
   /** The same entry was sent before: nothing was added, here is what is stored. */
   | { status: "replayed"; row: OperationRow; balances: Balance[] }
   /** The id belongs to a different entry. */
-  | { status: "id_conflict" }
-  /** The cash desk holds less of that currency than the expense takes out. */
-  | { status: "insufficient_balance"; availableMinor: number };
+  | { status: "id_conflict" };
 
 /**
  * Runs `work` in one transaction: committed when it returns, rolled back when it throws.
@@ -204,31 +202,16 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
  * live here, in one transaction:
  *
  * - The id is the primary key, so an entry sent twice is stored once.
- * - An expense may not take out more of a currency than the cash desk holds. Expenses of
- *   one currency queue up behind a lock while they check the balance, otherwise two of
- *   them could each see enough money for itself and together overspend. Incomes only add
- *   money, so they need no lock.
- * - A retry of an entry that was accepted is answered as before even if the money is
- *   gone since: the check only applies to entries that are new. The answer is read in one
+ * - The balance is no limit. This is a cash desk that is kept in step with a book that has no
+ *   limit either: an expense that takes the balance below zero is recorded all the same (the
+ *   screen shows the balance in red), because refusing it would leave the money unwritten.
+ * - A retry of an entry that was accepted is answered as before. The answer is read in one
  *   snapshot (see `answerRetry`), so it never mixes two moments.
- *
- * Anything else that changes a balance later (correcting or deleting an operation) takes
- * the same locks and makes the same check: see `changeOperation`.
  */
 export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
   const recorded = await inTransaction(pool, async (client): Promise<RecordResult | "stored already"> => {
-    if (wanted.kind === "expense") await lockBalances(client, [wanted.currency]);
-
     // The entry may be stored already: a retry, or a clash of ids.
     if (await findOperation(client, wanted.id)) return "stored already";
-
-    if (wanted.kind === "expense") {
-      // This reads every operation of the currency. Fine for one cash desk (tens of
-      // thousands of rows take tens of milliseconds); with far more, keep a running total.
-      const balance = (await getBalances(client)).find((item) => item.currency === wanted.currency);
-      const availableMinor = balance?.amountMinor ?? 0;
-      if (availableMinor < wanted.amountMinor) return { status: "insufficient_balance", availableMinor };
-    }
 
     const inserted = await client.query(
       `INSERT INTO operations
@@ -251,8 +234,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
         await shiftFor(client, wanted.authorId, wanted.shiftId),
       ],
     );
-    // Zero rows: another request with this id got in between our look and our insert (an
-    // income takes no lock, and an expense in the other currency takes another one). The
+    // Zero rows: another request with this id got in between our look and our insert. The
     // insert waited for it to finish, so the entry is stored now.
     if (inserted.rowCount !== 1) return "stored already";
 
@@ -298,19 +280,13 @@ export type ChangeResult =
   /** A deleted operation can no longer be corrected. */
   | { status: "deleted" }
   /** An income cannot become an expense or the other way round. */
-  | { status: "kind_changed" }
-  /** The change would leave less than nothing of a currency in the cash desk. */
-  | { status: "would_go_negative"; currency: Currency; balanceMinor: number; balanceAfterMinor: number };
+  | { status: "kind_changed" };
 
 /**
  * Corrects or deletes one of its author's operations, and writes down what it was.
  *
- * Changing an operation can lower the balance (deleting an income, raising an expense), so
- * it follows the rule recording follows: no currency may be left below zero by it. The check
- * and the write share one transaction under the locks of both currencies, so a correction
- * and an expense racing for the same money cannot both succeed. A balance that was below
- * zero already (the developer lowered the opening balance) is no obstacle to a change that
- * does not make it worse.
+ * Changing an operation can lower the balance (deleting an income, raising an expense). As with
+ * recording, the balance is no limit: it may end below zero.
  *
  * Every change adds a line to the history with the author, the time, the reason and the
  * values before; nothing is ever overwritten without that line (the database insists).
@@ -347,23 +323,6 @@ export async function changeOperation(
       if (change.kind !== stored.kind) return { status: "kind_changed" };
       after = change.next;
       if (sameSnapshot(before, after)) return unchanged();
-    }
-
-    // What this change does to the balance of each currency: the old effect goes, the new
-    // one (none for a deletion) comes. An income adds its amount, an expense takes it away.
-    const effect = (amountMinor: number) => (stored.kind === "income" ? amountMinor : -amountMinor);
-    const deltas = new Map<Currency, number>();
-    const add = (currency: Currency, amount: number) => deltas.set(currency, (deltas.get(currency) ?? 0) + amount);
-    add(before.currency, -effect(before.amountMinor));
-    if (change.action === "edit") add(after.currency, effect(after.amountMinor));
-
-    const balances = await getBalances(client);
-    for (const [currency, delta] of deltas) {
-      if (delta >= 0) continue;
-      const balanceMinor = balances.find((item) => item.currency === currency)?.amountMinor ?? 0;
-      if (balanceMinor + delta < 0) {
-        return { status: "would_go_negative", currency, balanceMinor, balanceAfterMinor: balanceMinor + delta };
-      }
     }
 
     if (change.action === "delete") {

@@ -253,34 +253,17 @@ describe("correcting and deleting operations", () => {
     });
   });
 
-  describe("the balance may not go below zero", () => {
-    it("refuses to delete an income that has been spent, and says by how much it falls short", async () => {
+  describe("the balance is no limit for a deletion", () => {
+    it("deletes an income that has been spent, and the balance goes below zero", async () => {
       const { started, ivan } = await desk();
       const id = await record(started, ivan, income({ amountMinor: 50_000 }));
       await record(started, ivan, expense({ amountMinor: 30_000 }));
 
       const response = await remove(started, ivan, id);
 
-      expect(response.status).toBe(422);
-      expect(await response.json()).toEqual({
-        error: "balance_would_go_negative",
-        currency: "RUB",
-        balanceMinor: 20_000,
-        balanceAfterMinor: -30_000,
-      });
-      expect(await journalIds(started, ivan)).toHaveLength(2);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 20_000 });
-    });
-
-    it("allows deleting an income while what is left still covers the expenses", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      const id = await record(started, ivan, income({ amountMinor: 50_000 }));
-      await record(started, ivan, expense({ amountMinor: 30_000 }));
-
-      const response = await remove(started, ivan, id);
-
       expect(response.status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 70_000 });
+      expect(await journalIds(started, ivan)).toHaveLength(1);
+      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -30_000 });
     });
 
     it("looks at the currency of the operation only", async () => {
@@ -288,65 +271,13 @@ describe("correcting and deleting operations", () => {
       const rubles = await record(started, ivan, income({ amountMinor: 50_000 }));
       await record(started, ivan, expense({ amountMinor: 30_000, currency: "USD" }));
 
-      // Nothing in rubles was spent, so the rubles can go; the dollar expense is no concern.
-      expect((await remove(started, ivan, rubles)).status).toBe(200);
+      await remove(started, ivan, rubles);
+
+      expect(await balances(started, ivan)).toEqual([
+        { currency: "RUB", amountMinor: 0 },
+        { currency: "USD", amountMinor: 70_000 },
+      ]);
     });
-
-    it("never blocks deleting an expense, which only adds money", async () => {
-      const { started, ivan } = await desk();
-      await record(started, ivan, income({ amountMinor: 50_000 }));
-      const spent = await record(started, ivan, expense({ amountMinor: 50_000 }));
-
-      expect((await remove(started, ivan, spent)).status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 50_000 });
-    });
-
-    it("when the balance is already below zero, refuses what makes it worse and allows what improves it", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      const spent = await record(started, ivan, expense({ amountMinor: 80_000 }));
-      const incoming = await record(started, ivan, income({ amountMinor: 10_000 }));
-      // The developer lowers the opening balance: the desk now holds 100 - 800 + 100 = -600.
-      await started.admin.setOpeningBalance("RUB", "100");
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -60_000 });
-
-      expect((await remove(started, ivan, incoming)).status).toBe(422);
-      expect((await remove(started, ivan, spent)).status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 20_000 });
-    });
-
-    it("allows a deletion that improves a negative balance without bringing it back to zero", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      await record(started, ivan, expense({ amountMinor: 50_000 }));
-      const smaller = await record(started, ivan, expense({ amountMinor: 30_000 }));
-      await record(started, ivan, income({ amountMinor: 10_000 }));
-      await started.admin.setOpeningBalance("RUB", "100");
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -60_000 });
-
-      const response = await remove(started, ivan, smaller);
-
-      expect(response.status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -30_000 });
-    });
-
-    it("cannot be beaten by a deletion and an expense racing for the same money", async () => {
-      const { started, ivan, petr } = await desk();
-
-      for (let round = 0; round < 8; round++) {
-        const id = await record(started, ivan, income({ amountMinor: 50_000, clientCode: `R${round}` }));
-
-        // The income pays for the expense; deleting it would take that money away.
-        const [deleted, spent] = await Promise.all([
-          remove(started, ivan, id),
-          postJson(started, "/api/operations", expense({ amountMinor: 50_000 }), petr),
-        ]);
-
-        const winners = (deleted.status === 200 ? 1 : 0) + (spent.status === 201 ? 1 : 0);
-        expect(winners, `round ${round}: delete ${deleted.status}, expense ${spent.status}`).toBe(1);
-        if (deleted.status !== 200) expect(deleted.status).toBe(422);
-        if (spent.status !== 201) expect(spent.status).toBe(422);
-        expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 0 });
-      }
-    }, 60_000);
   });
 
   describe("editing", () => {
@@ -614,139 +545,43 @@ describe("correcting and deleting operations", () => {
     });
   });
 
-  describe("the balance may not go below zero when editing either", () => {
-    it("refuses to raise an expense above what the cash desk holds, and says by how much", async () => {
+  describe("the balance is no limit for an edit either", () => {
+    it("raises an expense above what the cash desk holds, and the balance goes below zero", async () => {
       const { started, ivan } = await desk();
       await record(started, ivan, income({ amountMinor: 50_000 }));
       const id = await record(started, ivan, expense({ amountMinor: 20_000 }));
 
       const response = await edit(started, ivan, id, expenseEdit({ amountMinor: 90_000 }));
 
-      expect(response.status).toBe(422);
-      expect(await response.json()).toEqual({
-        error: "balance_would_go_negative",
-        currency: "RUB",
-        balanceMinor: 30_000,
-        balanceAfterMinor: -40_000,
-      });
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 30_000 });
-      expect(await operationOf(started, ivan, id)).toMatchObject({ amountMinor: 20_000, revision: 0 });
+      expect(response.status).toBe(200);
+      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -40_000 });
+      expect(await operationOf(started, ivan, id)).toMatchObject({ amountMinor: 90_000, revision: 1 });
     });
 
-    it("allows raising an expense until it takes exactly everything", async () => {
+    it("lowers an income below what has already been spent", async () => {
       const { started, ivan } = await desk();
-      await record(started, ivan, income({ amountMinor: 50_000 }));
-      const id = await record(started, ivan, expense({ amountMinor: 20_000 }));
+      const id = await record(started, ivan, income({ amountMinor: 50_000 }));
+      await record(started, ivan, expense({ amountMinor: 40_000 }));
 
-      const response = await edit(started, ivan, id, expenseEdit({ amountMinor: 50_000 }));
+      const response = await edit(started, ivan, id, incomeEdit({ amountMinor: 10_000 }));
 
       expect(response.status).toBe(200);
-      expect((await response.json()).balances[0]).toEqual({ currency: "RUB", amountMinor: 0 });
+      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -30_000 });
     });
 
-    it("refuses to lower an income below what has already been spent", async () => {
+    it("moves a spent income to another currency: the first goes below zero, the other grows", async () => {
       const { started, ivan } = await desk();
       const id = await record(started, ivan, income({ amountMinor: 50_000 }));
       await record(started, ivan, expense({ amountMinor: 30_000 }));
 
-      const tooLow = await edit(started, ivan, id, incomeEdit({ amountMinor: 20_000 }));
-      const enough = await edit(started, ivan, id, incomeEdit({ amountMinor: 30_000 }));
-
-      expect(tooLow.status).toBe(422);
-      expect(enough.status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 0 });
-    });
-
-    it("always allows raising an income and lowering an expense", async () => {
-      const { started, ivan } = await desk();
-      const incomeId = await record(started, ivan, income({ amountMinor: 50_000 }));
-      const expenseId = await record(started, ivan, expense({ amountMinor: 50_000 }));
-
-      expect((await edit(started, ivan, incomeId, incomeEdit({ amountMinor: 80_000 }))).status).toBe(200);
-      expect((await edit(started, ivan, expenseId, expenseEdit({ amountMinor: 1 }))).status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 79_999 });
-    });
-
-    it("refuses to move a spent income to another currency", async () => {
-      const { started, ivan } = await desk();
-      const id = await record(started, ivan, income({ amountMinor: 50_000 }));
-      await record(started, ivan, expense({ amountMinor: 30_000 }));
-
-      const response = await edit(started, ivan, id, incomeEdit({ currency: "USD" }));
-
-      expect(response.status).toBe(422);
-      expect((await response.json()).currency).toBe("RUB");
-    });
-
-    it("refuses to move an expense to a currency that does not hold the money", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      const id = await record(started, ivan, expense({ amountMinor: 10_000 }));
-
-      const response = await edit(started, ivan, id, expenseEdit({ currency: "USD" }));
-
-      expect(response.status).toBe(422);
-      expect(await response.json()).toMatchObject({ currency: "USD", balanceMinor: 0, balanceAfterMinor: -10_000 });
-    });
-
-    it("moves an expense to another currency that does hold the money, giving the first one back", async () => {
-      const { started, ivan } = await desk({ RUB: "1000", USD: "100" });
-      const id = await record(started, ivan, expense({ amountMinor: 10_000 }));
-
-      const response = await edit(started, ivan, id, expenseEdit({ currency: "USD", amountMinor: 500 }));
+      const response = await edit(started, ivan, id, incomeEdit({ amountMinor: 50_000, currency: "USD" }));
 
       expect(response.status).toBe(200);
-      expect((await response.json()).balances).toEqual([
-        { currency: "RUB", amountMinor: 100_000 },
-        { currency: "USD", amountMinor: 9_500 },
+      expect(await balances(started, ivan)).toEqual([
+        { currency: "RUB", amountMinor: -30_000 },
+        { currency: "USD", amountMinor: 50_000 },
       ]);
     });
-
-    it("when the balance is already below zero, refuses what makes it worse and allows what improves it", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      const id = await record(started, ivan, expense({ amountMinor: 80_000 }));
-      await started.admin.setOpeningBalance("RUB", "100");
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -70_000 });
-
-      const worse = await edit(started, ivan, id, expenseEdit({ amountMinor: 90_000 }));
-      const better = await edit(started, ivan, id, expenseEdit({ amountMinor: 75_000 }));
-
-      expect(worse.status).toBe(422);
-      expect(better.status).toBe(200);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: -65_000 });
-    });
-
-    it("cannot be beaten by two edits asking for the same free money at once", async () => {
-      const { started, ivan } = await desk({ RUB: "1000" });
-      const a = await record(started, ivan, expense({ amountMinor: 10_000 }));
-      const b = await record(started, ivan, expense({ amountMinor: 10_000 }));
-      // 80 000 free. Each edit wants 50 000 more: one fits, both do not.
-
-      const [first, second] = await Promise.all([
-        edit(started, ivan, a, expenseEdit({ amountMinor: 60_000 })),
-        edit(started, ivan, b, expenseEdit({ amountMinor: 60_000 })),
-      ]);
-
-      expect([first.status, second.status].sort()).toEqual([200, 422]);
-      expect((await balances(started, ivan))[0]).toEqual({ currency: "RUB", amountMinor: 30_000 });
-    });
-
-    it("cannot be beaten by an edit and a new expense asking for the same free money at once", async () => {
-      for (let round = 0; round < 6; round++) {
-        const { started, ivan, petr } = await desk({ RUB: "1000" });
-        const id = await record(started, ivan, expense({ amountMinor: 20_000 }));
-        // 80 000 free: the edit wants all of it, so does the new expense.
-
-        const [edited, spent] = await Promise.all([
-          edit(started, ivan, id, expenseEdit({ amountMinor: 100_000 })),
-          postJson(started, "/api/operations", expense({ amountMinor: 80_000 }), petr),
-        ]);
-
-        expect((edited.status === 200 ? 1 : 0) + (spent.status === 201 ? 1 : 0), `round ${round}`).toBe(1);
-        expect((await balances(started, ivan))[0]!.amountMinor).toBeGreaterThanOrEqual(0);
-        await started.close();
-        app = undefined;
-      }
-    }, 90_000);
   });
 
   describe("sending the original entry again after it was corrected", () => {
@@ -864,8 +699,6 @@ describe("correcting and deleting operations", () => {
       await record(started, ivan, expense({ amountMinor: 30_000 }));
 
       await edit(started, ivan, id, incomeEdit({ amountMinor: 50_000 }));       // the same values
-      expect((await edit(started, ivan, id, incomeEdit({ amountMinor: 1 }))).status).toBe(422);
-      expect((await remove(started, ivan, id)).status).toBe(422);
       expect((await edit(started, ivan, id, { nonsense: true })).status).toBe(400);
 
       const answer = await (await historyOf(started, owner, id)).json();

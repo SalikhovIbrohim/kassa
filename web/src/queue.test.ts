@@ -22,6 +22,8 @@ function fakeServer() {
     /** Answer every request with this reason instead. */
     answer: undefined as undefined | OperationResult,
     cash: 0,
+    /** The ids of the entries the server refuses for what they say. */
+    refuse: new Set<string>(),
     /** Whose entry each send said it was, in order. */
     logins: [] as string[],
     async send(input: OperationInput, login = "?"): Promise<OperationResult> {
@@ -31,9 +33,7 @@ function fakeServer() {
       if (server.answer) return server.answer;
       const known = saved.get(input.id);
       if (!known) {
-        if (input.type === "expense" && input.amountMinor > server.cash) {
-          return { ok: false, reason: "insufficient-balance", currency: input.currency, availableMinor: server.cash };
-        }
+        if (server.refuse.has(input.id)) return { ok: false, reason: "rejected" };
         server.cash += input.type === "income" ? input.amountMinor : -input.amountMinor;
         saved.set(input.id, operationOf(input));
       }
@@ -315,15 +315,12 @@ describe("the queue of entries made without a connection", () => {
   describe("an entry the server refuses for what it says", () => {
     it("is not kept when it was typed just now: the form shows the reason", async () => {
       const t = setup();
-      t.server.cash = 1_000;
       const entry = expense(50_000);
+      t.server.refuse.add(entry.id);
 
       const outcome = await t.queue.submit(entry, "ivan");
 
-      expect(outcome).toEqual({
-        kind: "refused",
-        problem: { kind: "insufficient-balance", currency: "RUB", availableMinor: 1_000 },
-      });
+      expect(outcome).toEqual({ kind: "refused", problem: { kind: "rejected" } });
       expect(await t.stored()).toEqual([]);
       expect(t.queue.getState().entries).toEqual([]);
     });
@@ -333,6 +330,7 @@ describe("the queue of entries made without a connection", () => {
       t.server.offline = true;
       const spend = expense(80_000);
       const receive = income(10_000);
+      t.server.refuse.add(spend.id);
       await t.queue.submit(spend, "ivan");
       await t.queue.submit(receive, "ivan");
 
@@ -342,27 +340,17 @@ describe("the queue of entries made without a connection", () => {
       expect(t.server.saved.has(receive.id)).toBe(true);
       expect(t.server.saved.has(spend.id)).toBe(false);
       const [blocked] = t.queue.getState().entries;
-      expect(blocked).toMatchObject({
-        id: spend.id,
-        status: "blocked",
-        problem: { kind: "insufficient-balance", currency: "RUB", availableMinor: 10_000 },
-      });
+      expect(blocked).toMatchObject({ id: spend.id, status: "blocked", problem: { kind: "rejected" } });
       expect(await t.stored()).toEqual([spend.id]);
     });
 
-    it("is tried once more after money came in that covers it, in the same run", async () => {
+    it("is not refused for lack of money: the balance may go below zero", async () => {
       const t = setup();
-      t.server.offline = true;
       const spend = expense(40_000);
-      const receive = income(50_000);
-      await t.queue.submit(spend, "ivan");
-      await t.queue.submit(receive, "ivan");
 
-      t.server.offline = false;
-      await t.queue.nudge();
+      const outcome = await t.queue.submit(spend, "ivan");
 
-      expect([...t.server.saved.keys()].sort()).toEqual([spend.id, receive.id].sort());
-      expect(t.server.cash).toBe(10_000);
+      expect(outcome).toMatchObject({ kind: "saved", balances: [{ currency: "RUB", amountMinor: -40_000 }] });
       expect(await t.stored()).toEqual([]);
     });
 
@@ -370,6 +358,7 @@ describe("the queue of entries made without a connection", () => {
       const t = setup();
       t.server.offline = true;
       const spend = expense(80_000);
+      t.server.refuse.add(spend.id);
       await t.queue.submit(spend, "ivan");
       t.server.offline = false;
       await t.queue.nudge();
@@ -379,7 +368,7 @@ describe("the queue of entries made without a connection", () => {
       await t.queue.nudge();
       expect(t.server.log).toEqual([]);
 
-      t.server.cash = 100_000;
+      t.server.refuse.delete(spend.id);
       await t.queue.retry(spend.id);
       expect(t.server.saved.has(spend.id)).toBe(true);
       expect(await t.stored()).toEqual([]);
@@ -389,6 +378,7 @@ describe("the queue of entries made without a connection", () => {
       const t = setup();
       t.server.offline = true;
       const spend = expense(80_000);
+      t.server.refuse.add(spend.id);
       await t.queue.submit(spend, "ivan");
       t.server.offline = false;
       await t.queue.nudge();
@@ -560,10 +550,11 @@ describe("the queue of entries made without a connection", () => {
       t.server.offline = false;
       t.server.log.length = 0;
       const spend = expense(50_000);
+      t.server.refuse.add(spend.id);
 
       const outcome = await t.queue.submit(spend, "ivan");
 
-      expect(outcome).toMatchObject({ kind: "refused", problem: { kind: "insufficient-balance", availableMinor: 10_000 } });
+      expect(outcome).toMatchObject({ kind: "refused", problem: { kind: "rejected" } });
       // The income went first and was saved; the expense was asked about once, and not again after that.
       expect(t.server.log).toEqual([`send ${receive.id}`, `send ${spend.id}`]);
       expect(await t.stored()).toEqual([]);
@@ -659,14 +650,14 @@ describe("the queue of entries made without a connection", () => {
       await tick();
       t.timers.find((timer) => timer.ms === patience && !timer.cleared)!.callback();
       await outcome;
-      stuck.waiting[0]!({ ok: false, reason: "insufficient-balance", currency: "RUB", availableMinor: 1_000 });
+      stuck.waiting[0]!({ ok: false, reason: "rejected" });
       await tick();
       await tick();
 
       expect(t.queue.getState().entries[0]).toMatchObject({
         id: entry.id,
         status: "blocked",
-        problem: { kind: "insufficient-balance", availableMinor: 1_000 },
+        problem: { kind: "rejected" },
       });
       expect(await t.stored()).toEqual([entry.id]);
     });

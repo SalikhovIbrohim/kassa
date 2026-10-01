@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Writable } from "node:stream";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
-import { get, loginAs, postJson } from "./helpers/http.js";
+import { deleteRequest, get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 
 describe("what an unexpected failure leaves in the log", () => {
@@ -64,19 +64,22 @@ describe("when the database misbehaves", () => {
     };
   }
 
-  it("keeps the server alive when the connection of an expense in progress is cut", async () => {
+  it("keeps the server alive when the connection of a correction in progress is cut", async () => {
     const started = await startTestApp();
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier" });
     await started.admin.setOpeningBalance("RUB", "1000");
     const cookie = await loginAs(started, "ivan", "correct horse");
+    const saved = await postJson(started, "/api/operations", expense({ id: randomUUID() }), cookie);
+    expect(saved.status).toBe(201);
+    const { operation } = await saved.json();
 
-    // Someone else holds the ruble lock, so the expense waits for it inside its transaction.
+    // Someone else holds the ruble lock, so the deletion waits for it inside its transaction.
     const blocker = new pg.Client({ connectionString: started.databaseUrl });
     await blocker.connect();
     await blocker.query("BEGIN");
     await blocker.query("SELECT pg_advisory_xact_lock(hashtext('kassa.balance.RUB'))");
-    const pending = postJson(started, "/api/operations", expense(), cookie);
+    const pending = deleteRequest(started, `/api/operations/${operation.id}`, cookie);
 
     // Cut that waiting connection, as a database restart or a network fault would.
     const watcher = new pg.Client({ connectionString: started.databaseUrl });
@@ -98,10 +101,10 @@ describe("when the database misbehaves", () => {
 
     const answer = await pending;
     expect(answer.status).toBe(500);
-    // The process survived: it still answers, and the next expense is recorded normally.
+    // The process survived: it still answers, and the same deletion goes through now.
     expect((await get(started, "/api/health")).status).toBe(200);
-    const next = await postJson(started, "/api/operations", expense(), cookie);
-    expect(next.status).toBe(201);
+    const next = await deleteRequest(started, `/api/operations/${operation.id}`, cookie);
+    expect(next.status).toBe(200);
   });
 
   it("does not show the database's own words when something unexpected fails", async () => {

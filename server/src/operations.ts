@@ -136,13 +136,6 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
           });
         case "id_conflict":
           return reply.code(409).send({ error: "operation_id_conflict" });
-        case "insufficient_balance":
-          return reply.code(422).send({
-            error: "insufficient_balance",
-            currency: body.currency,
-            availableMinor: recorded.availableMinor,
-            requestedMinor: body.amountMinor,
-          });
       }
     },
   );

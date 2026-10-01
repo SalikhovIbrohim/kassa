@@ -229,44 +229,57 @@ describe("making entries without a connection", () => {
     expect(await authorsOnServer("OFF-4")).toEqual(["ivan"]);
   });
 
-  it("keeps an entry the server refuses for lack of money, with the reason, until the cashier decides", async () => {
+  /** Makes the server say no to every entry sent while `refusing.on` is true (the data cannot be taken); off at first, as a route answers even when the phone is offline. */
+  async function refuseEntries(page: Page) {
+    const refusing = { on: false };
+    await page.route("**/api/operations", (route) =>
+      route.request().method() === "POST" && refusing.on
+        ? route.fulfill({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({ statusCode: 400, error: "Bad Request", message: "refused for the test" }),
+          })
+        : route.continue(),
+    );
+    return refusing;
+  }
+
+  it("keeps an entry the server refuses, with the reason, until the cashier decides", async () => {
     const { started, page, context, banner } = await desk();
+    const refusing = await refuseEntries(page);
     await context.setOffline(true);
     await enterExpense(page, "500");
     await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
 
+    refusing.on = true;
     await context.setOffline(false);
 
-    await seeText(banner, "В кассе не хватило денег");
+    await seeText(banner, "Сервер не принял данные записи");
     await seeText(banner, "Сервер не принял эту запись");
     // The form that made the entry says so too, and what to do.
     await seeText(page.getByRole("status").filter({ hasText: "Сервер не принял запись" }), "Что с ней делать, решите в плашке");
 
-    // Money comes in (another way), and the cashier asks to try again.
-    const cookie = await loginAs(started, "ivan", "correct horse");
-    const income = await postJson(
-      started,
-      "/api/operations",
-      { id: crypto.randomUUID(), type: "income", amountMinor: 100_000, currency: "RUB", clientCode: "FUND" },
-      cookie,
-    );
-    expect(income.status).toBe(201);
+    // The cashier asks to try again, and this time the server takes it.
+    refusing.on = false;
     await banner.getByRole("button", { name: "Отправить снова" }).click();
 
     await seeGone(banner);
+    const cookie = await loginAs(started, "ivan", "correct horse");
     const operations = (await (await get(started, "/api/operations?limit=100", cookie)).json()).operations;
     expect(operations.filter((item: { type: string }) => item.type === "expense")).toHaveLength(1);
   });
 
   it("lets the cashier delete from the phone an entry the server refused, after asking twice", async () => {
     const { started, page, context, banner } = await desk();
+    const refusing = await refuseEntries(page);
     await context.setOffline(true);
     await enterExpense(page, "500");
     await waitUntilKept(page);
     await seeText(banner, "Не отправлено: 1 запись");
+    refusing.on = true;
     await context.setOffline(false);
-    await seeText(banner, "В кассе не хватило денег");
+    await seeText(banner, "Сервер не принял данные записи");
 
     await banner.getByRole("button", { name: "Удалить с телефона" }).click();
     await seeText(banner, "Удалить эту запись с телефона?");
@@ -437,7 +450,7 @@ describe("making entries without a connection", () => {
     await context.setOffline(false);
     await page.waitForFunction(() => document.body.innerText.includes("Нет связи с сервером"));
 
-    // An expense of 80 with the income of 100 still on the phone: the server has no money yet.
+    // An expense of 80 with the income of 100 still on the phone: it goes out behind the income.
     await enterExpense(page, "80");
 
     await seeGone(banner);

@@ -105,10 +105,10 @@ export function OperationEditor({
         return;
       }
       if (result.reason === "deleted" || result.reason === "not-found") {
-        onGone(`${explainFailure(result, "edit", operation.type)} Журнал обновлён.`);
+        onGone(`${explainFailure(result)} Журнал обновлён.`);
         return;
       }
-      setError(explainFailure(result, "edit", operation.type));
+      setError(explainFailure(result));
     } catch (caught) {
       setError(caught instanceof NetworkError ? NO_CONNECTION : "Не получилось сохранить. Попробуйте ещё раз.");
     }

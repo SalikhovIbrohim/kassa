@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Balance, Category, Operation, OperationInput } from "./api";
-import { formatMoney } from "./money";
 import { onQueuedEntrySaved, submitEntry, useQueueState } from "./queue-instance";
 import { entryText } from "./queue-text";
 import { rememberCurrency } from "./remembered-currency";
@@ -167,15 +166,6 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
         entryId.current = crypto.randomUUID();
         // The earlier entry is on the server but the screen may not know it yet.
         onBalancesStale();
-      }
-      if (problem.kind === "insufficient-balance") {
-        // The screen may have shown more money than there is: bring it up to date.
-        onBalancesStale();
-        setError(
-          `В кассе не хватает денег: сейчас ${formatMoney(problem.availableMinor, problem.currency)}. ` +
-            "Проверьте сумму. Если деньги уже выданы, сначала внесите недостающий приход.",
-        );
-        return false;
       }
       setError(
         {

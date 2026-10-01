@@ -238,9 +238,7 @@ export type OperationResult =
         | "conflict"
         | "rejected"
         | "server-error";
-    }
-  /** An expense above what the cash desk holds: the server says how much there is. */
-  | { ok: false; reason: "insufficient-balance"; currency: Currency; availableMinor: number };
+    };
 
 /** Answers that say "not now" and not "no": a proxy that is busy, a server that is being replaced. */
 const TRY_AGAIN_LATER = new Set([404, 405, 408, 425, 429]);
@@ -272,20 +270,6 @@ export async function createOperation(input: OperationInput, login: string): Pro
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
     return { ok: false, reason: body?.error === "wrong_session" ? "wrong-session" : "conflict" };
-  }
-  if (response.status === 422) {
-    const body = (await response.json().catch(() => null)) as {
-      currency?: Currency;
-      availableMinor?: number;
-    } | null;
-    if (body?.currency && typeof body.availableMinor === "number") {
-      return {
-        ok: false,
-        reason: "insufficient-balance",
-        currency: body.currency,
-        availableMinor: body.availableMinor,
-      };
-    }
   }
   // The server itself failed, or is busy: the entry may or may not have been saved, which is not the
   // data's fault and must not be reported as if it were.
@@ -395,9 +379,7 @@ export type EditInput =
 
 export type ChangeResult =
   | { ok: true; operation: Operation; balances: Balance[] }
-  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "deleted" | "rejected" | "server-error" }
-  /** The change would leave less than nothing of a currency in the cash desk. */
-  | { ok: false; reason: "would-go-negative"; currency: Currency; balanceMinor: number; balanceAfterMinor: number };
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "deleted" | "rejected" | "server-error" };
 
 async function changeResult(response: Response): Promise<ChangeResult> {
   if (response.ok) {
@@ -410,22 +392,6 @@ async function changeResult(response: Response): Promise<ChangeResult> {
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
     return { ok: false, reason: body?.error === "operation_deleted" ? "deleted" : "rejected" };
-  }
-  if (response.status === 422) {
-    const body = (await response.json().catch(() => null)) as {
-      currency?: Currency;
-      balanceMinor?: number;
-      balanceAfterMinor?: number;
-    } | null;
-    if (body?.currency && typeof body.balanceMinor === "number" && typeof body.balanceAfterMinor === "number") {
-      return {
-        ok: false,
-        reason: "would-go-negative",
-        currency: body.currency,
-        balanceMinor: body.balanceMinor,
-        balanceAfterMinor: body.balanceAfterMinor,
-      };
-    }
   }
   if (response.status >= 500) return { ok: false, reason: "server-error" };
   return { ok: false, reason: "rejected" };
