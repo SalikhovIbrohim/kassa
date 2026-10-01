@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCashiers,
   fetchCategories,
   fetchJournal,
   SessionExpiredError,
+  type Balance,
   type Cashier,
   type Category,
   type JournalFilters,
   type Operation,
 } from "./api";
 import { ClientCodeField } from "./ClientCodeField";
+import { DeleteConfirm } from "./DeleteConfirm";
+import { HistoryPanel } from "./HistoryPanel";
+import { OperationEditor } from "./OperationEditor";
 import { formatDay, formatMoscowClock, formatMoscowShort, moscowToday, shiftDay } from "./days";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, type Currency } from "./money";
 
@@ -19,7 +23,12 @@ type Props = {
   onSessionExpired: () => void;
   /** Called when the person asks for fresh data, so the screen can refresh its balances too. */
   onRefresh?: () => void;
+  /** Called with the new balances after a correction or deletion changed them. */
+  onBalances?: (balances: Balance[]) => void;
 };
+
+/** What is open under a row: a correction, a deletion to confirm, or the history. */
+type Panel = { kind: "edit" | "delete" | "history"; id: string };
 
 /** What the filter controls hold. Empty text means "any". */
 type Draft = {
@@ -30,6 +39,7 @@ type Draft = {
   category: string;
   clientCode: string;
   author: string;
+  deleted: "" | "include" | "only";
 };
 
 type Load =
@@ -54,7 +64,7 @@ type Load =
 const TYPING_PAUSE_MS = 300;
 
 function startingDraft(today: string): Draft {
-  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "" };
+  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "" };
 }
 
 function toFilters(draft: Draft): JournalFilters {
@@ -66,16 +76,18 @@ function toFilters(draft: Draft): JournalFilters {
     category: draft.category || undefined,
     clientCode: draft.clientCode.trim() || undefined,
     author: draft.author || undefined,
+    deleted: draft.deleted || undefined,
   };
 }
 
-export function Journal({ mode, onSessionExpired, onRefresh }: Props) {
+export function Journal({ mode, onSessionExpired, onRefresh, onBalances }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = moscowToday();
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
   const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
   const [focusId, setFocusId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
   // What the list was asked for. It follows the draft at once, except while text is typed.
   const [applied, setApplied] = useState<Draft>(draft);
   const [reloadCount, setReloadCount] = useState(0);
@@ -171,6 +183,32 @@ export function Journal({ mode, onSessionExpired, onRefresh }: Props) {
     setReloadCount((count) => count + 1);
     loadCategories();
     onRefresh?.();
+  }
+
+  /** Opens a panel under a row, or closes it when the same button is pressed again. */
+  const togglePanel = (kind: Panel["kind"], id: string) =>
+    setPanel((current) => (current?.kind === kind && current.id === id ? null : { kind, id }));
+
+  function operationChanged(changed: Operation, balances: Balance[]) {
+    setPanel(null);
+    setFocusId(changed.id);
+    setLoad((previous) =>
+      previous.kind === "ready"
+        ? { ...previous, operations: previous.operations.map((item) => (item.id === changed.id ? changed : item)) }
+        : previous,
+    );
+    onBalances?.(balances);
+  }
+
+  function operationDeleted(deleted: Operation, balances: Balance[]) {
+    setPanel(null);
+    // A cashier no longer sees it. (The viewer never deletes.)
+    setLoad((previous) =>
+      previous.kind === "ready"
+        ? { ...previous, operations: previous.operations.filter((item) => item.id !== deleted.id) }
+        : previous,
+    );
+    onBalances?.(balances);
   }
 
   const labels = useMemo(() => new Map(categories.map((item) => [item.code, item.label])), [categories]);
@@ -273,6 +311,14 @@ export function Journal({ mode, onSessionExpired, onRefresh }: Props) {
                 ))}
               </select>
             </label>
+            <label>
+              Удалённые записи
+              <select name="deleted" value={draft.deleted} onChange={(e) => change({ deleted: e.target.value as Draft["deleted"] })}>
+                <option value="">Скрывать</option>
+                <option value="include">Показывать</option>
+                <option value="only">Только удалённые</option>
+              </select>
+            </label>
             <ClientCodeField required={false} value={draft.clientCode} onChange={(clientCode) => change({ clientCode })} />
             <button type="button" className="secondary reset" onClick={() => setDraft(startingDraft(today))}>
               Сбросить
@@ -335,18 +381,62 @@ export function Journal({ mode, onSessionExpired, onRefresh }: Props) {
                   </th>
                   <th scope="col">Клиент и получатель</th>
                   <th scope="col">Комментарий</th>
+                  <th scope="col" className="actions">
+                    <span className="sr-only">{mode === "cashier" ? "Действия" : "История"}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className={load.stale ? "stale" : undefined}>
-                {load.operations.map((operation) => (
-                  <OperationRow
-                    key={operation.id}
-                    operation={operation}
-                    mode={mode}
-                    labels={labels}
-                    takeFocus={operation.id === focusId}
-                  />
-                ))}
+                {load.operations.map((operation) => {
+                  const open = panel?.id === operation.id ? panel.kind : null;
+                  const columns = mode === "viewer" ? 7 : 6;
+                  const description = describe(operation, labels);
+                  return (
+                    <Fragment key={operation.id}>
+                      <OperationRow
+                        operation={operation}
+                        mode={mode}
+                        labels={labels}
+                        description={description}
+                        open={open}
+                        onToggle={(kind) => togglePanel(kind, operation.id)}
+                        takeFocus={operation.id === focusId}
+                      />
+                      {open && (
+                        <tr className="panel">
+                          <td colSpan={columns}>
+                            {open === "edit" && (
+                              <OperationEditor
+                                operation={operation}
+                                categories={categories}
+                                onSaved={operationChanged}
+                                onCancel={() => setPanel(null)}
+                                onSessionExpired={onSessionExpired}
+                              />
+                            )}
+                            {open === "delete" && (
+                              <DeleteConfirm
+                                operation={operation}
+                                description={description}
+                                onDeleted={operationDeleted}
+                                onCancel={() => setPanel(null)}
+                                onSessionExpired={onSessionExpired}
+                              />
+                            )}
+                            {open === "history" && (
+                              <HistoryPanel
+                                operationId={operation.id}
+                                labels={labels}
+                                onClose={() => setPanel(null)}
+                                onSessionExpired={onSessionExpired}
+                              />
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -372,16 +462,29 @@ export function Journal({ mode, onSessionExpired, onRefresh }: Props) {
   );
 }
 
+/** The operation in words, for a question or a button: "Приход +1 500,00 ₽". */
+function describe(operation: Operation, labels: Map<string, string>): string {
+  const what = operation.type === "income" ? "Приход" : (labels.get(operation.category ?? "") ?? "Расход");
+  const sign = operation.type === "income" ? "+" : "−";
+  return `${what} ${sign}${formatMoney(operation.amountMinor, operation.currency)}`;
+}
+
 function OperationRow({
   operation,
   mode,
   labels,
+  description,
+  open,
+  onToggle,
   takeFocus,
 }: {
   operation: Operation;
   mode: Props["mode"];
   labels: Map<string, string>;
-  /** The first row of a page just added: focus moves here so a keyboard user does not lose their place. */
+  description: string;
+  open: Panel["kind"] | null;
+  onToggle: (kind: Panel["kind"]) => void;
+  /** The row just added or changed: focus moves here so a keyboard user does not lose their place. */
   takeFocus: boolean;
 }) {
   const row = useRef<HTMLTableRowElement>(null);
@@ -390,6 +493,7 @@ function OperationRow({
   }, [takeFocus]);
   const what = operation.type === "income" ? "Приход" : (labels.get(operation.category ?? "") ?? "Расход");
   const sign = operation.type === "income" ? "+" : "−";
+  const deleted = operation.deletedAt !== null;
   const details = [
     operation.clientCode && `Клиент ${operation.clientCode}`,
     operation.recipient && `Кому: ${operation.recipient}`,
@@ -398,14 +502,32 @@ function OperationRow({
     .join(" · ");
 
   return (
-    <tr ref={row} tabIndex={takeFocus ? -1 : undefined} className={operation.type}>
+    <tr
+      ref={row}
+      tabIndex={takeFocus ? -1 : undefined}
+      className={[operation.type, deleted ? "deleted" : ""].filter(Boolean).join(" ")}
+    >
       <td className="c-time">
         <time dateTime={operation.createdAt}>
           {mode === "cashier" ? formatMoscowClock(operation.createdAt) : formatMoscowShort(operation.createdAt)}
         </time>
       </td>
       {mode === "viewer" && <td className="c-who">{operation.author.displayName}</td>}
-      <td className="c-what">{what}</td>
+      <td className="c-what">
+        {what}{" "}
+        {deleted ? (
+          <>
+            <span className="badge deleted">удалена</span>
+            {operation.deletedBy && (
+              <span className="deleted-note">
+                {operation.deletedBy.displayName}, {formatMoscowShort(operation.deletedAt!)}
+              </span>
+            )}
+          </>
+        ) : (
+          operation.revision > 0 && <span className="badge edited">изменена</span>
+        )}
+      </td>
       <td className="c-amount">
         <span className={operation.type === "income" ? "money-in" : "money-out"}>
           {sign}
@@ -414,6 +536,41 @@ function OperationRow({
       </td>
       <td className="c-details">{details}</td>
       <td className="c-comment">{operation.comment}</td>
+      <td className={mode === "cashier" ? "c-actions corner" : "c-actions"}>
+        {mode === "cashier" && (
+          <>
+            <button
+              type="button"
+              className="secondary small"
+              aria-expanded={open === "edit"}
+              aria-label={`Изменить: ${description}`}
+              onClick={() => onToggle("edit")}
+            >
+              Изменить
+            </button>
+            <button
+              type="button"
+              className="secondary small"
+              aria-expanded={open === "delete"}
+              aria-label={`Удалить: ${description}`}
+              onClick={() => onToggle("delete")}
+            >
+              Удалить
+            </button>
+          </>
+        )}
+        {mode === "viewer" && operation.revision > 0 && (
+          <button
+            type="button"
+            className="secondary small"
+            aria-expanded={open === "history"}
+            aria-label={`История: ${description}`}
+            onClick={() => onToggle("history")}
+          >
+            История
+          </button>
+        )}
+      </td>
     </tr>
   );
 }

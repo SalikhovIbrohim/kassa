@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { fetchCategories, REFUND_CATEGORY, SessionExpiredError, type Balance, type Category } from "./api";
+import { CategoryPicker } from "./CategoryPicker";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { formatMoney, formatMoscowTime, parseAmountInput, type Currency } from "./money";
@@ -113,32 +114,24 @@ export function ExpenseForm({
         />
       </label>
 
-      <fieldset className="choices categories">
-        <legend>На что ушли деньги</legend>
-        {categories === null && <p className="hint">Загрузка…</p>}
-        {categories === undefined && (
-          <div>
-            <p className="error" role="alert">
-              Не удалось загрузить список.
-            </p>
-            <button type="button" className="secondary" onClick={loadCategories}>
-              Повторить
-            </button>
-          </div>
-        )}
-        {categories?.map((item) => (
-          <label key={item.code} className={item.code === category ? "choice chosen" : "choice"}>
-            <input
-              type="radio"
-              name="category"
-              value={item.code}
-              checked={item.code === category}
-              onChange={() => setCategory(item.code)}
-            />
-            {item.label}
-          </label>
-        ))}
-      </fieldset>
+      {categories ? (
+        <CategoryPicker categories={categories} value={category} onChange={setCategory} />
+      ) : (
+        <fieldset className="choices categories">
+          <legend>На что ушли деньги</legend>
+          {categories === null && <p className="hint">Загрузка…</p>}
+          {categories === undefined && (
+            <div>
+              <p className="error" role="alert">
+                Не удалось загрузить список.
+              </p>
+              <button type="button" className="secondary" onClick={loadCategories}>
+                Повторить
+              </button>
+            </div>
+          )}
+        </fieldset>
+      )}
 
       {isRefund && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 

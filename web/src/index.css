@@ -500,6 +500,140 @@ button.link {
   color: #475569;
 }
 
+/* ---- Correcting, deleting and the history ---- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #334155;
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+.badge.deleted {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.journal-table tr.deleted td {
+  color: #64748b;
+}
+
+.journal-table tr.deleted .c-amount span {
+  text-decoration: line-through;
+}
+
+.c-actions {
+  grid-column: 1 / -1;
+  grid-row: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* A cashier's buttons sit in the top corner of the card, on the line of the time. They span
+   both columns (so they do not widen the column of the amount) and are pushed to the right. */
+.c-actions.corner {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: end;
+  margin-top: 0;
+}
+
+.journal-table .c-time {
+  align-self: center;
+}
+
+.deleted-note {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #991b1b;
+}
+
+button.danger {
+  background: #b91c1c;
+}
+
+.journal-table tr.panel {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.journal-table tr.panel td {
+  grid-column: 1 / -1;
+}
+
+.panel-body {
+  display: grid;
+  gap: 12px;
+  max-width: 720px;
+  padding: 14px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 12px;
+}
+
+.panel-body h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.panel-body p {
+  margin: 0;
+}
+
+.panel-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panel-buttons button {
+  flex: 1 1 140px;
+}
+
+.history-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.history-list li {
+  display: grid;
+  gap: 2px;
+}
+
+.history-diff {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.history-diff li {
+  display: list-item;
+}
+
+.reason {
+  color: #475569;
+  font-style: italic;
+}
+
 /* Laptop: a real table, money in a right-aligned column. */
 @media (min-width: 720px) {
   .filter-grid {
@@ -571,5 +705,24 @@ button.link {
 
   .c-time {
     white-space: nowrap;
+  }
+
+  .c-actions {
+    display: table-cell;
+    white-space: nowrap;
+    text-align: right;
+  }
+
+  .c-actions button + button {
+    margin-left: 8px;
+  }
+
+  .journal-table tr.panel td {
+    padding: 8px 14px 14px;
+    background: #f8fafc;
+  }
+
+  .journal-table th.actions {
+    width: 1%;
   }
 }

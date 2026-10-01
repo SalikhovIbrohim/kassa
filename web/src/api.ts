@@ -84,6 +84,11 @@ export type Operation = {
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
+  /** How many times it was corrected or deleted; 0 means as first written. */
+  revision: number;
+  /** Set when the operation was deleted: only the viewer ever receives such operations. */
+  deletedAt: string | null;
+  deletedBy: { login: string; displayName: string } | null;
 };
 
 export type Category = { code: string; label: string };
@@ -189,6 +194,8 @@ export type JournalFilters = {
   category?: string;
   clientCode?: string;
   author?: string;
+  /** Viewer only: show deleted operations too, or only them. Left out, they are hidden. */
+  deleted?: "include" | "only";
 };
 
 export type JournalPage = { operations: Operation[]; nextCursor: string | null };
@@ -215,4 +222,108 @@ export async function fetchCashiers(): Promise<Cashier[]> {
   } catch {
     return [];
   }
+}
+
+// ---- Corrections and history ----
+
+export type Snapshot = {
+  amountMinor: number;
+  currency: Currency;
+  category: string | null;
+  recipient: string | null;
+  clientCode: string | null;
+  comment: string | null;
+};
+
+type EditBase = {
+  amountMinor: number;
+  currency: Currency;
+  comment?: string;
+  /** Why, in the person's words. Optional. */
+  reason?: string;
+};
+
+/** What a correction sends: the whole of what the operation should say now. */
+export type EditInput =
+  | (EditBase & { type: "income"; clientCode: string })
+  | (EditBase & { type: "expense"; category: string; recipient?: string; clientCode?: string });
+
+export type ChangeResult =
+  | { ok: true; operation: Operation; balances: Balance[] }
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "deleted" | "rejected" }
+  /** The change would leave less than nothing of a currency in the cash desk. */
+  | { ok: false; reason: "would-go-negative"; currency: Currency; balanceMinor: number; balanceAfterMinor: number };
+
+async function changeResult(response: Response): Promise<ChangeResult> {
+  if (response.ok) {
+    const body = (await response.json()) as { operation: Operation; balances: Balance[] };
+    return { ok: true, ...body };
+  }
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  if (response.status === 409) return { ok: false, reason: "deleted" };
+  if (response.status === 422) {
+    const body = (await response.json().catch(() => null)) as {
+      currency?: Currency;
+      balanceMinor?: number;
+      balanceAfterMinor?: number;
+    } | null;
+    if (body?.currency && typeof body.balanceMinor === "number" && typeof body.balanceAfterMinor === "number") {
+      return {
+        ok: false,
+        reason: "would-go-negative",
+        currency: body.currency,
+        balanceMinor: body.balanceMinor,
+        balanceAfterMinor: body.balanceAfterMinor,
+      };
+    }
+  }
+  return { ok: false, reason: "rejected" };
+}
+
+/** Correct one of your own operations. Safe to send again: the same correction changes nothing twice. */
+export async function editOperation(id: string, input: EditInput): Promise<ChangeResult> {
+  return changeResult(
+    await request(`/api/operations/${id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  );
+}
+
+/** Delete one of your own operations: it is hidden, never destroyed. Safe to send again. */
+export async function deleteOperation(id: string, reason?: string): Promise<ChangeResult> {
+  return changeResult(
+    await request(`/api/operations/${id}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(reason ? { reason } : {}),
+    }),
+  );
+}
+
+export type HistoryChange = {
+  revision: number;
+  action: "edit" | "delete";
+  at: string;
+  by: { login: string; displayName: string };
+  reason: string | null;
+  before: Snapshot;
+  after: Snapshot;
+};
+
+export type OperationHistory = {
+  operation: Operation;
+  created: { at: string; by: { login: string; displayName: string }; state: Snapshot };
+  changes: HistoryChange[];
+};
+
+/** Everything that happened to an operation (viewer only). */
+export async function fetchHistory(id: string): Promise<OperationHistory> {
+  const response = await request(`/api/operations/${id}/history`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from the history`);
+  return (await response.json()) as OperationHistory;
 }

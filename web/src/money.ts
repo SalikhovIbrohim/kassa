@@ -23,6 +23,13 @@ export function parseAmountInput(text: string): number | null {
   return minor >= 1 && minor <= MAX_AMOUNT_MINOR ? minor : null;
 }
 
+/** 150050 -> "1500,50", 150000 -> "1500": what a person would type, to prefill a field. */
+export function formatAmountInput(minor: number): string {
+  const whole = Math.floor(minor / 100);
+  const fraction = minor % 100;
+  return fraction === 0 ? String(whole) : `${whole},${String(fraction).padStart(2, "0")}`;
+}
+
 export function formatMoney(minor: number, currency: Currency): string {
   return new Intl.NumberFormat("ru-RU", { style: "currency", currency }).format(minor / 100);
 }

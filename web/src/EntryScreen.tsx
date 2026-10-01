@@ -80,7 +80,9 @@ export function EntryScreen({ onSaved, onBalancesStale, onSessionExpired }: Prop
       </div>
 
       <div hidden={journalOpen}>{form === "income" ? <IncomeForm {...shared} /> : <ExpenseForm {...shared} />}</div>
-      {journalOpen && <Journal mode="cashier" onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} />}
+      {journalOpen && (
+        <Journal mode="cashier" onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} onBalances={onSaved} />
+      )}
     </>
   );
 }
