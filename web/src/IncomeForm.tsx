@@ -72,7 +72,7 @@ export function IncomeForm({
 
   return (
     <form className="card" onSubmit={submit}>
-      <h2>Приход</h2>
+      <h2 className="sr-only">Приход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "income" && (

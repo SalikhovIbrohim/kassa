@@ -105,7 +105,7 @@ export function ExpenseForm({
 
   return (
     <form className="card" onSubmit={submit}>
-      <h2>Расход</h2>
+      <h2 className="sr-only">Расход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "expense" && (
