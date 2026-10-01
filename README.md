@@ -111,7 +111,16 @@ npm run admin -w server -- balances                      # остатки по �
 
 ## Развёртывание на сервере
 
-Сервер владельца работает под Windows 10: службы Windows без Docker (приложение, PostgreSQL 16, Caddy с автоматическим HTTPS). Подробная инструкция с командами, проверкой после установки, обновлением, откатом и разбором проблем: [docs/deploy-windows.md](docs/deploy-windows.md). Скрипты лежат в `deploy/windows/` (PowerShell 5.1, он есть в каждой Windows 10) и `deploy/` (Node.js): `setup.ps1` (база, настройки, первая сборка), `build.ps1` (сборка и миграции), `install-services.ps1` (службы и HTTPS), `update.ps1` (обновление и откат одной командой), `kassa.ps1` (команды администратора с настройками машины), `power.ps1`, `lint.ps1` (проверка самих скриптов без Windows), `deploy/check.mjs` (проверка работающего сервера по адресу), `deploy/setup-database.mjs`. Файл настроек вне репозитория: образец `deploy/kassa.env.example`. `npm run admin -w server -- migrate` применяет миграции базы отдельно от запуска сервера.
+Сервер владельца работает под Windows 10: службы Windows без Docker (приложение, PostgreSQL 16, Caddy с автоматическим HTTPS). Подробная инструкция с командами, проверкой после установки, резервными копиями, обновлением, откатом и разбором проблем: [docs/deploy-windows.md](docs/deploy-windows.md).
+
+Скрипты лежат в `deploy/windows/` (PowerShell 5.1, он есть в каждой Windows 10) и `deploy/` (Node.js):
+
+- установка: `setup.ps1` (папки, база, настройки, первая сборка), `download-tools.ps1` (WinSW и Caddy с проверкой SHA-256), `install-services.ps1` (службы, их учётные записи, брандмауэр, HTTPS), `power.ps1` (сон, часы), `kassa.ps1` (команды администратора с настройками машины);
+- работа: `update.ps1` (обновление и откат одной командой, с копией базы перед ним и возвратом при сбое), `verify.ps1` (проверка всей установки), `uninstall-services.ps1`, `build.ps1`;
+- копии: `backup.ps1` и `deploy/backup.mjs` (сжатая копия, ротация, `-Status`), `restore.ps1` и `deploy/restore.mjs` (проверка копии в пробной базе, замена рабочей базы с сохранением прежней), `schedule-backup.ps1` (ночное задание в Планировщике);
+- проверки: `lint.ps1` (сами скрипты без Windows), `deploy/check.mjs` (работающий сервер по адресу), `deploy/setup-database.mjs` (роль, база в UTF8, файл настроек).
+
+Файл настроек вне репозитория: образец `deploy/kassa.env.example`. `npm run admin -w server -- migrate` применяет миграции базы отдельно от запуска сервера. Сервер отказывается работать на базе, которую изменила более новая версия (иначе остатки могли бы быть неверными; аварийный выход `ALLOW_NEWER_SCHEMA=1`), и на базе не в UTF8.
 
 ## Сборка и запуск как в проде
 
@@ -140,10 +149,10 @@ DATABASE_URL=... npm start   # сервер отдаёт и API, и web/dist н�
    npm run test:e2e       # сквозные тесты в настоящем браузере: собирает веб и гоняет работу без связи
    ```
 
-   Для `test:e2e` нужен Chromium: `npx playwright install chromium` (или переменная `CHROMIUM_PATH` с путём к нему).
+   Для `test:e2e` нужен Chromium: `npx playwright install chromium` (или переменная `CHROMIUM_PATH` с путём к нему). Тестам копий базы (`server/test/backup-scripts.test.ts`) нужны `pg_dump` и `pg_restore` версии не ниже сервера (в Ubuntu пакет `postgresql-client-16`) в `PATH`.
 
 Если прогон оборвался посередине, могли остаться базы `kassa_test_...`: их можно удалить командой `DROP DATABASE`.
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) на каждый push в любую ветку: проверка типов, тесты на PostgreSQL 16, сборка, проверка скриптов `deploy/windows` (`lint.ps1`), сквозные тесты в браузере (`npm run test:e2e`).
+GitHub Actions (`.github/workflows/ci.yml`) на каждый push в любую ветку. Задание `check` (Ubuntu): проверка типов, тесты на PostgreSQL 16, сборка, проверка скриптов `deploy/windows` (`lint.ps1`), сквозные тесты в браузере (`npm run test:e2e`). Задание `windows` (`windows-latest`, Windows PowerShell 5.1): ставит PostgreSQL 16 установщиком, прогоняет `setup.ps1`, `download-tools.ps1`, `install-services.ps1`, ночное задание копий, `restore.ps1`, `update.ps1`, `verify.ps1`, `uninstall-services.ps1` и ждёт, что всё проходит. Перезагрузки оно проверить не может: это делается руками на настоящем сервере (инструкция, раздел 4.4). Когда задание писали, GitHub не запускал на этом репозитории ни одно задание (они заканчивались за три секунды без шагов), поэтому ни разу не видело, что у `windows` получится на самом деле.

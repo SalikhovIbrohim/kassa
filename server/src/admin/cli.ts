@@ -14,6 +14,9 @@ import {
   type Role,
 } from "./users.js";
 
+/** The database is not as this version needs it. Not a failure of the command: nothing was changed. */
+const EXIT_DATABASE_NOT_AS_NEEDED = 3;
+
 const USAGE = `Usage: npm run admin -- <command> [options]
 
 Commands:
@@ -30,7 +33,11 @@ Commands:
   balances                            current balance per currency (opening balance + income)
 
 Settings come from the environment: DATABASE_URL is required.
-Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.`;
+Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.
+
+Exit codes: 0 done; 1 it did not work (the reason is printed); 3 the database is not as this version
+needs it (it does not store text as UTF8, or a newer version of Kassa has changed it). An update
+script tells the second from the first: the old version stays whole in that case.`;
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
@@ -178,7 +185,10 @@ function promptHidden(question: string): Promise<string> {
 
 main().catch((error: unknown) => {
   const code = (error as { code?: string }).code;
-  if (error instanceof AdminError || error instanceof DatabaseSetupError) {
+  if (error instanceof DatabaseSetupError) {
+    console.error(`Error: ${error.message}`);
+    process.exit(EXIT_DATABASE_NOT_AS_NEEDED);
+  } else if (error instanceof AdminError) {
     console.error(`Error: ${error.message}`);
   } else if (typeof code === "string" && code.startsWith("ERR_PARSE_ARGS")) {
     // Bad command-line options: show the message, not a stack trace.

@@ -4,16 +4,23 @@
   Updates Kassa to the newest version (or to one you name) and starts it again: one command.
 
 .DESCRIPTION
-  Stops the application, fetches the code, installs packages, builds, applies the database
-  migrations, starts the application and checks that it answers. The proxy keeps running, so
-  anyone who opens the site in those minutes sees an error page, not a dead address.
+  Fetches the code (the application keeps running meanwhile), then stops the application, makes a copy of
+  the database, switches to the new version, installs packages if they changed, builds, applies the
+  database migrations, starts the application and checks that it answers. The proxy keeps running, so
+  anyone who opens the site in those minutes sees a sentence saying that the cash book is updating, not
+  a dead address.
 
-  Going back to an earlier version is the same command with -Ref and the version to return to. The
-  database only moves forward: if a newer version changed it, going back may need the backup.
+  If something goes wrong before the database was changed, the version that ran before is built and
+  started again by itself. If the new version changed the database, the old version cannot run on it
+  (it refuses to start, so that it cannot show wrong balances): the copy made just before the update is
+  the way back (restore.ps1), and the message says which file it is.
+
+  Without -Ref: the newest version of the branch this checkout follows (of the repository's main branch,
+  if a rollback left the checkout on a single version). With -Ref: that version, and this is also how to
+  go back to an earlier one.
 
 .PARAMETER Ref
-  A commit, a tag or "origin/<branch>" to deploy. Without it the checked-out branch is brought up to
-  date (fast-forward only).
+  A commit (a short number like 1a2b3c4), a tag, or a branch name (main) to deploy.
 
 .PARAMETER NoServices
   Neither stop nor start services (a machine without them, or a rehearsal of the rest).
@@ -31,10 +38,13 @@ param(
 . "$PSScriptRoot\common.ps1"
 
 Invoke-Main {
+    Assert-Administrator
     $layout = Get-KassaLayout -Root $Root
     Assert-Node
     Assert-Tool -Name git -Hint 'Install Git for Windows from https://git-scm.com, then open a new PowerShell window.'
-    if (-not $NoServices) { Assert-Administrator }
+    if (-not (Test-Path -LiteralPath $layout.Settings)) {
+        throw "The settings file $($layout.Settings) does not exist. Run setup.ps1 first."
+    }
 
     $appService = $null
     if (-not $NoServices) {
@@ -43,72 +53,188 @@ Invoke-Main {
             throw 'The service KassaApp is not installed. Run install-services.ps1 first, or use -NoServices.'
         }
     }
+    $updateLog = [IO.Path]::Combine($layout.Logs, 'update.log')
+
+    # The steps of build.ps1, here and not by calling it: the switch to another version replaces the scripts in
+    # this folder, and a script of an older (or newer) version may not take the same parameters as this one.
+    function Build-Application {
+        param([bool]$Install)
+        Push-Location $layout.App
+        try {
+            if ($Install) {
+                Write-Step 'Installing packages (npm ci)'
+                Invoke-Npm -Arguments @('ci')
+            }
+            Write-Step 'Building the server and the web app'
+            Invoke-Npm -Arguments @('run', 'build')
+        }
+        finally { Pop-Location }
+    }
 
     Push-Location $layout.App
     try {
-        $dirty = & git status --porcelain --untracked-files=no
-        if ($dirty) {
+        if (Get-Git -Arguments @('status', '--porcelain', '--untracked-files=no')) {
             throw "The checkout in $($layout.App) has local changes. Commit or discard them first (git status shows them)."
         }
-        $before = (& git rev-parse HEAD).Trim()
-        $beforeText = (& git log -1 --format='%h %s' HEAD).Trim()
+        $before = Get-Git -Arguments @('rev-parse', 'HEAD')
+        $beforeText = Get-Git -Arguments @('log', '-1', '--format=%h %s', 'HEAD')
+        $branch = Get-Git -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')    # "HEAD" when no branch is checked out
         Write-Host "Now running: $beforeText"
 
-        # True once the built files may be half replaced: from then on the old version cannot just be started again.
-        $touched = $false
+        # While the application runs, nothing is touched: only the list of versions is fetched.
+        Write-Step 'Fetching the code'
+        Invoke-Native -File 'git' -Arguments @('fetch', '--tags', '--prune', 'origin')
+
+        $target = $null
+        $followBranch = $null
+        if ($Ref) {
+            # A branch name means the branch on the server, not an old local copy of it.
+            & git rev-parse --verify --quiet "origin/$Ref^{commit}" | Out-Null
+            $target = if ($LASTEXITCODE -eq 0) { "origin/$Ref" } else { $Ref }
+        }
+        else {
+            $followBranch = $branch
+            if ($branch -eq 'HEAD') {
+                $symref = Get-Git -Arguments @('ls-remote', '--symref', 'origin', 'HEAD')
+                if ($symref -notmatch 'ref:\s+refs/heads/(\S+)\s+HEAD') {
+                    throw 'This checkout is on a single version and the main branch of the repository could not be found. Say which version to deploy: update.ps1 -Ref main'
+                }
+                $followBranch = $Matches[1]
+                Write-Host "This checkout is on a single version (after a rollback). Going back to the branch $followBranch."
+            }
+            $target = "origin/$followBranch"
+        }
+        & git rev-parse --verify --quiet "$target^{commit}" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            if ($Ref) { throw "'$Ref' is not a branch, a tag or a commit of this repository." }
+            throw "The branch $followBranch is not in the repository any more (merged and deleted?). Deploy its successor once, e.g.: .\deploy\windows\update.ps1 -Ref main. After that a plain update.ps1 follows the main branch of the repository."
+        }
+        $targetSha = Get-Git -Arguments @('rev-parse', "$target^{commit}")
+
+        if ($targetSha -eq $before) {
+            if ($followBranch -and $branch -eq 'HEAD') { Invoke-Native -File 'git' -Arguments @('checkout', $followBranch) }
+            Write-Host "Nothing to update: $beforeText is the version you asked for." -ForegroundColor Green
+            return
+        }
+        $newText = Get-Git -Arguments @('log', '-1', '--format=%h %s', $targetSha)
+        Write-Host "Updating to: $newText"
+        $newMigrations = [bool](Get-Git -Arguments @('diff', '--name-only', $before, $targetSha, '--', 'server/migrations'))
+        $packagesChange = [bool](Get-Git -Arguments @('diff', '--name-only', $before, $targetSha, '--', 'package.json', 'package-lock.json', 'server/package.json', 'web/package.json'))
+
+        # Where the update has got to: what is safe to do about a failure depends on it.
+        #   started -> stopped -> copied -> switched -> built -> migrating -> migrated -> answering
+        #   (refused: the database is not as the new version needs it, and was not changed)
+        $stage = 'started'
+        $copyPath = $null
         try {
             if ($appService) {
                 Write-Step 'Stopping the application'
                 Stop-Service -Name 'KassaApp' -Force
+                # A restart of the machine in the middle of the update must not start a half built application.
+                Invoke-Native -File 'sc.exe' -Arguments @('config', 'KassaApp', 'start=', 'demand')
             }
+            $stage = 'stopped'
 
-            Write-Step 'Fetching the code'
-            Invoke-Native -File 'git' -Arguments @('fetch', '--tags', '--prune', 'origin')
-            if ($Ref) {
-                Invoke-Native -File 'git' -Arguments @('checkout', '--detach', $Ref)
-            }
-            else {
-                Invoke-Native -File 'git' -Arguments @('pull', '--ff-only')
-            }
-            Write-Host ('Version: ' + (& git log -1 --format='%h %s' HEAD).Trim())
+            Write-Step 'Making a copy of the database'
+            $copyPath = & "$PSScriptRoot\backup.ps1" -Root $Root
+            if ($LASTEXITCODE -ne 0 -or -not $copyPath) { throw 'The copy of the database was not made, so nothing was changed.' }
+            $stage = 'copied'
 
-            $touched = $true
-            & "$PSScriptRoot\build.ps1" -Root $Root
-            if ($LASTEXITCODE -ne 0) { throw 'The build failed (see above).' }
+            Write-Step 'Switching to the new version'
+            if ($Ref) { Invoke-Native -File 'git' -Arguments @('checkout', '--detach', $target) }
+            elseif ($branch -eq 'HEAD') {
+                Invoke-Native -File 'git' -Arguments @('checkout', $followBranch)
+                Invoke-Native -File 'git' -Arguments @('merge', '--ff-only', $target)
+            }
+            else { Invoke-Native -File 'git' -Arguments @('merge', '--ff-only', $target) }
+            $stage = 'switched'
+            Write-Host ('Version: ' + (Get-Git -Arguments @('log', '-1', '--format=%h %s', 'HEAD')))
+
+            Build-Application -Install $packagesChange
+            $stage = 'built'
+
+            Write-Step 'Applying database migrations'
+            $stage = 'migrating'
+            Push-Location $layout.App
+            try {
+                & node "--env-file=$($layout.Settings)" 'server/dist/admin/cli.js' migrate
+                $migrateCode = $LASTEXITCODE
+            }
+            finally { Pop-Location }
+            if ($migrateCode -eq 3) {
+                # The database is not as this version needs it, and nothing was changed: the version that ran before still can.
+                $stage = 'refused'
+                throw 'This version will not run on this database (the message above says why).'
+            }
+            if ($migrateCode -ne 0) { throw "The migrations failed (exit code $migrateCode, see above)." }
+            $stage = 'migrated'
 
             if ($appService) {
                 Write-Step 'Starting the application'
                 Start-Service -Name 'KassaApp'
-
                 Write-Step 'Checking that it answers'
-                $answered = $false
-                for ($attempt = 1; $attempt -le 20 -and -not $answered; $attempt++) {
-                    & node ([IO.Path]::Combine($layout.App, 'deploy', 'check.mjs')) 'http://127.0.0.1:3000' | Out-Null
-                    if ($LASTEXITCODE -eq 0) { $answered = $true } else { Start-Sleep -Seconds 3 }
-                }
-                if (-not $answered) {
-                    & node ([IO.Path]::Combine($layout.App, 'deploy', 'check.mjs')) 'http://127.0.0.1:3000'
+                if (-not (Wait-Application -Layout $layout)) {
                     throw "The new version does not answer. Its log: $($layout.Logs)\KassaApp.err.log"
                 }
             }
+            $stage = 'answering'
         }
         catch {
+            $reason = $_.Exception.Message
             Write-Host ''
-            Write-Host "The update failed: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Host "To go back to what ran before:  .\deploy\windows\update.ps1 -Ref $before" -ForegroundColor Yellow
-            Write-Host '(If the new version changed the database, going back may need the backup.)' -ForegroundColor Yellow
-            if ($appService -and -not $touched) {
-                # Nothing was replaced yet (no network, say): the old version is still whole.
-                Start-Service -Name 'KassaApp' -ErrorAction SilentlyContinue
-                Write-Host 'The version that ran before was started again.' -ForegroundColor Yellow
+            Write-Host "The update failed: $reason" -ForegroundColor Red
+            Add-LogLine -Path $updateLog -Text "FAILED at '$stage' ($beforeText -> $newText): $reason"
+
+            $databaseChanged = $newMigrations -and ($stage -in @('migrating', 'migrated', 'answering'))
+            if ($stage -eq 'refused') {
+                Write-Host 'If you were going back to an earlier version: the database was changed by a newer one, and an earlier one refuses to run on it. Put back a copy of the database made before that change first:' -ForegroundColor Yellow
+                Write-Host '  .\deploy\windows\restore.ps1 -From <a copy made before the update that changed it> -NoStart' -ForegroundColor Yellow
+                Write-Host "  .\deploy\windows\update.ps1 -Ref <that version>" -ForegroundColor Yellow
+                Write-Host '(Entries made after that copy are not in it.)' -ForegroundColor Yellow
+            }
+            if ($databaseChanged) {
+                Write-Host 'The new version may have changed the database, and the old version refuses to run on a database that a newer one changed.' -ForegroundColor Yellow
+                Write-Host 'Either find out what is wrong with the new version and update again, or go back with the copy made just before the update:' -ForegroundColor Yellow
+                Write-Host "  .\deploy\windows\restore.ps1 -From `"$copyPath`" -NoStart" -ForegroundColor Yellow
+                Write-Host "  .\deploy\windows\update.ps1 -Ref $before" -ForegroundColor Yellow
+                Write-Host '(Entries made after the copy are not in it.)' -ForegroundColor Yellow
+            }
+            else {
+                try {
+                    if ($stage -in @('switched', 'built', 'migrating', 'refused', 'migrated', 'answering')) {
+                        Write-Step "Going back to the version that ran before ($beforeText)"
+                        Invoke-Native -File 'git' -Arguments @('checkout', '--detach', $before)
+                        Build-Application -Install $packagesChange
+                    }
+                    if ($appService) {
+                        Start-Service -Name 'KassaApp'
+                        if (-not (Wait-Application -Layout $layout)) { throw 'The old version does not answer either.' }
+                    }
+                    Write-Host "The version that ran before is running again: $beforeText" -ForegroundColor Yellow
+                    Add-LogLine -Path $updateLog -Text "Went back to $beforeText"
+                }
+                catch {
+                    Write-Host "Going back did not work: $($_.Exception.Message)" -ForegroundColor Red
+                    Write-Host "To try again:  .\deploy\windows\update.ps1 -Ref $before" -ForegroundColor Yellow
+                    if ($copyPath) { Write-Host "The copy of the database made before this update: $copyPath" -ForegroundColor Yellow }
+                }
             }
             exit 1
         }
+        finally {
+            # The service starts with the machine again, whatever became of the update.
+            if ($appService) {
+                & sc.exe config KassaApp start= delayed-auto | Out-Null
+            }
+        }
+
+        Add-LogLine -Path $updateLog -Text "Updated: $beforeText -> $newText (copy of the database: $copyPath)"
     }
     finally {
         Pop-Location
     }
 
     Write-Host ''
-    Write-Host ('Updated: ' + (& git -C $layout.App log -1 --format='%h %s' HEAD).Trim()) -ForegroundColor Green
+    Write-Host ('Updated: ' + (Get-Git -Arguments @('-C', $layout.App, 'log', '-1', '--format=%h %s', 'HEAD'))) -ForegroundColor Green
+    if ($copyPath) { Write-Host "The copy of the database made before the update: $copyPath" }
 }

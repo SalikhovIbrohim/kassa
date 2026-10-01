@@ -67,7 +67,7 @@ describe("admin command line: migrate", () => {
 
     const result = await runCli(["migrate"], { DATABASE_URL: database.url });
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(3);
     expect(result.stderr).toContain('stores text as LATIN1');
     expect(result.stderr).toContain("ENCODING 'UTF8' TEMPLATE template0");
     expect(result.stderr).not.toContain("    at "); // a message, not a stack trace
@@ -90,7 +90,7 @@ describe("admin command line: migrate", () => {
     const refused = await runCli(["balances"], { DATABASE_URL: url });
     const forced = await runCli(["balances"], { DATABASE_URL: url, ALLOW_NEWER_SCHEMA: "1" });
 
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(3);
     expect(refused.stderr).toContain("9999_from_a_newer_version.sql");
     expect(refused.stderr).toContain("can show wrong balances");
     expect(refused.stdout).not.toContain("RUB");

@@ -1,6 +1,7 @@
 # Caddy for Kassa: HTTPS in front of the application. install-services.ps1 fills in the
-# address and the log folder and writes the result to C:\kassa\config\Caddyfile. To change
-# something later, edit that file and restart the service "KassaProxy".
+# address and the log folder and writes the result to C:\kassa\config\Caddyfile (keeping the
+# file that was there as Caddyfile.<date>.bak). To change something later, edit that file and
+# restart the service "KassaProxy".
 {
 	# The management endpoint of Caddy is not needed here, and anything on this machine could
 	# reconfigure the proxy through it.
@@ -10,9 +11,27 @@
 __SITE__ {
 	encode zstd gzip
 
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+		# Not here on purpose: Strict-Transport-Security (a certificate that is not renewed in time would
+		# then lock everybody out without a way past the warning; add it once the real domain has
+		# renewed its certificate), and X-Frame-Options (the Telegram Mini App shows this site in a frame).
+	}
+
 	# Caddy puts the real address of the client into X-Forwarded-For (and throws away one sent
 	# by the client). The server believes it because TRUST_PROXY=127.0.0.1 is in its settings.
-	reverse_proxy 127.0.0.1:3000
+	reverse_proxy 127.0.0.1:__PORT__
+
+	# While the application is stopped (an update takes a minute or two) Caddy has nothing to
+	# forward to. People get a sentence instead of a blank page, and the app on a phone
+	# (which keeps entries until the server answers) sees an answer that is not the app.
+	handle_errors {
+		header Content-Type "text/plain; charset=utf-8"
+		header Retry-After 60
+		respond "Касса обновляется или временно недоступна. Подождите минуту и обновите страницу." 503
+	}
 
 	log {
 		output file __LOGS__/caddy-access.log {

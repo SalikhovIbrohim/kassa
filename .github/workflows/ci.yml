@@ -48,3 +48,117 @@ jobs:
       - run: npm run test:e2e
       # The Windows deployment scripts: they must parse and stay within Windows PowerShell 5.1.
       - run: pwsh -NoProfile -File deploy/windows/lint.ps1
+
+  windows:
+    # The deployment kit on a real Windows, with Windows PowerShell 5.1 (the one every Windows 10 has):
+    # PostgreSQL from its installer, then the scripts the owner's server is set up with (setup, tools,
+    # services, copies, update, removal), and a look at what they made. Reboots are the one thing a
+    # job cannot do: that check is made by hand on the real server (docs/deploy-windows.md).
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    env:
+      # The password of the PostgreSQL administrator and of the cashier: setup.ps1 and the admin
+      # commands use these instead of asking.
+      PGPASSWORD: ci-postgres-admin-1
+      KASSA_PASSWORD: ci-cashier-password-1
+
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: The scripts parse and stay within PowerShell 5.1
+        run: .\deploy\windows\lint.ps1
+
+      - name: Install PostgreSQL 16 (the owner uses its installer too)
+        run: |
+          choco install postgresql16 --params "/Password:$env:PGPASSWORD" --no-progress -y
+          Get-Service postgresql* | Format-Table Name, Status, StartType
+
+      - name: Ports 80 and 443 must be free for the proxy
+        run: |
+          Stop-Service W3SVC -ErrorAction SilentlyContinue
+          Get-NetTCPConnection -State Listen -LocalPort 80, 443 -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, OwningProcess
+
+      - name: setup.ps1 (folders, database, settings file, first build)
+        run: .\deploy\windows\setup.ps1
+
+      - name: The database is UTF8 whatever the encoding of the cluster is
+        run: |
+          $psql = 'C:\Program Files\PostgreSQL\16\bin\psql.exe'
+          $cluster = & $psql -h 127.0.0.1 -U postgres -d postgres -Atc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = 'template1'"
+          $kassa = & $psql -h 127.0.0.1 -U postgres -d postgres -Atc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = 'kassa'"
+          Write-Host "cluster default: $cluster, database kassa: $kassa"
+          if ($kassa -ne 'UTF8') { throw "The database kassa is $kassa, not UTF8." }
+
+      - name: A cashier with a Russian name
+        env:
+          CASHIER_NAME: Иван Петров
+        run: |
+          .\deploy\windows\kassa.ps1 create-user --login ci --role cashier --name $env:CASHIER_NAME
+          .\deploy\windows\kassa.ps1 list-users
+
+      - name: download-tools.ps1 (WinSW and Caddy, checked against their SHA-256)
+        run: .\deploy\windows\download-tools.ps1
+
+      - name: install-services.ps1 (services, accounts, firewall, start, checks)
+        run: .\deploy\windows\install-services.ps1 -Site localhost -PostgresService postgresql-x64-16
+
+      - name: Through the proxy
+        run: |
+          $answer = (& curl.exe -sk -i https://localhost/api/health | Out-String)
+          Write-Host $answer
+          if ($answer -notmatch 'HTTP/\S+ 200') { throw 'The proxy did not forward /api/health.' }
+          if ($answer -notmatch '(?i)x-content-type-options: nosniff') { throw 'The security headers are missing.' }
+          if ($answer -match '(?m)^Server:') { throw 'The Server header should be gone.' }
+          node deploy\check.mjs http://127.0.0.1:3000
+
+      - name: The nightly copy as a task of the Task Scheduler (run by the system account)
+        run: |
+          .\deploy\windows\schedule-backup.ps1
+          Start-ScheduledTask -TaskName 'Kassa backup'
+          Start-Sleep -Seconds 20
+          $info = Get-ScheduledTask -TaskName 'Kassa backup' | Get-ScheduledTaskInfo
+          Write-Host "Last result: $($info.LastTaskResult)"
+          Get-Content C:\kassa\logs\backup.log
+          if ($info.LastTaskResult -ne 0) { throw 'The scheduled copy did not succeed.' }
+          .\deploy\windows\backup.ps1 -Status
+
+      - name: Try the copy in a scratch database
+        run: |
+          $copy = (Get-ChildItem C:\kassa\backups\*.dump | Select-Object -First 1).FullName
+          .\deploy\windows\restore.ps1 -From $copy -Check
+
+      - name: Nothing to update; a copy put in place of the live database; a look at everything
+        run: |
+          .\deploy\windows\update.ps1 -Ref $env:GITHUB_SHA
+          $copy = (Get-ChildItem C:\kassa\backups\*.dump | Select-Object -First 1).FullName
+          .\deploy\windows\restore.ps1 -From $copy
+          .\deploy\windows\verify.ps1 -PostgresService postgresql-x64-16
+
+      - name: power.ps1
+        run: .\deploy\windows\power.ps1
+
+      - name: uninstall-services.ps1, and the task is removed
+        run: |
+          .\deploy\windows\uninstall-services.ps1
+          .\deploy\windows\schedule-backup.ps1 -Remove
+          if (Get-Service KassaApp, KassaProxy -ErrorAction SilentlyContinue) { throw 'The services are still there.' }
+          if (Get-NetFirewallRule -DisplayName 'Kassa*' -ErrorAction SilentlyContinue) { throw 'The firewall rules are still there.' }
+
+      - name: Logs of the services
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kassa-windows-logs
+          path: C:\kassa\logs
+          if-no-files-found: ignore

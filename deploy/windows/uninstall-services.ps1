@@ -1,7 +1,8 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Stops and removes the services KassaApp and KassaProxy. The data (database, settings, logs) stays.
+  Stops and removes the services KassaApp and KassaProxy and closes ports 80 and 443 again.
+  The data (database, settings, logs, copies) stays.
 #>
 [CmdletBinding()]
 param(
@@ -19,10 +20,19 @@ Invoke-Main {
         if (Get-Service -Name $id -ErrorAction SilentlyContinue) {
             Stop-Service -Name $id -Force -ErrorAction SilentlyContinue
             Invoke-Native -File $exe -Arguments @('uninstall')
+            Wait-ServiceRemoved -Name $id
             Write-Host "Removed the service $id"
         }
         else {
             Write-Host "The service $id is not installed."
+        }
+    }
+
+    foreach ($rule in $script:FirewallRules) {
+        $found = @(Get-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue)
+        if ($found.Count -gt 0) {
+            $found | Remove-NetFirewallRule
+            Write-Host "Closed port $($rule.Port) ($($rule.Name))"
         }
     }
 }
