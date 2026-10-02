@@ -4,7 +4,7 @@ import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { registerAuth, type LoginProtectionOptions } from "./auth.js";
 import { registerCategoryAdmin } from "./category-admin.js";
 import { registerCorrections } from "./corrections.js";
-import { clientIncomeEvents } from "./client-income-messages.js";
+import { groupEvents } from "./group-messages.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
@@ -39,8 +39,9 @@ export type AppOptions = {
   telegramBotToken?: string;
   /** The Telegram group that is told about the incomes of clients; with the token above it turns the messages on. */
   telegramGroupChatId?: string;
-  /** The topic of that group that gets the messages, when it has topics. */
-  telegramGroupThreadId?: number;
+  /** The topics of that group that get the messages about incomes and about expenses, when it has topics. */
+  telegramIncomeThreadId?: number;
+  telegramExpenseThreadId?: number;
   /** The address of the Bot API (https://api.telegram.org unless a test stands in for it). */
   telegramApiUrl?: string;
   /** How often the queue of messages is looked at, and how long the first wait after a failed try is: tests make them short. */
@@ -82,13 +83,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     settings:
       options.telegramBotToken && options.telegramGroupChatId
-        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, threadId: options.telegramGroupThreadId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
+        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, incomeThreadId: options.telegramIncomeThreadId, expenseThreadId: options.telegramExpenseThreadId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
         : undefined,
     log: app.log,
     intervalMs: options.telegramQueue?.intervalMs,
     baseBackoffSeconds: options.telegramQueue?.baseBackoffSeconds,
   });
-  const events = clientIncomeEvents(outbox);
+  const events = groupEvents(outbox);
 
   app.addHook("onClose", async () => {
     await outbox.stop();

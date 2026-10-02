@@ -262,6 +262,7 @@ describe("expenses", () => {
         archived: false,
         requiresClient: false,
         countsAsCost: true,
+        notifyGroup: true,
       });
       expect(body.categories.find((item: { code: string }) => item.code === "client_refund")).toMatchObject({ requiresClient: true });
       expect(body.categories.find((item: { code: string }) => item.code === "owner_handover")).toMatchObject({ countsAsCost: false });

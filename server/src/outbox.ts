@@ -27,8 +27,11 @@ const LEASE_SECONDS = 60;
 export type Outbox = {
   /** Whether the group is set up: with no group there is nobody to tell, and `queue` does nothing. */
   readonly enabled: boolean;
-  /** Writes a message to the queue, on the connection (the transaction) of the operation it is about. */
-  queue(db: Queryable, text: string, operationId: string | null): Promise<void>;
+  /**
+   * Writes a message to the queue, on the connection (the transaction) of the operation it is about. `topic` says whether
+   * it is about an income or an expense, which decides the topic of the group it goes to.
+   */
+  queue(db: Queryable, text: string, operationId: string | null, topic: "income" | "expense"): Promise<void>;
   /** Asks the worker to look at the queue now. Call it after the transaction has been committed. */
   nudge(): void;
   /** Sends what is due, oldest first, until the queue is empty or the oldest is waiting for its next try. */
@@ -47,7 +50,7 @@ export function createOutbox(options: OutboxOptions): Outbox {
   const now = options.now ?? (() => new Date());
   const intervalMs = options.intervalMs ?? 5_000;
   const baseBackoff = options.baseBackoffSeconds ?? 15;
-  const send = (text: string) => sendToGroup(settings!, text, options.fetchImpl);
+  const send = (text: string, threadId: number | undefined) => sendToGroup(settings!, text, threadId, options.fetchImpl);
 
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
@@ -57,9 +60,9 @@ export function createOutbox(options: OutboxOptions): Outbox {
   const later = (seconds: number) => new Date(now().getTime() + seconds * 1000);
 
   /** Takes the oldest message if it is due, and keeps it from the others for a while. */
-  async function claim(): Promise<{ id: string; text: string; attempts: number } | undefined> {
+  async function claim(): Promise<{ id: string; text: string; threadId: number | null; attempts: number } | undefined> {
     const moment = now();
-    const claimed = await pool.query<{ id: string; text: string; attempts: number }>(
+    const claimed = await pool.query<{ id: string; text: string; thread_id: number | null; attempts: number }>(
       `WITH head AS (
          SELECT id FROM telegram_outbox WHERE status = 'pending' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
        )
@@ -67,10 +70,11 @@ export function createOutbox(options: OutboxOptions): Outbox {
           SET attempts = o.attempts + 1, next_attempt_at = $2
          FROM head
         WHERE o.id = head.id AND o.next_attempt_at <= $1
-       RETURNING o.id, o.text, o.attempts`,
+       RETURNING o.id, o.text, o.thread_id, o.attempts`,
       [moment, later(LEASE_SECONDS)],
     );
-    return claimed.rows[0];
+    const row = claimed.rows[0];
+    return row && { id: row.id, text: row.text, threadId: row.thread_id, attempts: row.attempts };
   }
 
   async function flushNow(): Promise<void> {
@@ -78,7 +82,7 @@ export function createOutbox(options: OutboxOptions): Outbox {
       const message = await claim();
       if (!message) return;
       try {
-        await send(message.text);
+        await send(message.text, message.threadId ?? undefined);
         await pool.query("UPDATE telegram_outbox SET status = 'sent', sent_at = $2, last_error = NULL WHERE id = $1", [message.id, now()]);
       } catch (error) {
         const telegram = error instanceof TelegramError ? error : new TelegramError("The message could not be sent", false);
@@ -118,9 +122,13 @@ export function createOutbox(options: OutboxOptions): Outbox {
 
   return {
     enabled: settings !== undefined,
-    async queue(db, text, operationId) {
+    async queue(db, text, operationId, topic) {
       if (!settings) return;
-      await db.query("INSERT INTO telegram_outbox (created_at, operation_id, text, next_attempt_at) VALUES ($1, $2, $3, $1)", [now(), operationId, text]);
+      const threadId = topic === "income" ? settings.incomeThreadId : settings.expenseThreadId;
+      await db.query(
+        "INSERT INTO telegram_outbox (created_at, operation_id, text, thread_id, next_attempt_at) VALUES ($1, $2, $3, $4, $1)",
+        [now(), operationId, text, threadId ?? null],
+      );
     },
     nudge() {
       if (!settings || stopped) return;

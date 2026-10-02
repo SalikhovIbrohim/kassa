@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { seenChats } from "../src/telegram-api.js";
-import { deleteRequest, loginAs, postJson, putJson } from "./helpers/http.js";
+import { deleteRequest, loginAs, patchJson, postJson, putJson } from "./helpers/http.js";
 import { startFakeTelegram, type FakeTelegram } from "./helpers/fake-telegram.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 
@@ -25,17 +25,23 @@ describe("messages for the Telegram group", () => {
     await telegram.close();
   });
 
-  async function desk(options: { group?: boolean; threadId?: number } = {}) {
+  async function desk(options: { group?: boolean; incomeThread?: number; expenseThread?: number } = {}) {
     const started = await startTestApp({
       telegramBotToken: TOKEN,
       telegramGroupChatId: options.group === false ? undefined : GROUP,
-      telegramGroupThreadId: options.threadId,
+      telegramIncomeThreadId: options.incomeThread,
+      telegramExpenseThreadId: options.expenseThread,
       telegramApiUrl: telegram.url,
       telegramQueue: { intervalMs: 40, baseBackoffSeconds: 0.05 },
     });
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Мухаммад Али" });
-    return { started, ivan: await loginAs(started, "ivan", "correct horse") };
+    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+    return {
+      started,
+      ivan: await loginAs(started, "ivan", "correct horse"),
+      owner: await loginAs(started, "owner", "long enough pass"),
+    };
   }
 
   const payment = (overrides: Entry = {}): Entry => ({
@@ -67,18 +73,19 @@ describe("messages for the Telegram group", () => {
     expect(message!.text).toContain("Комментарий: за рейс P194");
   });
 
-  it("writes into one topic of a group that has topics, when it is told which, and into the main one otherwise", async () => {
-    const { started, ivan } = await desk({ threadId: 7 });
+  it("writes the incomes into one topic of a group that has topics and the expenses into another, and into the main one when it is not told", async () => {
+    const { started, ivan } = await desk({ incomeThread: 3, expenseThread: 5 });
     await post(started, ivan, payment());
-    const [inTopic] = await telegram.untilMessages(1);
-    expect(inTopic!.threadId).toBe(7);
+    await post(started, ivan, expense());
+    const messages = await telegram.untilMessages(2);
+    expect(messages.map((message) => message.threadId)).toEqual([3, 5]);
     await app?.close();
     app = undefined;
 
-    const second = await desk();
-    await post(second.started, second.ivan, payment());
-    const messages = await telegram.untilMessages(2);
-    expect(messages[1]!.threadId).toBeUndefined();
+    const plain = await desk();
+    await post(plain.started, plain.ivan, payment());
+    const all = await telegram.untilMessages(3);
+    expect(all[2]!.threadId).toBeUndefined();
   });
 
   it("says dollars as they are", async () => {
@@ -91,16 +98,76 @@ describe("messages for the Telegram group", () => {
     expect(message!.text).not.toContain("курс");
   });
 
-  it("is silent about the expenses and the other incomes", async () => {
+  it("tells of an expense: what it was for, to whom, how much, who gave it out", async () => {
     const { started, ivan } = await desk();
 
-    await post(started, ivan, expense());
-    await post(started, ivan, payment({ category: "debt_taken", clientCode: undefined }));
-    await post(started, ivan, payment({ category: "sublease", clientCode: undefined }));
-    await settle();
+    await post(started, ivan, expense({ category: "freight_payment", amountMinor: 4_910_000, recipient: "Азамат", comment: "P194", rateE4: 790_000 }));
 
+    const [message] = await telegram.untilMessages(1);
+    expect(message!.text).toContain("💸 Расход «Оплата фура»");
+    expect(message!.text).toMatch(/49\s100,00\s₽ · курс 79,00/);
+    expect(message!.text).toContain("Кому: Азамат");
+    expect(message!.text).toContain("Комментарий: P194");
+    expect(message!.text).toContain("Выдал: Мухаммад Али");
+  });
+
+  it("tells of the correction and the deletion of an expense, and of the category that was changed", async () => {
+    const { started, ivan } = await desk();
+    const body = expense({ category: "fuel_road", amountMinor: 10_000 });
+    await post(started, ivan, body);
+    await telegram.untilMessages(1);
+
+    await putJson(started, `/api/operations/${body.id}`, { type: "expense", amountMinor: 12_000, currency: "RUB", category: "customs", reason: "не та статья" }, ivan);
+    await deleteRequest(started, `/api/operations/${body.id}`, ivan);
+
+    const [, edited, deleted] = await telegram.untilMessages(3);
+    expect(edited!.text).toContain("Исправлено: Расход «Топливо и дорога»");
+    expect(edited!.text).toMatch(/Было: 100,00\s₽/);
+    expect(edited!.text).toMatch(/Стало: 120,00\s₽/);
+    expect(edited!.text).toContain("Категория: было «Топливо и дорога», стало «Таможня»");
+    expect(deleted!.text).toContain("Удалено: Расход «Таможня»");
+  });
+
+  it("is silent about the incomes that are not payments of clients, until the owner ticks the category", async () => {
+    const { started, ivan, owner } = await desk();
+
+    await post(started, ivan, payment({ category: "debt_taken", clientCode: undefined }));
+    await settle();
     expect(telegram.messages).toEqual([]);
-    expect(telegram.requests).toBe(0);
+
+    const ticked = await patchJson(started, "/api/admin/categories/debt_taken", { notifyGroup: true }, owner);
+    expect(ticked.status).toBe(200);
+    expect((await ticked.json()).category).toMatchObject({ notifyGroup: true });
+    await post(started, ivan, payment({ category: "debt_taken", clientCode: undefined }));
+
+    const [message] = await telegram.untilMessages(1);
+    expect(message!.text).toContain("Приход «Взяли долг»");
+  });
+
+  it("is silent about a category that the owner has unticked", async () => {
+    const { started, ivan, owner } = await desk();
+    await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, owner);
+
+    await post(started, ivan, expense({ category: "fuel_road" }));
+    await post(started, ivan, expense({ category: "customs" }));
+
+    const [message] = await telegram.untilMessages(1);
+    await settle();
+    expect(telegram.messages).toHaveLength(1);
+    expect(message!.text).toContain("«Таможня»");
+  });
+
+  it("says that an entry is not told of any more when its category was changed to one that is not", async () => {
+    const { started, ivan, owner } = await desk();
+    await patchJson(started, "/api/admin/categories/other", { notifyGroup: false }, owner);
+    const body = expense({ category: "fuel_road" });
+    await post(started, ivan, body);
+    await telegram.untilMessages(1);
+
+    await putJson(started, `/api/operations/${body.id}`, { type: "expense", amountMinor: 10_000, currency: "RUB", category: "other" }, ivan);
+
+    const [, message] = await telegram.untilMessages(2);
+    expect(message!.text).toContain("теперь «Прочее», о ней группе не сообщаем");
   });
 
   it("tells it once, however often the entry is sent", async () => {
@@ -130,7 +197,7 @@ describe("messages for the Telegram group", () => {
 
     expect(edit.status).toBe(200);
     const [, message] = await telegram.untilMessages(2);
-    expect(message!.text).toContain("Исправлен приход от клиента A406 Жавид");
+    expect(message!.text).toContain("Исправлено: Приход от клиента A406 Жавид");
     expect(message!.text).toMatch(/Было: 1\s185,00\s₽ · курс 79,00/);
     expect(message!.text).toMatch(/Стало: 1\s200,00\s₽ · курс 80,00 · ≈ 15,00\s\$/);
     expect(message!.text).toContain("Исправил: Мухаммад Али");
@@ -158,7 +225,7 @@ describe("messages for the Telegram group", () => {
     await deleteRequest(started, `/api/operations/${body.id}`, ivan, { reason: "дубль" });
 
     const [, message] = await telegram.untilMessages(2);
-    expect(message!.text).toContain("Удалён приход от клиента A406 Жавид");
+    expect(message!.text).toContain("Удалено: Приход от клиента A406 Жавид");
     expect(message!.text).toMatch(/Было: 1\s185,00\s₽/);
     expect(message!.text).toContain("Удалил: Мухаммад Али");
     expect(message!.text).toContain("причина: дубль");
@@ -176,9 +243,9 @@ describe("messages for the Telegram group", () => {
     await putJson(started, `/api/operations/${other.id}`, { type: "income", amountMinor: 118_500, currency: "RUB", rateE4: 790_000, category: "client_payment", clientCode: "B7" }, ivan);
 
     const messages = await telegram.untilMessages(3);
-    expect(messages[1]!.text).toContain("больше не оплата от клиента: теперь «Взяли долг»");
+    expect(messages[1]!.text).toContain("теперь «Взяли долг», о ней группе не сообщаем");
     expect(messages[2]!.text).toContain("Приход от клиента B7");
-    expect(messages[2]!.text).toContain("внесён исправлением записи");
+    expect(messages[2]!.text).toContain("внесено исправлением записи");
   });
 
   it("keeps the entry and sends the message later when Telegram cannot be reached", async () => {

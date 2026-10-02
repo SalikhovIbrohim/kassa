@@ -20,8 +20,9 @@ export type Config = {
   telegramBotToken: string | undefined;
   /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
   telegramGroupChatId: string | undefined;
-  /** The topic of that group that gets the messages, when it has topics; unset: the main topic. */
-  telegramGroupThreadId: number | undefined;
+  /** The topics of that group that get the messages about incomes and about expenses, when it has topics; unset: the main topic. */
+  telegramIncomeThreadId: number | undefined;
+  telegramExpenseThreadId: number | undefined;
   /** The address of the Bot API; only a test or a proxy sets it. */
   telegramApiUrl: string;
 };
@@ -63,11 +64,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`TELEGRAM_GROUP_CHAT_ID must be the number of the group, like -1001234567890, got "${groupChatId}"`);
   }
 
-  const threadText = env.TELEGRAM_GROUP_THREAD_ID?.trim();
-  const groupThreadId = threadText ? Number(threadText) : undefined;
-  if (groupThreadId !== undefined && (!Number.isInteger(groupThreadId) || groupThreadId < 1)) {
-    throw new Error(`TELEGRAM_GROUP_THREAD_ID must be the number of the topic, like 3, got "${threadText}"`);
-  }
+  const threadOf = (name: string): number | undefined => {
+    const text = env[name]?.trim();
+    if (!text) return undefined;
+    const number = Number(text);
+    if (!Number.isInteger(number) || number < 1) throw new Error(`${name} must be the number of the topic, like 3, got "${text}"`);
+    return number;
+  };
 
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
@@ -82,7 +85,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
     telegramGroupChatId: groupChatId,
-    telegramGroupThreadId: groupThreadId,
+    telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),
+    telegramExpenseThreadId: threadOf("TELEGRAM_THREAD_EXPENSE"),
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
   };
 }

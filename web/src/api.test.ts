@@ -14,9 +14,9 @@ function stubStorage() {
 }
 
 const CATEGORIES = [
-  { code: "client_payment", kind: "income", label: "Оплата от клиента", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true },
-  { code: "fuel_road", kind: "expense", label: "Топливо и дорога", sortOrder: 1, archived: false, requiresClient: false, countsAsCost: true },
-  { code: "other", kind: "expense", label: "Прочее", sortOrder: 2, archived: true, requiresClient: false, countsAsCost: true },
+  { code: "client_payment", kind: "income", label: "Оплата от клиента", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true, notifyGroup: true },
+  { code: "fuel_road", kind: "expense", label: "Топливо и дорога", sortOrder: 1, archived: false, requiresClient: false, countsAsCost: true, notifyGroup: true },
+  { code: "other", kind: "expense", label: "Прочее", sortOrder: 2, archived: true, requiresClient: false, countsAsCost: true, notifyGroup: true },
 ];
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
@@ -69,8 +69,8 @@ describe("the categories on a phone without a connection", () => {
     });
 
     expect(await fetchCategories()).toEqual([
-      { code: "client_refund", label: "Возврат клиенту", kind: "expense", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true },
-      { code: "owner_handover", label: "Передача владельцу", kind: "expense", sortOrder: 2, archived: false, requiresClient: false, countsAsCost: false },
+      { code: "client_refund", label: "Возврат клиенту", kind: "expense", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true, notifyGroup: true },
+      { code: "owner_handover", label: "Передача владельцу", kind: "expense", sortOrder: 2, archived: false, requiresClient: false, countsAsCost: false, notifyGroup: true },
     ]);
   });
 

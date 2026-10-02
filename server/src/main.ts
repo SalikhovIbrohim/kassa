@@ -18,7 +18,8 @@ const app = await buildApp({
   trustProxy: config.trustProxy,
   telegramBotToken: config.telegramBotToken,
   telegramGroupChatId: config.telegramGroupChatId,
-  telegramGroupThreadId: config.telegramGroupThreadId,
+  telegramIncomeThreadId: config.telegramIncomeThreadId,
+  telegramExpenseThreadId: config.telegramExpenseThreadId,
   telegramApiUrl: config.telegramApiUrl,
   logger: true,
 });

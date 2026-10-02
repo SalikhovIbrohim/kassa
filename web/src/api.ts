@@ -162,6 +162,8 @@ export type Category = {
   requiresClient: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
   countsAsCost: boolean;
+  /** The Telegram group is told of the entries of this category. */
+  notifyGroup: boolean;
 };
 
 /** The categories of one kind that a new entry may have, in the order of the owner's list. */
@@ -218,6 +220,7 @@ function keptCategories(): Category[] | null {
       archived: item.archived ?? false,
       requiresClient: item.requiresClient ?? item.code === "client_refund",
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
+      notifyGroup: item.notifyGroup ?? true,
     }));
   } catch {
     return null;
@@ -664,19 +667,19 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-export async function createCategory(kind: CategoryKind, label: string, requiresClient: boolean): Promise<CategoryChangeResult> {
+export async function createCategory(kind: CategoryKind, label: string, requiresClient: boolean, notifyGroup: boolean): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ kind, label, requiresClient }),
+    body: JSON.stringify({ kind, label, requiresClient, notifyGroup }),
   });
   return categoryChangeResult(response);
 }
 
-/** The owner renames a category, changes whether it names a client, archives or brings it back, or moves it in its list. */
+/** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; archived?: boolean; move?: "up" | "down" },
+  change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down" },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",

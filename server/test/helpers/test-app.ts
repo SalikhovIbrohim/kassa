@@ -75,7 +75,8 @@ type StartOptions = {
   telegramBotToken?: string;
   /** The Telegram group to tell about the incomes of clients, and where the Bot API is (a fake one, see fake-telegram.ts). */
   telegramGroupChatId?: string;
-  telegramGroupThreadId?: number;
+  telegramIncomeThreadId?: number;
+  telegramExpenseThreadId?: number;
   telegramApiUrl?: string;
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
 };
@@ -144,7 +145,8 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       trustProxy: options.trustProxy,
       telegramBotToken: options.telegramBotToken,
       telegramGroupChatId: options.telegramGroupChatId,
-      telegramGroupThreadId: options.telegramGroupThreadId,
+      telegramIncomeThreadId: options.telegramIncomeThreadId,
+      telegramExpenseThreadId: options.telegramExpenseThreadId,
       telegramApiUrl: options.telegramApiUrl,
       telegramQueue: options.telegramQueue,
       loginProtection: options.loginProtection,

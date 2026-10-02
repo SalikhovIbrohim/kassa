@@ -36,6 +36,7 @@ const FALLBACK_CATEGORIES: Category[] = [
     archived: false,
     requiresClient: true,
     countsAsCost: true,
+    notifyGroup: true,
   },
 ];
 

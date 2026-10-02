@@ -110,7 +110,7 @@ export function CategoriesAdmin({ onSessionExpired, active = true }: Props) {
             editing={editing}
             onEdit={setEditing}
             onChange={(code, change) => apply(() => changeCategory(code, change))}
-            onCreate={(label, requiresClient) => apply(() => createCategory(kind, label, requiresClient))}
+            onCreate={(label, requiresClient, notifyGroup) => apply(() => createCategory(kind, label, requiresClient, notifyGroup))}
           />
         ))}
     </section>
@@ -123,20 +123,25 @@ type ListProps = {
   busy: boolean;
   editing: string | null;
   onEdit: (code: string | null) => void;
-  onChange: (code: string, change: { label?: string; requiresClient?: boolean; archived?: boolean; move?: "up" | "down" }) => Promise<boolean>;
-  onCreate: (label: string, requiresClient: boolean) => Promise<boolean>;
+  onChange: (
+    code: string,
+    change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down" },
+  ) => Promise<boolean>;
+  onCreate: (label: string, requiresClient: boolean, notifyGroup: boolean) => Promise<boolean>;
 };
 
 function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }: ListProps) {
   const [label, setLabel] = useState("");
   const [requiresClient, setRequiresClient] = useState(false);
+  const [notifyGroup, setNotifyGroup] = useState(true);
 
   async function add(event: FormEvent) {
     event.preventDefault();
     if (label.trim() === "") return;
-    if (await onCreate(label.trim(), requiresClient)) {
+    if (await onCreate(label.trim(), requiresClient, notifyGroup)) {
       setLabel("");
       setRequiresClient(false);
+      setNotifyGroup(true);
     }
   }
 
@@ -160,6 +165,7 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                 <span className="category-name">
                   {item.label}
                   {item.requiresClient && <span className="badge">нужен код клиента</span>}
+                  {item.notifyGroup && <span className="badge">в группу Telegram</span>}
                   {item.archived && <span className="badge deleted">в архиве</span>}
                 </span>
                 <span className="category-actions">
@@ -197,6 +203,10 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
           <input type="checkbox" name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
           Нужен код клиента
         </label>
+        <label className="check">
+          <input type="checkbox" name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
+          Сообщать в группу Telegram
+        </label>
         <button type="submit" disabled={busy || label.trim() === ""}>
           Добавить
         </button>
@@ -214,10 +224,11 @@ function EditCategory({
   item: Category;
   busy: boolean;
   onCancel: () => void;
-  onSave: (change: { label?: string; requiresClient?: boolean }) => Promise<void>;
+  onSave: (change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean }) => Promise<void>;
 }) {
   const [label, setLabel] = useState(item.label);
   const [requiresClient, setRequiresClient] = useState(item.requiresClient);
+  const [notifyGroup, setNotifyGroup] = useState(item.notifyGroup);
 
   function save(event: FormEvent) {
     event.preventDefault();
@@ -226,6 +237,7 @@ function EditCategory({
     void onSave({
       ...(name === item.label ? {} : { label: name }),
       ...(requiresClient === item.requiresClient ? {} : { requiresClient }),
+      ...(notifyGroup === item.notifyGroup ? {} : { notifyGroup }),
     });
   }
 
@@ -238,6 +250,10 @@ function EditCategory({
       <label className="check">
         <input type="checkbox" name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
         Нужен код клиента
+      </label>
+      <label className="check">
+        <input type="checkbox" name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
+        Сообщать в группу Telegram
       </label>
       <div className="queue-actions">
         <button type="submit" disabled={busy || label.trim() === ""}>

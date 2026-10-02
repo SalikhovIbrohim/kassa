@@ -37,7 +37,7 @@ Commands:
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
-                                      (and its topic TELEGRAM_GROUP_THREAD_ID, if set)
+                                      (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set)
 
 Settings come from the environment: DATABASE_URL is required.
 Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.
@@ -152,7 +152,8 @@ async function main(): Promise<void> {
         }
         if (chats.some((chat) => chat.topics.length > 0)) {
           console.log(
-            "\nThe group has topics. To send to one of them put its number in TELEGRAM_GROUP_THREAD_ID; to send to the main topic leave that unset. " +
+            "\nThe group has topics. Put the number of the topic for the incomes in TELEGRAM_THREAD_INCOME and the one for the expenses in TELEGRAM_THREAD_EXPENSE; " +
+              "a kind that has none goes to the main topic. " +
               "A topic shows here only after a command was written in it (/start@<the bot's name>).",
           );
         }
@@ -162,13 +163,25 @@ async function main(): Promise<void> {
         const { botToken, apiUrl } = telegramSettings();
         const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID?.trim();
         if (!groupChatId) throw new AdminError("TELEGRAM_GROUP_CHAT_ID is not set in the settings file");
-        const threadText = process.env.TELEGRAM_GROUP_THREAD_ID?.trim();
+        const topic = (name: string) => (process.env[name]?.trim() ? Number(process.env[name]!.trim()) : undefined);
+        const incomeThread = topic("TELEGRAM_THREAD_INCOME");
+        const expenseThread = topic("TELEGRAM_THREAD_EXPENSE");
+        // One message into each topic that is set, or into the main topic when none is.
+        const targets: Array<{ thread: number | undefined; about: string }> =
+          incomeThread === undefined && expenseThread === undefined
+            ? [{ thread: undefined, about: "" }]
+            : [
+                ...(incomeThread === undefined ? [] : [{ thread: incomeThread, about: " Эта тема для приходов." }]),
+                ...(expenseThread === undefined ? [] : [{ thread: expenseThread, about: " Эта тема для расходов." }]),
+              ];
         try {
-          await sendToGroup({ botToken, groupChatId, threadId: threadText ? Number(threadText) : undefined, apiUrl }, "✅ Касса: проверка связи. Если вы это видите, приходы от клиентов будут приходить сюда.");
+          for (const target of targets) {
+            await sendToGroup({ botToken, groupChatId, apiUrl }, `✅ Касса: проверка связи.${target.about}`, target.thread);
+            console.log(`Sent a test message to ${groupChatId}${target.thread === undefined ? "" : `, topic ${target.thread}`}.`);
+          }
         } catch (error) {
           throw new AdminError(telegramProblem(error));
         }
-        console.log(`Sent a test message to ${groupChatId}${threadText ? `, topic ${threadText}` : ""}.`);
         break;
       }
       default:

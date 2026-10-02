@@ -2,8 +2,9 @@
 export type TelegramSettings = {
   botToken: string;
   groupChatId: string;
-  /** The topic of the group that gets the messages, when the group has topics; without it the main topic ("General") does. */
-  threadId?: number;
+  /** The topics of the group that get the messages about incomes and about expenses, when the group has topics; without one the main topic ("General") gets them. */
+  incomeThreadId?: number;
+  expenseThreadId?: number;
   /** `https://api.telegram.org` unless a test or a proxy stands in for it. */
   apiUrl: string;
 };
@@ -60,14 +61,14 @@ async function call(settings: TelegramSettings, method: string, body: unknown, f
   throw new TelegramError(`Telegram refused (${status}): ${said}`, permanent, answer?.parameters?.retry_after);
 }
 
-/** Sends a message to the group. */
-export async function sendToGroup(settings: TelegramSettings, text: string, fetchImpl: Fetch = fetch): Promise<void> {
+/** Sends a message to the group, into a topic of it if one is named. */
+export async function sendToGroup(settings: TelegramSettings, text: string, threadId?: number, fetchImpl: Fetch = fetch): Promise<void> {
   await call(
     settings,
     "sendMessage",
     {
       chat_id: settings.groupChatId,
-      ...(settings.threadId === undefined ? {} : { message_thread_id: settings.threadId }),
+      ...(threadId === undefined ? {} : { message_thread_id: threadId }),
       text,
       disable_web_page_preview: true,
     },
@@ -96,7 +97,7 @@ type SeenMessage = {
  * the group is found, and, for a group with topics, the numbers of its topics (write a command in the topic first).
  * Telegram keeps updates for a day.
  */
-export async function seenChats(settings: Omit<TelegramSettings, "groupChatId" | "threadId">, fetchImpl: Fetch = fetch): Promise<SeenChat[]> {
+export async function seenChats(settings: Pick<TelegramSettings, "botToken" | "apiUrl">, fetchImpl: Fetch = fetch): Promise<SeenChat[]> {
   const updates = (await call({ ...settings, groupChatId: "" }, "getUpdates", { limit: 100, timeout: 0 }, fetchImpl)) as Array<
     Record<string, SeenMessage | undefined>
   >;
