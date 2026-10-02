@@ -3,7 +3,7 @@ import pg from "pg";
 import { getBalances } from "../balances.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
-import { seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
+import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -143,6 +143,20 @@ async function main(): Promise<void> {
           console.log(
             "The bot has not been told about any chat yet. Add it to the group, write something there (/start@<the bot's name>), and run this again within a day.",
           );
+          // An empty answer has several causes: say which bot this token is, and whether something else takes its updates.
+          try {
+            const state = await botState({ botToken, apiUrl });
+            console.log(`\nThe token in the settings file is the bot @${state.username}: it must be the bot that is in the group.`);
+            if (state.webhookUrl !== "") {
+              console.log(`Something has set a webhook for this bot (${state.webhookUrl}): Telegram then gives its updates to that address and not to this command.`);
+            }
+            console.log(
+              "If another program of yours (a bot script, an automation) uses the same token, it takes the updates first and this command sees none: " +
+                "write the command in the group again and run this at once, or take the numbers from the links of messages (see docs/deploy-windows.md, 3.3).",
+            );
+          } catch {
+            // The question above already worked, so this is not worth a second error.
+          }
         }
         for (const chat of chats) {
           console.log(`${String(chat.id).padStart(16)}  ${chat.type.padEnd(11)}  ${chat.title}`);

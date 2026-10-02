@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { seenChats } from "../src/telegram-api.js";
+import { botState, seenChats } from "../src/telegram-api.js";
 import { deleteRequest, loginAs, patchJson, postJson, putJson } from "./helpers/http.js";
 import { startFakeTelegram, type FakeTelegram } from "./helpers/fake-telegram.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
@@ -345,6 +345,13 @@ describe("finding the group", () => {
       { id: 5, name: "Расход" },
       { id: 9, name: "" },
     ]);
+    await telegram.close();
+  });
+
+  it("says which bot a token is and whether a webhook takes its updates", async () => {
+    const telegram = await startFakeTelegram();
+
+    expect(await botState({ botToken: TOKEN, apiUrl: telegram.url })).toEqual({ username: "fakekassabot", webhookUrl: "", pendingUpdates: 0, lastWebhookError: null });
     await telegram.close();
   });
 });

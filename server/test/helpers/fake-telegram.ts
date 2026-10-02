@@ -67,6 +67,8 @@ export async function startFakeTelegram(): Promise<FakeTelegram> {
         return answer(200, { ok: true, result: { message_id: messages.length } });
       }
       if (method === "getUpdates") return answer(200, { ok: true, result: updates });
+      if (method === "getMe") return answer(200, { ok: true, result: { username: "fakekassabot" } });
+      if (method === "getWebhookInfo") return answer(200, { ok: true, result: { url: "", pending_update_count: 0 } });
       return answer(404, { ok: false, error_code: 404, description: "Not Found" });
     });
   });

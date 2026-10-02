@@ -119,3 +119,26 @@ export async function seenChats(settings: Pick<TelegramSettings, "botToken" | "a
   }
   return [...found.values()];
 }
+
+export type BotState = {
+  /** The name of the bot the token belongs to (without the @). */
+  username: string;
+  /** The address Telegram delivers updates to; empty when nobody has set a webhook, which is what `getUpdates` needs. */
+  webhookUrl: string;
+  /** Updates Telegram holds for the bot and nobody has taken. */
+  pendingUpdates: number;
+  lastWebhookError: string | null;
+};
+
+/** Which bot a token is, and whether something else is taking its updates: why `seenChats` may find nothing. */
+export async function botState(settings: Pick<TelegramSettings, "botToken" | "apiUrl">, fetchImpl: Fetch = fetch): Promise<BotState> {
+  const asking = { ...settings, groupChatId: "" };
+  const me = (await call(asking, "getMe", {}, fetchImpl)) as { username?: string };
+  const hook = (await call(asking, "getWebhookInfo", {}, fetchImpl)) as { url?: string; pending_update_count?: number; last_error_message?: string };
+  return {
+    username: me.username ?? "",
+    webhookUrl: hook.url ?? "",
+    pendingUpdates: hook.pending_update_count ?? 0,
+    lastWebhookError: hook.last_error_message ?? null,
+  };
+}
