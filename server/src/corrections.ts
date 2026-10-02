@@ -2,13 +2,16 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type pg from "pg";
 import { readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
-import { changeOperation, readHistory, toOperation, type Change, type ChangeResult } from "./ledger.js";
+import { changeOperation, readHistory, toOperation, type Change, type ChangeResult, type LedgerEvents } from "./ledger.js";
+import type { Outbox } from "./outbox.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
 import { cleanText } from "./text.js";
 
 export type CorrectionsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  events?: LedgerEvents;
+  outbox: Outbox;
 };
 
 const idParams = {
@@ -21,10 +24,11 @@ const reasonProperty = { type: "string", maxLength: 500, pattern: NO_NUL } as co
 
 /** How a cashier corrects or deletes their own operations. */
 export async function registerCorrections(app: FastifyInstance, options: CorrectionsOptions) {
-  const { pool, now } = options;
+  const { pool, now, events, outbox } = options;
 
   async function apply(reply: FastifyReply, userId: string, id: string, change: Change) {
-    const result = await changeOperation(pool, { id, actorId: userId, now, change });
+    const result = await changeOperation(pool, { id, actorId: userId, now, change, events });
+    if (result.status === "changed") outbox.nudge();
     return answer(reply, result);
   }
 

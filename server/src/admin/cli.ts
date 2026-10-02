@@ -3,6 +3,7 @@ import pg from "pg";
 import { getBalances } from "../balances.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
+import { seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -33,6 +34,9 @@ Commands:
   set-opening-balance --currency <RUB|USD> --amount <1000.50>
                                       the amount a currency's balance starts from
   balances                            current balance per currency (opening balance + income)
+  telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
+                                      first): the number of the group for TELEGRAM_GROUP_CHAT_ID
+  telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
 
 Settings come from the environment: DATABASE_URL is required.
 Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.
@@ -126,12 +130,55 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case "telegram-chats": {
+        const { botToken, apiUrl } = telegramSettings();
+        let chats;
+        try {
+          chats = await seenChats({ botToken, apiUrl });
+        } catch (error) {
+          throw new AdminError(telegramProblem(error));
+        }
+        if (chats.length === 0) {
+          console.log(
+            "The bot has not been told about any chat yet. Add it to the group, write something there (/start@<the bot's name>), and run this again within a day.",
+          );
+        }
+        for (const chat of chats) console.log(`${String(chat.id).padStart(16)}  ${chat.type.padEnd(11)}  ${chat.title}`);
+        break;
+      }
+      case "telegram-test": {
+        const { botToken, apiUrl } = telegramSettings();
+        const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID?.trim();
+        if (!groupChatId) throw new AdminError("TELEGRAM_GROUP_CHAT_ID is not set in the settings file");
+        try {
+          await sendToGroup({ botToken, groupChatId, apiUrl }, "✅ Касса: проверка связи. Если вы это видите, приходы от клиентов будут приходить сюда.");
+        } catch (error) {
+          throw new AdminError(telegramProblem(error));
+        }
+        console.log(`Sent a test message to ${groupChatId}.`);
+        break;
+      }
       default:
         throw new AdminError(`Unknown command "${command}"\n\n${USAGE}`);
     }
   } finally {
     await pool.end();
   }
+}
+
+function telegramSettings(): { botToken: string; apiUrl: string } {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!botToken) throw new AdminError("TELEGRAM_BOT_TOKEN is not set in the settings file");
+  return { botToken, apiUrl: (process.env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, "") };
+}
+
+/** What went wrong with Telegram, in words, and what usually mends it. The token is never in it. */
+function telegramProblem(error: unknown): string {
+  if (!(error instanceof TelegramError)) return "Telegram did not answer as expected";
+  const hint = error.permanent
+    ? " Check the number of the group (it starts with -), that the bot is in the group, and that the token is the bot's."
+    : " The server may not reach api.telegram.org: try opening https://api.telegram.org in a browser on the server.";
+  return `${error.message}.${hint}`;
 }
 
 function required(value: string | undefined, flag: string): string {

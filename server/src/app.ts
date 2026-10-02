@@ -4,9 +4,11 @@ import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import { registerAuth, type LoginProtectionOptions } from "./auth.js";
 import { registerCategoryAdmin } from "./category-admin.js";
 import { registerCorrections } from "./corrections.js";
+import { clientIncomeEvents } from "./client-income-messages.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
 import { registerOperations } from "./operations.js";
+import { createOutbox } from "./outbox.js";
 import { registerShifts } from "./shifts.js";
 import { registerTelegram } from "./telegram.js";
 import { registerSummary } from "./summary.js";
@@ -35,6 +37,12 @@ export type AppOptions = {
   loginProtection?: LoginProtectionOptions;
   /** The token of the Telegram bot whose Mini App this is; without it, signing in inside Telegram is off. */
   telegramBotToken?: string;
+  /** The Telegram group that is told about the incomes of clients; with the token above it turns the messages on. */
+  telegramGroupChatId?: string;
+  /** The address of the Bot API (https://api.telegram.org unless a test stands in for it). */
+  telegramApiUrl?: string;
+  /** How often the queue of messages is looked at, and how long the first wait after a failed try is: tests make them short. */
+  telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
@@ -67,8 +75,25 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     return reply.code(500).send({ statusCode: 500, error: "Internal Server Error", message: "Internal error" });
   });
 
+  // The messages for the Telegram group: written with the operation, sent by a worker that lives as long as the app.
+  const outbox = createOutbox({
+    pool: database.pool,
+    settings:
+      options.telegramBotToken && options.telegramGroupChatId
+        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
+        : undefined,
+    log: app.log,
+    intervalMs: options.telegramQueue?.intervalMs,
+    baseBackoffSeconds: options.telegramQueue?.baseBackoffSeconds,
+  });
+  const events = clientIncomeEvents(outbox);
+
   app.addHook("onClose", async () => {
+    await outbox.stop();
     await database.close();
+  });
+  app.addHook("onReady", async () => {
+    outbox.start();
   });
 
   // API answers are personal and live: never let a browser or proxy keep them.
@@ -96,6 +121,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerOperations(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    events,
+    outbox,
   });
 
   await registerCategoryAdmin(app, { pool: database.pool });
@@ -103,6 +130,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerCorrections(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    events,
+    outbox,
   });
 
   await registerJournal(app, {

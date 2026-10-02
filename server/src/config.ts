@@ -18,6 +18,10 @@ export type Config = {
   allowNewerSchema: boolean;
   /** The Telegram bot of the Mini App. Unset: signing in inside Telegram is off. */
   telegramBotToken: string | undefined;
+  /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
+  telegramGroupChatId: string | undefined;
+  /** The address of the Bot API; only a test or a proxy sets it. */
+  telegramApiUrl: string;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -51,6 +55,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     .map((address) => address.trim())
     .filter(Boolean);
 
+  // A group has a negative number (a supergroup one that starts with -100); a channel too. Not a name: the bot cannot find a group by it.
+  const groupChatId = env.TELEGRAM_GROUP_CHAT_ID?.trim() || undefined;
+  if (groupChatId !== undefined && !/^-?[0-9]{5,20}$/.test(groupChatId)) {
+    throw new Error(`TELEGRAM_GROUP_CHAT_ID must be the number of the group, like -1001234567890, got "${groupChatId}"`);
+  }
+
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
   return {
@@ -63,5 +73,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: trustedProxies.length > 0 ? trustedProxies : undefined,
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+    telegramGroupChatId: groupChatId,
+    telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
   };
 }

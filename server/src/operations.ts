@@ -3,7 +3,8 @@ import type pg from "pg";
 import { getBalances } from "./balances.js";
 import { readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
-import { recordOperation, toOperation } from "./ledger.js";
+import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
+import type { Outbox } from "./outbox.js";
 import { NO_NUL, UUID } from "./schemas.js";
 
 const MAX_SUGGESTIONS = 8;
@@ -11,6 +12,9 @@ const MAX_SUGGESTIONS = 8;
 export type OperationsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** What is written down with an operation besides it (the messages for the Telegram group). */
+  events?: LedgerEvents;
+  outbox: Outbox;
 };
 
 /** Makes %, _ and \\ in what a person typed ordinary characters in a LIKE pattern. */
@@ -44,7 +48,7 @@ async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: Fas
 }
 
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
-  const { pool, now } = options;
+  const { pool, now, events, outbox } = options;
 
   app.get("/api/balances", { onRequest: app.authenticate }, async () => ({
     balances: await getBalances(pool),
@@ -135,7 +139,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         authorId: request.user!.id,
         createdAt: now(),
         shiftId: body.shiftId,
-      });
+      }, events);
+      // The messages were written with the operation; now that it is committed, the worker is asked to send them.
+      if (recorded.status === "created") outbox.nudge();
 
       switch (recorded.status) {
         case "created":

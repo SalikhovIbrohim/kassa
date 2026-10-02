@@ -73,6 +73,10 @@ type StartOptions = {
   logStream?: NodeJS.WritableStream;
   /** The token of the Telegram bot, to turn Mini App sign-in on. */
   telegramBotToken?: string;
+  /** The Telegram group to tell about the incomes of clients, and where the Bot API is (a fake one, see fake-telegram.ts). */
+  telegramGroupChatId?: string;
+  telegramApiUrl?: string;
+  telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
 };
 
 /**
@@ -138,6 +142,9 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       sessionDays: options.sessionDays,
       trustProxy: options.trustProxy,
       telegramBotToken: options.telegramBotToken,
+      telegramGroupChatId: options.telegramGroupChatId,
+      telegramApiUrl: options.telegramApiUrl,
+      telegramQueue: options.telegramQueue,
       loginProtection: options.loginProtection,
       logger: options.logStream ? { stream: options.logStream } : undefined,
       now: () => clock,

@@ -130,6 +130,20 @@ export type NewOperation = Snapshot & {
   shiftId?: string | null;
 };
 
+/**
+ * What else is to happen in the transaction that records or changes an operation, so that it is written with it or not
+ * at all (the messages for the Telegram group are: see `clientIncomeEvents`).
+ */
+export type LedgerEvents = {
+  /** A new operation was written. */
+  created?: (db: pg.PoolClient, row: OperationRow) => Promise<void>;
+  /** An operation was corrected or deleted: `before` is what it said, `row` what it says now. */
+  changed?: (
+    db: pg.PoolClient,
+    event: { action: "edit" | "delete"; before: Snapshot; row: OperationRow; actorId: string; reason: string | null; at: Date },
+  ) => Promise<void>;
+};
+
 export type RecordResult =
   /** `balances` are read in the same transaction, so the answer cannot fail after the commit. */
   | { status: "created"; row: OperationRow; balances: Balance[] }
@@ -240,7 +254,7 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
  * - A retry of an entry that was accepted is answered as before. The answer is read in one
  *   snapshot (see `answerRetry`), so it never mixes two moments.
  */
-export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
+export async function recordOperation(pool: pg.Pool, wanted: NewOperation, events?: LedgerEvents): Promise<RecordResult> {
   const recorded = await inTransaction(pool, async (client): Promise<RecordResult | "stored already"> => {
     // The entry may be stored already: a retry, or a clash of ids.
     if (await findOperation(client, wanted.id)) return "stored already";
@@ -273,6 +287,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation): Prom
 
     const row = await findOperation(client, wanted.id);
     if (!row) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
+    await events?.created?.(client, row);
     return { status: "created", row, balances: await getBalances(client) };
   });
 
@@ -326,7 +341,7 @@ export type ChangeResult =
  */
 export async function changeOperation(
   pool: pg.Pool,
-  request: { id: string; actorId: string; now: () => Date; change: Change },
+  request: { id: string; actorId: string; now: () => Date; change: Change; events?: LedgerEvents },
 ): Promise<ChangeResult> {
   const { id, actorId, now, change } = request;
 
@@ -390,6 +405,7 @@ export async function changeOperation(
 
     const changed = await findOperation(client, id);
     if (!changed) throw new Error(`Operation ${id} disappeared while it was being changed`);
+    await request.events?.changed?.(client, { action: change.action, before, row: changed, actorId, reason: change.reason, at });
     return { status: "changed", row: changed, balances: await getBalances(client) };
   });
 }
