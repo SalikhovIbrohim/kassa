@@ -14,7 +14,7 @@ export type OperationsOptions = {
   now: () => Date;
   /** What is written down with an operation besides it (the messages for the Telegram group). */
   events?: LedgerEvents;
-  outbox: Outbox;
+  outbox: Pick<Outbox, "nudge">;
 };
 
 /** Makes %, _ and \\ in what a person typed ordinary characters in a LIKE pattern. */

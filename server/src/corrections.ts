@@ -11,7 +11,7 @@ export type CorrectionsOptions = {
   pool: pg.Pool;
   now: () => Date;
   events?: LedgerEvents;
-  outbox: Outbox;
+  outbox: Pick<Outbox, "nudge">;
 };
 
 const idParams = {

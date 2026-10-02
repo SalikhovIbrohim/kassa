@@ -144,6 +144,20 @@ export type LedgerEvents = {
   ) => Promise<void>;
 };
 
+/** Several lists of events as one: each is run, in order, in the same transaction. */
+export function mergeEvents(...lists: Array<LedgerEvents | undefined>): LedgerEvents | undefined {
+  const parts = lists.filter((item): item is LedgerEvents => item !== undefined);
+  if (parts.length === 0) return undefined;
+  return {
+    async created(db, row) {
+      for (const part of parts) await part.created?.(db, row);
+    },
+    async changed(db, event) {
+      for (const part of parts) await part.changed?.(db, event);
+    },
+  };
+}
+
 export type RecordResult =
   /** `balances` are read in the same transaction, so the answer cannot fail after the commit. */
   | { status: "created"; row: OperationRow; balances: Balance[] }

@@ -1,9 +1,11 @@
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
+import { loadOneC } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
+import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -39,6 +41,12 @@ Commands:
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
                                       (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set)
 
+  onec-check                          look at 1C and change nothing: does it answer, are the accounts, the item of the
+                                      payments, the organization, the cash desk and the currency of the settings there
+  onec-status    [--limit <n>]        the payments of clients in the queue for 1C: written, waiting, failed
+  onec-retry     --id <n>             put a payment that failed, waits, was skipped or was only rehearsed back in the queue
+  onec-skip      --id <n>             do not write this payment to 1C (what is in 1C already stays there)
+
 Settings come from the environment: DATABASE_URL is required.
 Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.
 
@@ -61,6 +69,8 @@ async function main(): Promise<void> {
       name: { type: "string" },
       currency: { type: "string" },
       amount: { type: "string" },
+      id: { type: "string" },
+      limit: { type: "string" },
     },
   });
 
@@ -198,6 +208,32 @@ async function main(): Promise<void> {
         }
         break;
       }
+      case "onec-check": {
+        // The look works with the rehearsal settings when the writing is off: all but the mode must be set.
+        const mode = process.env.COSMO_1C_MODE?.trim().toLowerCase();
+        let settings;
+        try {
+          settings = loadOneC({ ...process.env, COSMO_1C_MODE: mode === "live" ? "live" : "preview" });
+        } catch (error) {
+          throw new AdminError(`${(error as Error).message} (in the settings file)`);
+        }
+        const good = await checkOneC(settings!, (line) => console.log(line));
+        if (!good) throw new AdminError("1C is not ready: see the lines marked ПРОБЛЕМА above");
+        console.log("Всё готово.");
+        break;
+      }
+      case "onec-status": {
+        const limit = values.limit === undefined ? 20 : Number(values.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new AdminError("--limit must be a number from 1 to 500");
+        for (const line of await onecStatus(pool, limit)) console.log(line);
+        break;
+      }
+      case "onec-retry":
+        console.log(await onecRetry(pool, values.id));
+        break;
+      case "onec-skip":
+        console.log(await onecSkip(pool, values.id));
+        break;
       default:
         throw new AdminError(`Unknown command "${command}"\n\n${USAGE}`);
     }

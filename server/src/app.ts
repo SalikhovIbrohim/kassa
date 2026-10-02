@@ -5,8 +5,11 @@ import { registerAuth, type LoginProtectionOptions } from "./auth.js";
 import { registerCategoryAdmin } from "./category-admin.js";
 import { registerCorrections } from "./corrections.js";
 import { groupEvents } from "./group-messages.js";
+import { createOneC, onecEvents } from "./onec.js";
+import type { OneCSettings } from "./onec-api.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
+import { mergeEvents } from "./ledger.js";
 import { registerOperations } from "./operations.js";
 import { createOutbox } from "./outbox.js";
 import { registerShifts } from "./shifts.js";
@@ -46,6 +49,9 @@ export type AppOptions = {
   telegramApiUrl?: string;
   /** How often the queue of messages is looked at, and how long the first wait after a failed try is: tests make them short. */
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
+  /** The 1C base the payments of clients are written to; without it nothing is written. */
+  onec?: OneCSettings;
+  onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number };
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
@@ -89,14 +95,26 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     intervalMs: options.telegramQueue?.intervalMs,
     baseBackoffSeconds: options.telegramQueue?.baseBackoffSeconds,
   });
-  const events = groupEvents(outbox);
+  // The payments of clients for 1C: queued with the operation, written by a worker (see onec.ts).
+  const onec = createOneC({
+    pool: database.pool,
+    settings: options.onec,
+    telegram: outbox,
+    log: app.log,
+    intervalMs: options.onecQueue?.intervalMs,
+    baseBackoffSeconds: options.onecQueue?.baseBackoffSeconds,
+    blockedRetrySeconds: options.onecQueue?.blockedRetrySeconds,
+  });
+  const events = mergeEvents(groupEvents(outbox), onecEvents(onec, outbox));
 
   app.addHook("onClose", async () => {
+    await onec.stop();
     await outbox.stop();
     await database.close();
   });
   app.addHook("onReady", async () => {
     outbox.start();
+    onec.start();
   });
 
   // API answers are personal and live: never let a browser or proxy keep them.
@@ -125,7 +143,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     events,
-    outbox,
+    outbox: { nudge: () => (outbox.nudge(), onec.nudge()) },
   });
 
   await registerCategoryAdmin(app, { pool: database.pool });
@@ -134,7 +152,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     events,
-    outbox,
+    outbox: { nudge: () => (outbox.nudge(), onec.nudge()) },
   });
 
   await registerJournal(app, {

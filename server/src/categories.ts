@@ -57,3 +57,8 @@ export async function readCategories(db: Queryable): Promise<Category[]> {
 
 /** What an income that names no category is: the entries of phones that were made before there were categories of income. */
 export const DEFAULT_INCOME_CATEGORY = "client_payment";
+
+/** An income of a client: the category of payments of clients, and the incomes of before there were categories of income (those are payments too). */
+export function isClientPayment(kind: "income" | "expense", category: string | null): boolean {
+  return kind === "income" && (category === null || category === DEFAULT_INCOME_CATEGORY);
+}

@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { clientCodeOf } from "./onec-pko.js";
+import type { OneCSettings } from "./onec-api.js";
 
 export type Config = {
   host: string;
@@ -25,6 +27,8 @@ export type Config = {
   telegramExpenseThreadId: number | undefined;
   /** The address of the Bot API; only a test or a proxy sets it. */
   telegramApiUrl: string;
+  /** The 1C base the payments of clients are written to. Unset: nothing is written. */
+  onec: OneCSettings | undefined;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -72,6 +76,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     return number;
   };
 
+  const onec = loadOneC(env);
+
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
   return {
@@ -88,5 +94,46 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),
     telegramExpenseThreadId: threadOf("TELEGRAM_THREAD_EXPENSE"),
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
+    onec,
+  };
+}
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The settings of the writing to 1C. `COSMO_1C_MODE` is off (the default), `preview` (says what would be written) or `live`. */
+export function loadOneC(env: NodeJS.ProcessEnv): OneCSettings | undefined {
+  const mode = env.COSMO_1C_MODE?.trim().toLowerCase() || "off";
+  if (mode === "off") return undefined;
+  if (mode !== "preview" && mode !== "live") throw new Error(`COSMO_1C_MODE must be off, preview or live, got "${env.COSMO_1C_MODE}"`);
+
+  const need = (name: string) => {
+    const value = env[name]?.trim();
+    if (!value) throw new Error(`${name} is required when COSMO_1C_MODE is ${mode}`);
+    return value;
+  };
+  const key = (name: string) => {
+    const value = need(name);
+    if (!GUID.test(value)) throw new Error(`${name} must be a key like 0d2cb474-924a-11f1-8cb7-b8cb29f61f4c`);
+    return value.toLowerCase();
+  };
+  const clients = (env.COSMO_1C_CLIENTS ?? "")
+    .split(",")
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .map((text) => {
+      const code = clientCodeOf(text);
+      if (!code) throw new Error(`COSMO_1C_CLIENTS must list codes of clients like А339, got "${text}"`);
+      return code.code;
+    });
+
+  return {
+    url: need("COSMO_ODATA_URL"),
+    user: need("COSMO_ODATA_USER"),
+    password: need("COSMO_ODATA_PASSWORD"),
+    organizationKey: key("COSMO_1C_ORGANIZATION_KEY"),
+    kassaKey: key("COSMO_1C_KASSA_KEY"),
+    currencyKey: key("COSMO_1C_CURRENCY_KEY"),
+    mode,
+    onlyClients: clients.length > 0 ? clients : undefined,
   };
 }
