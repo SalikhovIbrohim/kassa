@@ -37,6 +37,7 @@ Commands:
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
+                                      (and its topic TELEGRAM_GROUP_THREAD_ID, if set)
 
 Settings come from the environment: DATABASE_URL is required.
 Passwords are never taken from the command line: set KASSA_PASSWORD, or type it when asked.
@@ -143,19 +144,31 @@ async function main(): Promise<void> {
             "The bot has not been told about any chat yet. Add it to the group, write something there (/start@<the bot's name>), and run this again within a day.",
           );
         }
-        for (const chat of chats) console.log(`${String(chat.id).padStart(16)}  ${chat.type.padEnd(11)}  ${chat.title}`);
+        for (const chat of chats) {
+          console.log(`${String(chat.id).padStart(16)}  ${chat.type.padEnd(11)}  ${chat.title}`);
+          for (const topic of chat.topics) {
+            console.log(`${"".padStart(16)}  topic ${String(topic.id).padEnd(5)}  ${topic.name}`);
+          }
+        }
+        if (chats.some((chat) => chat.topics.length > 0)) {
+          console.log(
+            "\nThe group has topics. To send to one of them put its number in TELEGRAM_GROUP_THREAD_ID; to send to the main topic leave that unset. " +
+              "A topic shows here only after a command was written in it (/start@<the bot's name>).",
+          );
+        }
         break;
       }
       case "telegram-test": {
         const { botToken, apiUrl } = telegramSettings();
         const groupChatId = process.env.TELEGRAM_GROUP_CHAT_ID?.trim();
         if (!groupChatId) throw new AdminError("TELEGRAM_GROUP_CHAT_ID is not set in the settings file");
+        const threadText = process.env.TELEGRAM_GROUP_THREAD_ID?.trim();
         try {
-          await sendToGroup({ botToken, groupChatId, apiUrl }, "✅ Касса: проверка связи. Если вы это видите, приходы от клиентов будут приходить сюда.");
+          await sendToGroup({ botToken, groupChatId, threadId: threadText ? Number(threadText) : undefined, apiUrl }, "✅ Касса: проверка связи. Если вы это видите, приходы от клиентов будут приходить сюда.");
         } catch (error) {
           throw new AdminError(telegramProblem(error));
         }
-        console.log(`Sent a test message to ${groupChatId}.`);
+        console.log(`Sent a test message to ${groupChatId}${threadText ? `, topic ${threadText}` : ""}.`);
         break;
       }
       default:

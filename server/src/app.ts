@@ -39,6 +39,8 @@ export type AppOptions = {
   telegramBotToken?: string;
   /** The Telegram group that is told about the incomes of clients; with the token above it turns the messages on. */
   telegramGroupChatId?: string;
+  /** The topic of that group that gets the messages, when it has topics. */
+  telegramGroupThreadId?: number;
   /** The address of the Bot API (https://api.telegram.org unless a test stands in for it). */
   telegramApiUrl?: string;
   /** How often the queue of messages is looked at, and how long the first wait after a failed try is: tests make them short. */
@@ -80,7 +82,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     settings:
       options.telegramBotToken && options.telegramGroupChatId
-        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
+        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, threadId: options.telegramGroupThreadId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
         : undefined,
     log: app.log,
     intervalMs: options.telegramQueue?.intervalMs,

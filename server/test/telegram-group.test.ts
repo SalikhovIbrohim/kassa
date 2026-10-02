@@ -25,10 +25,11 @@ describe("messages for the Telegram group", () => {
     await telegram.close();
   });
 
-  async function desk(options: { group?: boolean } = {}) {
+  async function desk(options: { group?: boolean; threadId?: number } = {}) {
     const started = await startTestApp({
       telegramBotToken: TOKEN,
       telegramGroupChatId: options.group === false ? undefined : GROUP,
+      telegramGroupThreadId: options.threadId,
       telegramApiUrl: telegram.url,
       telegramQueue: { intervalMs: 40, baseBackoffSeconds: 0.05 },
     });
@@ -64,6 +65,20 @@ describe("messages for the Telegram group", () => {
     expect(message!.text).toMatch(/1\s185,00\s₽ · курс 79,00 · ≈ 15,00\s\$/);
     expect(message!.text).toContain("Принял: Мухаммад Али");
     expect(message!.text).toContain("Комментарий: за рейс P194");
+  });
+
+  it("writes into one topic of a group that has topics, when it is told which, and into the main one otherwise", async () => {
+    const { started, ivan } = await desk({ threadId: 7 });
+    await post(started, ivan, payment());
+    const [inTopic] = await telegram.untilMessages(1);
+    expect(inTopic!.threadId).toBe(7);
+    await app?.close();
+    app = undefined;
+
+    const second = await desk();
+    await post(second.started, second.ivan, payment());
+    const messages = await telegram.untilMessages(2);
+    expect(messages[1]!.threadId).toBeUndefined();
   });
 
   it("says dollars as they are", async () => {
@@ -240,8 +255,28 @@ describe("finding the group", () => {
     const chats = await seenChats({ botToken: TOKEN, apiUrl: telegram.url });
 
     expect(chats).toEqual([
-      { id: -1001234567890, type: "supergroup", title: "Касса Москва" },
-      { id: 555, type: "private", title: "Иван" },
+      { id: -1001234567890, type: "supergroup", title: "Касса Москва", topics: [] },
+      { id: 555, type: "private", title: "Иван", topics: [] },
+    ]);
+    await telegram.close();
+  });
+
+  it("lists the topics of a group with topics that a message was seen in, with the name when it is known", async () => {
+    const telegram = await startFakeTelegram();
+    const chat = { id: -1001234567890, title: "Cosmo Kassa", type: "supergroup" };
+    telegram.setUpdates([
+      { update_id: 1, message: { chat, message_thread_id: 3, forum_topic_created: { name: "Приход" } } },
+      { update_id: 2, message: { chat, message_thread_id: 3, text: "/start@excoskassabot" } },
+      { update_id: 3, message: { chat, message_thread_id: 5, reply_to_message: { forum_topic_created: { name: "Расход" } }, text: "/start@excoskassabot" } },
+      { update_id: 4, message: { chat, message_thread_id: 9, text: "/start@excoskassabot" } },
+    ]);
+
+    const [seen] = await seenChats({ botToken: TOKEN, apiUrl: telegram.url });
+
+    expect(seen!.topics).toEqual([
+      { id: 3, name: "Приход" },
+      { id: 5, name: "Расход" },
+      { id: 9, name: "" },
     ]);
     await telegram.close();
   });

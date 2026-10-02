@@ -20,6 +20,8 @@ export type Config = {
   telegramBotToken: string | undefined;
   /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
   telegramGroupChatId: string | undefined;
+  /** The topic of that group that gets the messages, when it has topics; unset: the main topic. */
+  telegramGroupThreadId: number | undefined;
   /** The address of the Bot API; only a test or a proxy sets it. */
   telegramApiUrl: string;
 };
@@ -61,6 +63,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error(`TELEGRAM_GROUP_CHAT_ID must be the number of the group, like -1001234567890, got "${groupChatId}"`);
   }
 
+  const threadText = env.TELEGRAM_GROUP_THREAD_ID?.trim();
+  const groupThreadId = threadText ? Number(threadText) : undefined;
+  if (groupThreadId !== undefined && (!Number.isInteger(groupThreadId) || groupThreadId < 1)) {
+    throw new Error(`TELEGRAM_GROUP_THREAD_ID must be the number of the topic, like 3, got "${threadText}"`);
+  }
+
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : defaultWebDistDir;
 
   return {
@@ -74,6 +82,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
     telegramGroupChatId: groupChatId,
+    telegramGroupThreadId: groupThreadId,
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
   };
 }

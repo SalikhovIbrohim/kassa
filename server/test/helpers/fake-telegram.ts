@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 
-export type SentMessage = { token: string; chatId: string; text: string };
+export type SentMessage = { token: string; chatId: string; threadId: number | undefined; text: string };
 
 /**
  * A Bot API of our own for the tests: it keeps what was sent to it, and can be told to refuse the next requests,
@@ -62,8 +62,8 @@ export async function startFakeTelegram(): Promise<FakeTelegram> {
         });
       }
       if (method === "sendMessage") {
-        const body = JSON.parse(raw) as { chat_id: string; text: string };
-        messages.push({ token: token!, chatId: String(body.chat_id), text: body.text });
+        const body = JSON.parse(raw) as { chat_id: string; message_thread_id?: number; text: string };
+        messages.push({ token: token!, chatId: String(body.chat_id), threadId: body.message_thread_id, text: body.text });
         return answer(200, { ok: true, result: { message_id: messages.length } });
       }
       if (method === "getUpdates") return answer(200, { ok: true, result: updates });
