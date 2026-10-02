@@ -1,7 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
-import { EXPENSE_CATEGORY_CODES } from "./categories.js";
 import { OPERATION_FROM, OPERATION_SELECT, toOperation, type OperationRow } from "./ledger.js";
 import { CURRENCIES } from "./money.js";
 import { NO_NUL } from "./schemas.js";
@@ -80,7 +79,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             to: { type: "string", format: "date" },
             currency: { type: "string", enum: [...CURRENCIES] },
             type: { type: "string", enum: ["income", "expense"] },
-            category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
+            category: { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             // The operations of one shift: "current", or the id of a shift. Without a day of its own the shift

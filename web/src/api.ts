@@ -147,10 +147,36 @@ export type Operation = {
   deletedBy: { login: string; displayName: string } | null;
 };
 
-export type Category = { code: string; label: string };
+export type CategoryKind = "income" | "expense";
 
-/** The one category that needs a client code. */
-export const REFUND_CATEGORY = "client_refund";
+/** A category of incomes or expenses, as the owner keeps the lists. */
+export type Category = {
+  code: string;
+  kind: CategoryKind;
+  label: string;
+  /** Where it stands in its list. */
+  sortOrder: number;
+  /** Not offered for new entries any more; old entries still read it. */
+  archived: boolean;
+  /** An entry of this category names a client (its code), and an entry of any other does not. */
+  requiresClient: boolean;
+  /** False for the money handed to the owner: it is not a cost of the business. */
+  countsAsCost: boolean;
+};
+
+/** The categories of one kind that a new entry may have, in the order of the owner's list. */
+export function activeCategories(all: readonly Category[], kind: CategoryKind): Category[] {
+  return all.filter((item) => item.kind === kind && !item.archived);
+}
+
+/** The income category that an entry without a category is: what the entries of before there were categories are. */
+export const DEFAULT_INCOME_CATEGORY = "client_payment";
+
+/** What to call an operation: an expense by its category, an income by its category too unless it is a payment of a client ("Приход"). */
+export function operationTitle(type: "income" | "expense", category: string | null, labels: ReadonlyMap<string, string>): string {
+  if (type === "expense") return labels.get(category ?? "") ?? "Расход";
+  return category !== null && category !== DEFAULT_INCOME_CATEGORY ? (labels.get(category) ?? "Приход") : "Приход";
+}
 
 export async function fetchBalances(): Promise<Balance[]> {
   const response = await request("/api/balances");
@@ -181,28 +207,44 @@ const CATEGORIES_KEY = "kassa.categories";
 function keptCategories(): Category[] | null {
   try {
     const raw = localStorage.getItem(CATEGORIES_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Category[]) : null;
-    return Array.isArray(parsed) && parsed.every((item) => typeof item?.code === "string" && typeof item?.label === "string") ? parsed : null;
+    const parsed = raw ? (JSON.parse(raw) as Array<Partial<Category>>) : null;
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item?.code === "string" && typeof item?.label === "string")) return null;
+    // A copy kept by an older version has expense categories only, without what the owner can set on them.
+    return parsed.map((item, index) => ({
+      code: item.code!,
+      label: item.label!,
+      kind: item.kind ?? "expense",
+      sortOrder: item.sortOrder ?? index + 1,
+      archived: item.archived ?? false,
+      requiresClient: item.requiresClient ?? item.code === "client_refund",
+      countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
+    }));
   } catch {
     return null;
   }
 }
 
+function keepCategories(categories: Category[]) {
+  try {
+    localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
+  } catch {
+    // not kept; the next visit with a connection tries again
+  }
+}
+
 /**
- * The expense categories. The list hardly ever changes, so the last one seen is kept on the phone and
- * used when the server cannot be asked: an expense can be entered without a connection.
+ * Every category of incomes and expenses, archived ones too (the journal still names them); a form takes
+ * `activeCategories` of its kind. The lists hardly ever change, so the last one seen is kept on the phone and
+ * used when the server cannot be asked: an entry can be made without a connection.
  */
 export async function fetchCategories(): Promise<Category[]> {
   try {
     const response = await request("/api/categories");
     if (response.status === 401) throw new SessionExpiredError("Session ended");
     if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/categories`);
-    const categories = ((await response.json()) as { categories: Category[] }).categories;
-    try {
-      localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-    } catch {
-      // not kept; the next visit with a connection tries again
-    }
+    const categories = ((await response.json()) as { all: Category[] }).all;
+    if (!Array.isArray(categories)) throw new Error("The answer of /api/categories is not the lists of categories");
+    keepCategories(categories);
     return categories;
   } catch (error) {
     const kept = error instanceof SessionExpiredError ? null : keptCategories();
@@ -224,12 +266,18 @@ type EntryBase = {
 };
 
 export type OperationInput =
-  | (EntryBase & { type: "income"; clientCode: string })
+  | (EntryBase & {
+      type: "income";
+      /** A category of income. An entry made by an older version has none, and the server takes it for a payment of a client. */
+      category?: string;
+      /** Only for a category that names a client. */
+      clientCode?: string;
+    })
   | (EntryBase & {
       type: "expense";
       category: string;
       recipient?: string;
-      /** Only for a client refund. */
+      /** Only for a category that names a client (a refund to a client, say). */
       clientCode?: string;
     });
 
@@ -397,7 +445,7 @@ type EditBase = {
 
 /** What a correction sends: the whole of what the operation should say now. */
 export type EditInput =
-  | (EditBase & { type: "income"; clientCode: string })
+  | (EditBase & { type: "income"; category: string; clientCode?: string })
   | (EditBase & { type: "expense"; category: string; recipient?: string; clientCode?: string });
 
 export type ChangeResult =
@@ -591,4 +639,49 @@ export async function fetchShifts(before?: string): Promise<ShiftsPage> {
   const shifts = (body.shifts ?? []).map(readReport);
   if (!Array.isArray(body.shifts) || shifts.some((shift) => shift === null)) throw new Error("The answer of /api/shifts is not a list of shifts");
   return { shifts: shifts as ShiftReport[], nextBefore: typeof body.nextBefore === "string" ? body.nextBefore : null };
+}
+
+// ---- The owner's lists of categories ----
+
+export type CategoryChangeResult =
+  | { ok: true; all: Category[] }
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "last-category" | "rejected" | "server-error" };
+
+async function categoryChangeResult(response: Response): Promise<CategoryChangeResult> {
+  if (response.ok) {
+    const body = (await response.json()) as { all?: Category[] };
+    return Array.isArray(body.all) ? { ok: true, all: body.all } : { ok: false, reason: "server-error" };
+  }
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, reason: body?.error === "last_category" ? "last-category" : "exists" };
+  }
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  return { ok: false, reason: "rejected" };
+}
+
+/** The owner adds a category at the end of its list. */
+export async function createCategory(kind: CategoryKind, label: string, requiresClient: boolean): Promise<CategoryChangeResult> {
+  const response = await request("/api/admin/categories", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, label, requiresClient }),
+  });
+  return categoryChangeResult(response);
+}
+
+/** The owner renames a category, changes whether it names a client, archives or brings it back, or moves it in its list. */
+export async function changeCategory(
+  code: string,
+  change: { label?: string; requiresClient?: boolean; archived?: boolean; move?: "up" | "down" },
+): Promise<CategoryChangeResult> {
+  const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(change),
+  });
+  return categoryChangeResult(response);
 }

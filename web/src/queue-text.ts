@@ -1,12 +1,11 @@
-import type { Category, OperationInput } from "./api";
+import { operationTitle, type Category, type OperationInput } from "./api";
 import { formatMoney } from "./money";
 import type { Problem } from "./queue";
 
 /** What an entry says, in a few words: "Приход +5 000,00 ₽, клиент K17". */
 export function entryText(input: OperationInput, categories: readonly Category[]): string {
   const sign = input.type === "income" ? "+" : "−";
-  const kind =
-    input.type === "income" ? "Приход" : (categories.find((item) => item.code === input.category)?.label ?? "Расход");
+  const kind = operationTitle(input.type, input.category ?? null, new Map(categories.map((item) => [item.code, item.label])));
   const who = input.clientCode
     ? `, клиент ${input.clientCode}`
     : input.type === "expense" && input.recipient

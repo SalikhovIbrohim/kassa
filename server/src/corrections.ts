@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type pg from "pg";
+import { readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { changeOperation, readHistory, toOperation, type Change, type ChangeResult } from "./ledger.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
@@ -42,7 +43,9 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       },
     },
     async (request, reply) => {
-      const normalized = normalizeEntry(request.body);
+      // A correction that leaves the category as it is stays valid after the category was archived.
+      const stored = await pool.query<{ category: string | null }>("SELECT category FROM operations WHERE id = $1", [request.params.id]);
+      const normalized = normalizeEntry(request.body, await readCategories(pool), stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }

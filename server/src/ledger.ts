@@ -1,6 +1,5 @@
 import type pg from "pg";
 import { getBalances, type Balance } from "./balances.js";
-import type { ExpenseCategory } from "./categories.js";
 import { CURRENCIES, toUsdMinor, type Currency } from "./money.js";
 
 export type OperationRow = {
@@ -12,7 +11,7 @@ export type OperationRow = {
   rate_e4: string | null;
   /** The average rate of the shift's ruble incomes, once the shift is closed (see `closeShift`). */
   shift_average_rate_e4: string | null;
-  category: ExpenseCategory | null;
+  category: string | null;
   recipient: string | null;
   client_code: string | null;
   comment: string | null;
@@ -86,7 +85,7 @@ export type Snapshot = {
   currency: Currency;
   /** Rubles for one dollar, times 10 000; null for dollars and for a ruble expense without one. */
   rateE4: number | null;
-  category: ExpenseCategory | null;
+  category: string | null;
   recipient: string | null;
   clientCode: string | null;
   comment: string | null;

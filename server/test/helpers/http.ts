@@ -18,6 +18,14 @@ export function putJson(app: TestApp, path: string, body: unknown, cookie?: stri
   });
 }
 
+export function patchJson(app: TestApp, path: string, body: unknown, cookie?: string) {
+  return fetch(`${app.baseUrl}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
 /** A DELETE, with a JSON body only when there is something to say (a reason). */
 export function deleteRequest(app: TestApp, path: string, cookie?: string, body?: unknown) {
   return fetch(`${app.baseUrl}${path}`, {

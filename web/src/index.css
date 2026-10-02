@@ -299,6 +299,89 @@ fieldset.categories .choice {
   padding: 0 6px;
 }
 
+.tabs:has(> :nth-child(4)) {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.tabs:has(> :nth-child(4)) .tab {
+  padding: 0 2px;
+  font-size: 0.9rem;
+}
+
+/* ---- The owner's lists of categories ---- */
+
+.categories-admin {
+  display: grid;
+  gap: 16px;
+}
+
+.category-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+}
+
+.category-list h3 {
+  margin: 0;
+}
+
+.category-list ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.category-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.category-row.archived .category-name {
+  color: #64748b;
+}
+
+.category-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.category-actions,
+.category-edit .queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-add,
+.category-edit {
+  display: grid;
+  gap: 10px;
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 400;
+}
+
+label.check input {
+  width: 22px;
+  min-height: 22px;
+  flex: none;
+}
+
 select {
   width: 100%;
   min-height: 48px;

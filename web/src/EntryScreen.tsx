@@ -6,6 +6,7 @@ import { Journal } from "./Journal";
 import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
 import { ShiftBar, useShift } from "./ShiftBar";
+import { useCategories } from "./useCategories";
 
 type Props = {
   /** The cashier signed in: whose shift is the open one. */
@@ -20,6 +21,7 @@ type Form = "income" | "expense";
 /** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
 export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const shift = useShift(login, onSessionExpired, onBalancesStale);
+  const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   const ownShiftOpen = shift.state.kind === "known" && shift.state.shift?.cashier.login === login;
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
@@ -59,6 +61,8 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
     onBalancesStale,
     onSessionExpired,
     changed,
+    categories,
+    onReloadCategories: reloadCategories,
   };
 
   return (

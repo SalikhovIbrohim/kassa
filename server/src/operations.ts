@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
-import { EXPENSE_CATEGORIES } from "./categories.js";
+import { readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation } from "./ledger.js";
 import { NO_NUL, UUID } from "./schemas.js";
@@ -96,9 +96,17 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 
-  app.get("/api/categories", { onRequest: app.authenticate }, async () => ({
-    categories: EXPENSE_CATEGORIES,
-  }));
+  // The lists for the entry forms and for reading old entries. `categories` is the active expense categories (the
+  // answer older phones know), `income` the active income categories, `all` every category of both kinds with
+  // what the owner set on it, archived ones too: the journal still has to name them.
+  app.get("/api/categories", { onRequest: app.authenticate }, async () => {
+    const all = await readCategories(pool);
+    return {
+      categories: all.filter((item) => item.kind === "expense" && !item.archived),
+      income: all.filter((item) => item.kind === "income" && !item.archived),
+      all,
+    };
+  });
 
   app.post<{ Body: Entry & { id: string; shiftId?: string } }>(
     "/api/operations",
@@ -113,7 +121,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
     async (request, reply) => {
       const body = request.body;
-      const normalized = normalizeEntry(body);
+      // An entry that is stored already (a retry) is not turned away because its category was archived since.
+      const stored = await pool.query<{ category: string | null }>("SELECT category FROM operations WHERE id = $1", [body.id]);
+      const normalized = normalizeEntry(body, await readCategories(pool), stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }

@@ -70,7 +70,7 @@ describe("the rate field", () => {
     // An expense: its rate may stay empty.
     await page.getByRole("button", { name: "Расход", exact: true }).click();
     await amountField(page).fill("1000");
-    await page.getByText("Топливо и дорога").click();
+    await page.locator("select[name=category]:visible").selectOption({ label: "Топливо и дорога" });
     await seeValue(rateField(page), "");
     await page.getByRole("button", { name: "Записать расход" }).click();
     await seeText(page.locator(".success:visible"), "Записано: Топливо и дорога");

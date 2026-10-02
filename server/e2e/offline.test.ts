@@ -102,10 +102,13 @@ describe("making entries without a connection", () => {
   const waitUntilKept = (page: Page) =>
     seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
 
+  /** Picks a category in the drop-down list of the form that is on the screen. */
+  const pickCategory = (page: Page, label: string) => page.locator("select[name=category]:visible").selectOption({ label });
+
   async function enterExpense(page: Page, amount: string, category = "Топливо и дорога") {
     await page.getByRole("button", { name: "Расход", exact: true }).click();
     await amountField(page).fill(amount);
-    await page.getByText(category).click();
+    await pickCategory(page, category);
     await page.getByRole("button", { name: "Записать расход" }).click();
   }
 
@@ -390,7 +393,7 @@ describe("making entries without a connection", () => {
     // Both forms are filled in before anything is pressed, so that the second press comes within a moment.
     await page.getByRole("button", { name: "Расход", exact: true }).click();
     await amountField(page).fill("10");
-    await page.getByText("Топливо и дорога").click();
+    await pickCategory(page, "Топливо и дорога");
     await page.getByRole("button", { name: "Приход", exact: true }).click();
     await amountField(page).fill("654");
     await rateField(page).fill("79");
@@ -480,14 +483,14 @@ describe("making entries without a connection", () => {
     const { page } = await desk({ RUB: "1000" });
     await page.getByRole("button", { name: "Расход", exact: true }).click();
     await amountField(page).fill("250");
-    await page.getByText("Топливо и дорога").click();
+    await pickCategory(page, "Топливо и дорога");
 
     await page.getByRole("button", { name: "Приход", exact: true }).click();
     await seeValue(amountField(page), "");
     await page.getByRole("button", { name: "Расход", exact: true }).click();
 
     await seeValue(amountField(page), "250");
-    expect(await page.getByRole("radio", { name: "Топливо и дорога" }).isChecked()).toBe(true);
+    expect(await page.locator("select[name=category]:visible").inputValue()).toBe("fuel_road");
   });
 
   it("starts a form with the currency of the last entry also when the server cannot be asked", async () => {

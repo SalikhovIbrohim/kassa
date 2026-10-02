@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
-import { EXPENSE_CATEGORIES, HANDOVER_CATEGORY } from "./categories.js";
+import { readCategories } from "./categories.js";
 import { CURRENCIES, type Currency } from "./money.js";
 
 export type SummaryOptions = {
@@ -21,7 +21,7 @@ export type CurrencySummary = {
   differenceMinor: number;
   /** The balance when the last day of the period ends. */
   closingMinor: number;
-  /** Where the expense went, every category, in the order of the list, zeros included. */
+  /** Where the expense went: every category in use, in the order of the list, zeros included; an archived one only when it has something. */
   expenseByCategory: Array<{ category: string; amountMinor: number }>;
 };
 
@@ -43,9 +43,6 @@ export type DollarSummary = {
     expense: { rubMinor: number; count: number };
   };
 };
-
-/** The categories that are costs: all but the handover to the owner. */
-const COST_CATEGORIES = EXPENSE_CATEGORIES.filter((category) => category.code !== HANDOVER_CATEGORY);
 
 type SummaryQuery = { from?: string; to?: string };
 
@@ -89,12 +86,16 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
       const end = cashDayEnd(to);
       const values: unknown[] = [start, end, [...CURRENCIES]];
       const inPeriod = "op.created_at >= $1 AND op.created_at < $2";
-      const categoryColumns = COST_CATEGORIES.map((category, index) => {
+      // The costs are the expense categories that count as costs; the others (the handover to the owner) are on their own.
+      const expenseCategories = (await readCategories(pool)).filter((category) => category.kind === "expense");
+      const costCategories = expenseCategories.filter((category) => category.countsAsCost);
+      const handoverCodes = expenseCategories.filter((category) => !category.countsAsCost).map((category) => category.code);
+      const categoryColumns = costCategories.map((category, index) => {
         values.push(category.code);
         return `COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = $${values.length} AND ${inPeriod}), 0) AS category_${index}`;
       });
-      values.push(HANDOVER_CATEGORY);
-      const handover = `$${values.length}`;
+      values.push(handoverCodes);
+      const handover = `$${values.length}::text[]`;
 
       const result = await pool.query(
         `SELECT c.currency,
@@ -103,7 +104,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
                 COALESCE(SUM(CASE op.kind WHEN 'income' THEN op.amount_minor ELSE -op.amount_minor END)
                          FILTER (WHERE op.created_at < $1), 0) AS until_start,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'income' AND ${inPeriod}), 0) AS income,
-                COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = ${handover} AND ${inPeriod}), 0) AS handover,
+                COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = ANY(${handover}) AND ${inPeriod}), 0) AS handover,
                 COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
                            WHERE sb.currency = c.currency AND s.closed_at < $2), 0) AS difference_until_end,
                 COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
@@ -119,10 +120,10 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
 
       // bigint comes back as text. Single amounts are capped, so that sums stay exact as numbers (see MAX_AMOUNT_MINOR).
       const currencies: CurrencySummary[] = result.rows.map((row) => {
-        const expenseByCategory = COST_CATEGORIES.map((category, index) => ({
-          category: category.code,
-          amountMinor: Number(row[`category_${index}`]),
-        }));
+        const expenseByCategory = costCategories
+          .map((category, index) => ({ category: category.code, archived: category.archived, amountMinor: Number(row[`category_${index}`]) }))
+          .filter((item) => !item.archived || item.amountMinor > 0)
+          .map(({ category, amountMinor }) => ({ category, amountMinor }));
         return {
           currency: row.currency as Currency,
           openingMinor: Number(row.opening_balance) + Number(row.until_start) + Number(row.difference_until_start),
@@ -144,7 +145,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
         unrated_count: string;
       }>(
         `WITH rated AS (
-           SELECT op.kind, op.currency, op.amount_minor, COALESCE(op.category = $3, false) AS handover,
+           SELECT op.kind, op.currency, op.amount_minor, COALESCE(op.category = ANY($3::text[]), false) AS handover,
                   COALESCE(op.rate_e4, CASE WHEN op.kind = 'expense' THEN s.average_rate_e4 END) AS rate
              FROM operations op LEFT JOIN shifts s ON s.id = op.shift_id
             WHERE op.deleted_at IS NULL AND op.created_at >= $1 AND op.created_at < $2
@@ -155,7 +156,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
                 COALESCE(SUM(amount_minor) FILTER (WHERE currency = 'RUB' AND rate IS NULL), 0) AS unrated_rub,
                 COUNT(*) FILTER (WHERE currency = 'RUB' AND rate IS NULL) AS unrated_count
            FROM rated GROUP BY kind, handover`,
-        [start, end, HANDOVER_CATEGORY],
+        [start, end, handoverCodes],
       );
       const usd: DollarSummary = {
         incomeMinor: 0,

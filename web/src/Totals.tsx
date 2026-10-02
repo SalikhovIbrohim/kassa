@@ -42,7 +42,6 @@ const PRESETS: Array<{ preset: PeriodPreset; label: string }> = [
 ];
 
 /** The only category that is shown even when nothing was returned to clients in the period. */
-const REFUND_CATEGORY = "client_refund";
 
 /** "+1 500,00 ₽" or "−1 500,00 ₽"; a zero has no sign. */
 function signed(minor: number, sign: "+" | "−", currency: CurrencyTotals["currency"]): string {
@@ -192,7 +191,7 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
 
 function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code: string) => string }) {
   const { currency } = totals;
-  const rows = totals.expenseByCategory.filter((row) => row.amountMinor > 0 || row.category === REFUND_CATEGORY);
+  const rows = totals.expenseByCategory.filter((row) => row.amountMinor > 0);
   return (
     <section className="total-card" aria-label={CURRENCY_NAME[currency]}>
       <h3>{CURRENCY_NAME[currency]}</h3>

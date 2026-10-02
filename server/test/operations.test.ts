@@ -55,7 +55,7 @@ describe("income and balances", () => {
         rateE4: 790_000,
         usdMinor: 1_899,
         rateSource: "own",
-        category: null,
+        category: "client_payment",
         recipient: null,
         clientCode: "K17",
         comment: "за рейс в Ташкент",

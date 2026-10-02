@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
-import type { Balance, Operation } from "./api";
+import { activeCategories, DEFAULT_INCOME_CATEGORY, type Balance, type Category, type Operation } from "./api";
+import { CategoryField } from "./CategoryField";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
@@ -16,11 +17,27 @@ type Props = {
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
+  /** The lists of categories (see `useCategories`). */
+  categories: Category[] | null | undefined;
+  onReloadCategories: () => void;
   /** The operation last corrected or deleted in the journal (see useEntry). */
   changed?: Operation | null;
   /** The form is on the screen (and not hidden behind the other one or the journal). */
   active: boolean;
 };
+
+/** The one income category that the phone can do without a list for. */
+const FALLBACK_CATEGORIES: Category[] = [
+  {
+    code: DEFAULT_INCOME_CATEGORY,
+    kind: "income",
+    label: "Оплата от клиента",
+    sortOrder: 1,
+    archived: false,
+    requiresClient: true,
+    countsAsCost: true,
+  },
+];
 
 export function IncomeForm({
   entryId,
@@ -30,6 +47,8 @@ export function IncomeForm({
   onBalancesStale,
   onSessionExpired,
   changed,
+  categories,
+  onReloadCategories,
   active,
 }: Props) {
   const [amount, setAmount] = useState("");
@@ -38,10 +57,27 @@ export function IncomeForm({
     const kept = rememberedRate();
     return kept === null ? "" : formatRateInput(kept);
   });
+  const [category, setCategory] = useState<string | null>(null);
   const [clientCode, setClientCode] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed });
+  const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
+
+  // Without the lists (never loaded, nothing kept on the phone) an income can still be entered: it is a payment of a client.
+  const lists = categories === undefined ? FALLBACK_CATEGORIES : categories;
+  const choices = lists ? activeCategories(lists, "income") : [];
+  // The first of the owner's list to start with, or the payment of a client when it is there: most incomes are.
+  useEffect(() => {
+    if (category === null && choices.length > 0) {
+      setCategory((choices.find((item) => item.code === DEFAULT_INCOME_CATEGORY) ?? choices[0]!).code);
+    }
+  }, [category, choices]);
+  const chosen = choices.find((item) => item.code === category);
+  // What the income that was just saved was, said when it is not the usual payment of a client.
+  const savedCode = entry.saved?.category ?? null;
+  const savedCategory =
+    savedCode !== null && savedCode !== DEFAULT_INCOME_CATEGORY ? lists?.find((item) => item.code === savedCode)?.label : undefined;
+  const needsClient = chosen?.requiresClient ?? false;
 
   // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
   useEffect(() => {
@@ -61,8 +97,12 @@ export function IncomeForm({
       entry.setError("Введите курс: сколько рублей за 1 доллар, например 79 или 78,5.");
       return;
     }
+    if (category === null || !chosen) {
+      entry.setError("Выберите, откуда деньги.");
+      return;
+    }
     const code = clientCode.trim();
-    if (code === "") {
+    if (needsClient && code === "") {
       entry.setError("Введите код клиента.");
       return;
     }
@@ -73,7 +113,8 @@ export function IncomeForm({
       amountMinor,
       currency,
       ...(rateE4 === null ? {} : { rateE4 }),
-      clientCode: code,
+      category,
+      ...(needsClient ? { clientCode: code } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
@@ -91,8 +132,10 @@ export function IncomeForm({
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "income" && (
           <p className="success">
-            Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}, клиент{" "}
-            {entry.saved.clientCode}. <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+            Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}
+            {savedCategory ? ` (${savedCategory})` : ""}
+            {entry.saved.clientCode ? `, клиент ${entry.saved.clientCode}` : ""}.{" "}
+            <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
           </p>
         )}
       </EntryStatus>
@@ -115,7 +158,9 @@ export function IncomeForm({
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required />}
 
-      <ClientCodeField value={clientCode} onChange={setClientCode} />
+      <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
+
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
       <label>
         <span>

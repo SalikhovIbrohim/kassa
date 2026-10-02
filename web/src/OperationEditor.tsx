@@ -1,14 +1,14 @@
 import { useRef, useState, type FormEvent } from "react";
 import {
+  DEFAULT_INCOME_CATEGORY,
   editOperation,
   NetworkError,
-  REFUND_CATEGORY,
   type Balance,
   type Category,
   type EditInput,
   type Operation,
 } from "./api";
-import { CategoryPicker } from "./CategoryPicker";
+import { CategoryField } from "./CategoryField";
 import { ClientCodeField } from "./ClientCodeField";
 import { explainFailure, NO_CONNECTION } from "./changeMessages";
 import { CurrencyPicker } from "./CurrencyPicker";
@@ -46,7 +46,8 @@ export function OperationEditor({
   const [currency, setCurrency] = useState<Currency>(operation.currency);
   const [amount, setAmount] = useState(formatAmountInput(operation.amountMinor));
   const [rate, setRate] = useState(operation.rateE4 === null ? "" : formatRateInput(operation.rateE4));
-  const [category, setCategory] = useState<string | null>(operation.category);
+  // An income from before there were categories of income is a payment of a client.
+  const [category, setCategory] = useState<string | null>(operation.category ?? (isIncome ? DEFAULT_INCOME_CATEGORY : null));
   const [clientCode, setClientCode] = useState(operation.clientCode ?? "");
   const [recipient, setRecipient] = useState(operation.recipient ?? "");
   const [comment, setComment] = useState(operation.comment ?? "");
@@ -56,7 +57,8 @@ export function OperationEditor({
   const amountInput = useRef<HTMLInputElement>(null);
   const { root, heading } = usePanelEntrance<HTMLFormElement>();
 
-  const isRefund = category === REFUND_CATEGORY;
+  const chosen = categories.find((item) => item.code === category && item.kind === operation.type);
+  const needsClient = chosen?.requiresClient ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -79,13 +81,13 @@ export function OperationEditor({
       );
       return;
     }
-    if (!isIncome && category === null) {
-      setError("Выберите, на что ушли деньги.");
+    if (category === null || !chosen) {
+      setError(isIncome ? "Выберите, откуда деньги." : "Выберите, на что ушли деньги.");
       return;
     }
     const code = clientCode.trim();
-    if ((isIncome || isRefund) && code === "") {
-      setError(isIncome ? "Введите код клиента." : "Для возврата клиенту введите код клиента.");
+    if (needsClient && code === "") {
+      setError(`Для категории «${chosen.label}» введите код клиента.`);
       return;
     }
 
@@ -97,12 +99,12 @@ export function OperationEditor({
       reason: reason.trim() || undefined,
     };
     const input: EditInput = isIncome
-      ? { type: "income", clientCode: code, ...common }
+      ? { type: "income", category, clientCode: needsClient ? code : undefined, ...common }
       : {
           type: "expense",
-          category: category!,
+          category,
           recipient: recipient.trim() || undefined,
-          clientCode: isRefund ? code : undefined,
+          clientCode: needsClient ? code : undefined,
           ...common,
         };
 
@@ -151,21 +153,17 @@ export function OperationEditor({
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required={isIncome} />}
 
-      {!isIncome &&
-        (categories.length > 0 ? (
-          <CategoryPicker categories={categories} value={category} onChange={setCategory} />
-        ) : (
-          <div className="categories-missing">
-            <p className="error" role="alert">
-              Список категорий не загрузился.
-            </p>
-            <button type="button" className="secondary" onClick={onReloadCategories}>
-              Повторить
-            </button>
-          </div>
-        ))}
+      <CategoryField
+        list={categories.length > 0 ? categories : undefined}
+        kind={operation.type}
+        label={isIncome ? "Откуда деньги" : "На что ушли деньги"}
+        value={category}
+        onChange={setCategory}
+        onReload={onReloadCategories}
+        keep={operation.category}
+      />
 
-      {(isIncome || isRefund) && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
       {!isIncome && (
         <label>

@@ -67,6 +67,14 @@ describe("the totals for a period", () => {
     return { status: response.status, body: (await response.json()) as Summary & Record<string, unknown> };
   }
 
+  /** The cost categories as the table starts with them, in their order: every one is in the answer, zeros included. */
+  const COST_CODES = [
+    "fuel_road", "salaries", "household_repair", "client_refund", "other", "freight_payment", "customs", "gazelle",
+    "transport_taxi", "lunch_warehouse", "lunch_market", "iftar", "apartment", "office", "warehouse", "phone", "card",
+    "documents", "car_repair", "police", "tickets", "people_payout", "currency_dealer", "left_with",
+  ];
+  const byCategory = (amounts: Record<string, number>) => COST_CODES.map((category) => ({ category, amountMinor: amounts[category] ?? 0 }));
+
   const of = (body: Summary, currency: string) => body.currencies.find((item) => item.currency === currency)!;
 
   describe("what is counted", () => {
@@ -103,13 +111,7 @@ describe("the totals for a period", () => {
             differenceMinor: 0,
             // 13 000,00 + 4 000,00 - 1 950,00 - 400,00
             closingMinor: 1_465_000,
-            expenseByCategory: [
-              { category: "fuel_road", amountMinor: 50_000 },
-              { category: "salaries", amountMinor: 120_000 },
-              { category: "household_repair", amountMinor: 0 },
-              { category: "client_refund", amountMinor: 20_000 },
-              { category: "other", amountMinor: 5_000 },
-            ],
+            expenseByCategory: byCategory({ fuel_road: 50_000, salaries: 120_000, client_refund: 20_000, other: 5_000 }),
           },
           {
             currency: "USD",
@@ -119,13 +121,7 @@ describe("the totals for a period", () => {
             handoverMinor: 0,
             differenceMinor: 0,
             closingMinor: 5_000,
-            expenseByCategory: [
-              { category: "fuel_road", amountMinor: 0 },
-              { category: "salaries", amountMinor: 0 },
-              { category: "household_repair", amountMinor: 0 },
-              { category: "client_refund", amountMinor: 0 },
-              { category: "other", amountMinor: 0 },
-            ],
+            expenseByCategory: byCategory({}),
           },
         ],
         // 3 000,00 and 1 000,00 rubles at 79: 37,97 and 12,66 dollars. The expenses have no rate and are in no shift.

@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
-import {
-  fetchCategories,
-  REFUND_CATEGORY,
-  SessionExpiredError,
-  type Balance,
-  type Category,
-  type Operation,
-} from "./api";
-import { CategoryPicker } from "./CategoryPicker";
+import type { Balance, Category, Operation } from "./api";
+import { CategoryField } from "./CategoryField";
 import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
@@ -23,6 +16,9 @@ type Props = {
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
+  /** The lists of categories (see `useCategories`). */
+  categories: Category[] | null | undefined;
+  onReloadCategories: () => void;
   /** The operation last corrected or deleted in the journal (see useEntry). */
   changed?: Operation | null;
   /** The form is on the screen (and not hidden behind the other one or the journal). */
@@ -37,10 +33,10 @@ export function ExpenseForm({
   onBalancesStale,
   onSessionExpired,
   changed,
+  categories,
+  onReloadCategories,
   active,
 }: Props) {
-  // null: loading, undefined: failed to load.
-  const [categories, setCategories] = useState<Category[] | null | undefined>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   // Empty to start with, and again after each entry: an expense without a rate is counted at the average of its shift.
@@ -50,22 +46,14 @@ export function ExpenseForm({
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
+  const chosen = categories?.find((item) => item.code === category && item.kind === "expense");
 
   // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
   useEffect(() => {
     if (active) amountInput.current?.focus();
   }, [active]);
 
-  function loadCategories() {
-    setCategories(null);
-    fetchCategories().then(setCategories, (caught: unknown) => {
-      if (caught instanceof SessionExpiredError) onSessionExpired();
-      else setCategories(undefined);
-    });
-  }
-  useEffect(loadCategories, []);
-
-  const isRefund = category === REFUND_CATEGORY;
+  const needsClient = chosen?.requiresClient ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -86,8 +74,8 @@ export function ExpenseForm({
       return;
     }
     const code = clientCode.trim();
-    if (isRefund && code === "") {
-      entry.setError("Для возврата клиенту введите код клиента.");
+    if (needsClient && code === "") {
+      entry.setError(`Для категории «${chosen!.label}» введите код клиента.`);
       return;
     }
 
@@ -99,7 +87,7 @@ export function ExpenseForm({
       ...(rateE4 === null ? {} : { rateE4 }),
       category,
       recipient: recipient.trim() || undefined,
-      clientCode: isRefund ? code : undefined,
+      clientCode: needsClient ? code : undefined,
       comment: comment.trim() || undefined,
     }));
     if (saved) {
@@ -144,26 +132,16 @@ export function ExpenseForm({
         />
       </label>
 
-      {categories ? (
-        <CategoryPicker categories={categories} value={category} onChange={setCategory} />
-      ) : (
-        <fieldset className="choices categories">
-          <legend>На что ушли деньги</legend>
-          {categories === null && <p className="hint">Загрузка…</p>}
-          {categories === undefined && (
-            <div>
-              <p className="error" role="alert">
-                Не удалось загрузить список.
-              </p>
-              <button type="button" className="secondary" onClick={loadCategories}>
-                Повторить
-              </button>
-            </div>
-          )}
-        </fieldset>
-      )}
+      <CategoryField
+        list={categories}
+        kind="expense"
+        label="На что ушли деньги"
+        value={category}
+        onChange={setCategory}
+        onReload={onReloadCategories}
+      />
 
-      {isRefund && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
       <label>
         <span>

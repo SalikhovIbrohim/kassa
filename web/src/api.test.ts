@@ -14,18 +14,19 @@ function stubStorage() {
 }
 
 const CATEGORIES = [
-  { code: "fuel_road", label: "Топливо и дорога" },
-  { code: "other", label: "Прочее" },
+  { code: "client_payment", kind: "income", label: "Оплата от клиента", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true },
+  { code: "fuel_road", kind: "expense", label: "Топливо и дорога", sortOrder: 1, archived: false, requiresClient: false, countsAsCost: true },
+  { code: "other", kind: "expense", label: "Прочее", sortOrder: 2, archived: true, requiresClient: false, countsAsCost: true },
 ];
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 
-describe("the expense categories on a phone without a connection", () => {
+describe("the categories on a phone without a connection", () => {
   beforeEach(() => void stubStorage());
   afterEach(() => vi.unstubAllGlobals());
 
   it("keeps the list it was given, and uses it when the server cannot be reached", async () => {
-    vi.stubGlobal("fetch", async () => json(200, { categories: CATEGORIES }));
+    vi.stubGlobal("fetch", async () => json(200, { all: CATEGORIES }));
     expect(await fetchCategories()).toEqual(CATEGORIES);
 
     vi.stubGlobal("fetch", async () => {
@@ -36,7 +37,7 @@ describe("the expense categories on a phone without a connection", () => {
   });
 
   it("uses it also when the server answers with an error of its own", async () => {
-    vi.stubGlobal("fetch", async () => json(200, { categories: CATEGORIES }));
+    vi.stubGlobal("fetch", async () => json(200, { all: CATEGORIES }));
     await fetchCategories();
 
     vi.stubGlobal("fetch", async () => json(502, {}));
@@ -45,7 +46,7 @@ describe("the expense categories on a phone without a connection", () => {
   });
 
   it("does not hide that the session has ended", async () => {
-    vi.stubGlobal("fetch", async () => json(200, { categories: CATEGORIES }));
+    vi.stubGlobal("fetch", async () => json(200, { all: CATEGORIES }));
     await fetchCategories();
 
     vi.stubGlobal("fetch", async () => json(401, {}));
@@ -59,6 +60,18 @@ describe("the expense categories on a phone without a connection", () => {
     });
 
     await expect(fetchCategories()).rejects.toThrow();
+  });
+
+  it("reads a list that an older version kept: expense categories only, a refund names a client", async () => {
+    stubStorage().set("kassa.categories", JSON.stringify([{ code: "client_refund", label: "Возврат клиенту" }, { code: "owner_handover", label: "Передача владельцу" }]));
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    expect(await fetchCategories()).toEqual([
+      { code: "client_refund", label: "Возврат клиенту", kind: "expense", sortOrder: 1, archived: false, requiresClient: true, countsAsCost: true },
+      { code: "owner_handover", label: "Передача владельцу", kind: "expense", sortOrder: 2, archived: false, requiresClient: false, countsAsCost: false },
+    ]);
   });
 
   it("ignores a kept list that is not a list of categories", async () => {

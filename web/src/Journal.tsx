@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  operationTitle,
   fetchCashiers,
   fetchCategories,
   fetchJournal,
@@ -402,10 +403,17 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
               Категория
               <select name="category" value={draft.category} onChange={(e) => change({ category: e.target.value })}>
                 <option value="">Все</option>
-                {categories.map((item) => (
-                  <option key={item.code} value={item.code}>
-                    {item.label}
-                  </option>
+                {(["income", "expense"] as const).map((kind) => (
+                  <optgroup key={kind} label={kind === "income" ? "Приход" : "Расход"}>
+                    {categories
+                      .filter((item) => item.kind === kind)
+                      .map((item) => (
+                        <option key={item.code} value={item.code}>
+                          {item.label}
+                          {item.archived ? " (в архиве)" : ""}
+                        </option>
+                      ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
@@ -595,7 +603,7 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
 
 /** The operation in words, for a question or a button: "Приход +1 500,00 ₽". */
 function describe(operation: Operation, labels: Map<string, string>): string {
-  const what = operation.type === "income" ? "Приход" : (labels.get(operation.category ?? "") ?? "Расход");
+  const what = operationTitle(operation.type, operation.category, labels);
   const sign = operation.type === "income" ? "+" : "−";
   return `${what} ${sign}${formatMoney(operation.amountMinor, operation.currency)}`;
 }
@@ -629,7 +637,7 @@ function OperationRow({
     row.current?.focus();
     onFocusDone();
   }, [focusRequest, onFocusDone]);
-  const what = operation.type === "income" ? "Приход" : (labels.get(operation.category ?? "") ?? "Расход");
+  const what = operationTitle(operation.type, operation.category, labels);
   const sign = operation.type === "income" ? "+" : "−";
   const deleted = operation.deletedAt !== null;
   const details = [

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { EXPENSE_CATEGORY_CODES } from "../src/categories.js";
 import { get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 import { withRate } from "./helpers/entries.js";
@@ -152,7 +151,7 @@ describe("expenses", () => {
       ]);
     });
 
-    it.each(EXPENSE_CATEGORY_CODES)(
+    it.each(["fuel_road", "salaries", "household_repair", "owner_handover", "client_refund", "other"])(
       "applies to a %s expense too",
       async (category) => {
         const { started, cookie } = await cashierApp({ RUB: "10" });
@@ -239,22 +238,42 @@ describe("expenses", () => {
   });
 
   describe("categories", () => {
-    it("lists the six fixed categories with their labels, to any logged-in user", async () => {
+    it("lists the categories for the forms and for reading old entries, to any logged-in user", async () => {
       const { started, cookie } = await cashierApp();
 
       const response = await get(started, "/api/categories", cookie);
 
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({
-        categories: [
-          { code: "fuel_road", label: "Топливо и дорога" },
-          { code: "salaries", label: "Зарплаты и выплаты" },
-          { code: "household_repair", label: "Хозяйство и ремонт" },
-          { code: "owner_handover", label: "Передача владельцу" },
-          { code: "client_refund", label: "Возврат клиенту" },
-          { code: "other", label: "Прочее" },
-        ],
+      const body = await response.json();
+      // The expense categories in use, the answer that older phones know: the six that the code had come first.
+      expect(body.categories.slice(0, 6).map((item: { code: string }) => item.code)).toEqual([
+        "fuel_road",
+        "salaries",
+        "household_repair",
+        "owner_handover",
+        "client_refund",
+        "other",
+      ]);
+      expect(body.categories[0]).toEqual({
+        code: "fuel_road",
+        kind: "expense",
+        label: "Топливо и дорога",
+        sortOrder: 1,
+        archived: false,
+        requiresClient: false,
+        countsAsCost: true,
       });
+      expect(body.categories.find((item: { code: string }) => item.code === "client_refund")).toMatchObject({ requiresClient: true });
+      expect(body.categories.find((item: { code: string }) => item.code === "owner_handover")).toMatchObject({ countsAsCost: false });
+      expect(body.income.map((item: { code: string }) => item.code)).toEqual([
+        "client_payment",
+        "debt_taken",
+        "sublease",
+        "debt_returned",
+        "other_income",
+      ]);
+      expect(body.income[0]).toMatchObject({ label: "Оплата от клиента", requiresClient: true });
+      expect(body.all).toHaveLength(body.categories.length + body.income.length);
       expect((await get(started, "/api/categories")).status).toBe(401);
     });
 

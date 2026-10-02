@@ -1,4 +1,4 @@
-import { EXPENSE_CATEGORY_CODES, REFUND_CATEGORY, type ExpenseCategory } from "./categories.js";
+import { DEFAULT_INCOME_CATEGORY, type Category } from "./categories.js";
 import type { Snapshot } from "./ledger.js";
 import { CURRENCIES, MAX_AMOUNT_MINOR, MAX_RATE_E4, MIN_RATE_E4 } from "./money.js";
 import { NO_NUL } from "./schemas.js";
@@ -14,7 +14,10 @@ export type IncomeEntry = {
   currency: "RUB" | "USD";
   /** Rubles for one dollar, times 10 000. Required for rubles, not allowed for dollars. */
   rateE4?: number;
-  clientCode: string;
+  /** A category of income. Without one it is a payment of a client: the entries of phones from before there were categories. */
+  category?: string;
+  /** Required when the category names a client, and not allowed otherwise. */
+  clientCode?: string;
   comment?: string;
 };
 
@@ -24,7 +27,7 @@ export type ExpenseEntry = {
   currency: "RUB" | "USD";
   /** Rubles for one dollar, times 10 000. Optional for rubles (the shift's average is used), not allowed for dollars. */
   rateE4?: number;
-  category: ExpenseCategory;
+  category: string;
   recipient?: string;
   clientCode?: string;
   comment?: string;
@@ -33,6 +36,8 @@ export type ExpenseEntry = {
 export type Entry = IncomeEntry | ExpenseEntry;
 
 const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
+/** A code of a category; whether there is such a category is checked against the table (see `normalizeEntry`). */
+const categoryProperty = { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" } as const;
 
 const commonProperties = {
   amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
@@ -50,12 +55,13 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
     oneOf: [
       {
         type: "object",
-        required: [...extra.required, "type", "amountMinor", "currency", "clientCode"],
+        required: [...extra.required, "type", "amountMinor", "currency"],
         additionalProperties: false,
         properties: {
           ...commonProperties,
           ...extra.properties,
           type: { type: "string", const: "income" },
+          category: categoryProperty,
           clientCode: clientCodeProperty,
         },
       },
@@ -67,7 +73,7 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           ...commonProperties,
           ...extra.properties,
           type: { type: "string", const: "expense" },
-          category: { type: "string", enum: EXPENSE_CATEGORY_CODES },
+          category: categoryProperty,
           recipient: { type: "string", maxLength: 100, pattern: NO_NUL },
           clientCode: clientCodeProperty,
         },
@@ -79,28 +85,26 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
 export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot } | { error: string };
 
 /**
- * Cleans the text (see `cleanText`), turns blanks into "nothing", and applies the rules the
- * schema cannot: an income and a client refund name a client, no other expense does; a rate
- * goes with rubles only, and an income in rubles must have one.
+ * Cleans the text (see `cleanText`), turns blanks into "nothing", and applies the rules the schema cannot:
+ * the category must be one of the table, of the kind of the entry, and not archived (unless the entry has it
+ * already: `keep` is the category the operation stored under this id has, so that a retry of an accepted entry
+ * and a correction that leaves the category alone are not turned away); a category that names a client needs
+ * one, any other does not take one; a rate goes with rubles only, and an income in rubles must have one.
  */
-export function normalizeEntry(body: Entry): NormalizedEntry {
+export function normalizeEntry(body: Entry, categories: readonly Category[], keep?: string | null): NormalizedEntry {
   const comment = cleanText(body.comment ?? "") || null;
-  let category: ExpenseCategory | null = null;
-  let recipient: string | null = null;
-  let clientCode: string | null = null;
+  const code = body.category ?? (body.type === "income" ? DEFAULT_INCOME_CATEGORY : undefined);
+  const category = categories.find((item) => item.code === code && item.kind === body.type);
+  if (!category) return { error: `body/category is not a category of ${body.type === "income" ? "incomes" : "expenses"}` };
+  if (category.archived && category.code !== keep) return { error: "body/category is not in use any more" };
 
-  if (body.type === "income") {
-    clientCode = cleanText(body.clientCode);
-    if (clientCode === "") return { error: "body/clientCode must not be blank" };
-  } else {
-    category = body.category;
-    recipient = cleanText(body.recipient ?? "") || null;
-    if (category === REFUND_CATEGORY) {
-      clientCode = cleanText(body.clientCode ?? "");
-      if (clientCode === "") return { error: "body/clientCode is required for a client refund" };
-    } else if (body.clientCode !== undefined) {
-      return { error: "body/clientCode is only allowed for a client refund" };
-    }
+  const recipient = body.type === "expense" ? cleanText(body.recipient ?? "") || null : null;
+  let clientCode: string | null = null;
+  if (category.requiresClient) {
+    clientCode = cleanText(body.clientCode ?? "");
+    if (clientCode === "") return { error: `body/clientCode is required for the category ${category.label}` };
+  } else if (body.clientCode !== undefined) {
+    return { error: `body/clientCode is not allowed for the category ${category.label}` };
   }
 
   if (body.currency === "USD" && body.rateE4 !== undefined) {
@@ -116,7 +120,7 @@ export function normalizeEntry(body: Entry): NormalizedEntry {
       amountMinor: body.amountMinor,
       currency: body.currency,
       rateE4: body.rateE4 ?? null,
-      category,
+      category: category.code,
       recipient,
       clientCode,
       comment,
