@@ -1,4 +1,5 @@
-export type Role = "cashier" | "viewer";
+/** A cashier enters entries; an admin is a cashier who also counts the cash ("Сверить кассу"); the viewer is the owner, who only looks. */
+export type Role = "cashier" | "admin" | "viewer";
 
 export type User = {
   login: string;
@@ -128,9 +129,9 @@ export type Operation = {
   currency: Currency;
   /** Rubles for one dollar, times 10 000: the rate of a ruble entry. Null for dollars, and for a ruble expense without one. */
   rateE4: number | null;
-  /** What the entry is in dollars, and by which rate: its own, or the average of its shift (an expense without one, once the shift is closed). Null while there is no rate. */
+  /** What the entry is in dollars, and by which rate: its own, or the average of the ruble incomes of its day (an expense without one). Null while there is no rate at all. */
   usdMinor: number | null;
-  rateSource: "own" | "shift" | null;
+  rateSource: "own" | "day" | null;
   /** Only expenses have a category. */
   category: string | null;
   recipient: string | null;
@@ -138,8 +139,6 @@ export type Operation = {
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
-  /** The shift it was entered in; null for an entry made before there were shifts or outside the author's own shift. */
-  shiftId: string | null;
   /** How many times it was corrected or deleted; 0 means as first written. */
   revision: number;
   /** Set when the operation was deleted: only the viewer ever receives such operations. */
@@ -259,8 +258,6 @@ export async function fetchCategories(): Promise<Category[]> {
 type EntryBase = {
   /** Made once per entry and kept across retries, so a retry can never count twice. */
   id: string;
-  /** The shift that was open on this phone when the entry was made, so that an entry sent later still belongs to it. */
-  shiftId?: string;
   amountMinor: number;
   currency: Currency;
   /** Rubles for one dollar, times 10 000. An income in rubles must have it, an expense in rubles may; never for dollars. */
@@ -340,7 +337,7 @@ export async function createOperation(input: OperationInput, login: string): Pro
 export type Cashier = { login: string; displayName: string };
 
 export type JournalFilters = {
-  /** Moscow calendar days, YYYY-MM-DD, both included. Left out when a shift is asked for. */
+  /** Days of the cash desk (03:00 to 03:00 Moscow time), YYYY-MM-DD, both included. */
   from?: string;
   to?: string;
   currency?: Currency;
@@ -350,8 +347,6 @@ export type JournalFilters = {
   author?: string;
   /** Viewer only: show deleted operations too, or only them. Left out, they are hidden. */
   deleted?: "include" | "only";
-  /** The operations of the shift that is open now, whatever the day (no period is given with it). */
-  shift?: "current";
 };
 
 export type JournalPage = { operations: Operation[]; nextCursor: string | null };
@@ -392,7 +387,7 @@ export type CurrencyTotals = {
   expenseMinor: number;
   expenseByCategory: Array<{ category: string; amountMinor: number }>;
   handoverMinor: number;
-  /** What counting the cash found at the end of the shifts closed in the period: a shortage is negative. */
+  /** What the counts of the cash made in the period found: a shortage is negative. */
   differenceMinor: number;
 };
 
@@ -517,131 +512,69 @@ export async function fetchHistory(id: string): Promise<OperationHistory> {
   return (await response.json()) as OperationHistory;
 }
 
-// ---- Shifts ----
+// ---- Counting the cash ----
 
-export type Shift = {
+/** A count of the cash as it is read: who made it, when, and per currency what the book said, what was counted, the difference. */
+export type Reconciliation = {
   id: string;
-  /** ISO time. */
-  openedAt: string;
-  cashier: { login: string; displayName: string };
-  /** What the shift started with, each currency. */
-  openingBalances: Balance[];
-};
-
-function readShift(value: unknown): Shift | null {
-  const shift = value as Partial<Shift> | null;
-  if (
-    !shift ||
-    typeof shift.id !== "string" ||
-    typeof shift.openedAt !== "string" ||
-    typeof shift.cashier?.login !== "string" ||
-    typeof shift.cashier.displayName !== "string" ||
-    !Array.isArray(shift.openingBalances)
-  ) {
-    return null;
-  }
-  return shift as Shift;
-}
-
-/** The shift that is open now, or null when none is. Throws when the server cannot say. */
-export async function fetchCurrentShift(): Promise<Shift | null> {
-  const response = await request("/api/shifts/current");
-  if (response.status === 401) throw new SessionExpiredError("Session ended");
-  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/shifts/current`);
-  const body = (await response.json()) as { shift: unknown };
-  if (body.shift === null) return null;
-  const shift = readShift(body.shift);
-  if (!shift) throw new Error("The answer about the shift is not a shift");
-  return shift;
-}
-
-export type OpenShiftResult =
-  | { ok: true; shift: Shift }
-  /** A shift is open already (whose it is, in `shift`). */
-  | { ok: false; reason: "already-open"; shift: Shift | null };
-
-/** Opens a shift for the signed-in cashier. Throws when the server cannot be reached or says something unexpected. */
-export async function openShift(): Promise<OpenShiftResult> {
-  const response = await request("/api/shifts", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  if (response.status === 401) throw new SessionExpiredError("Session ended");
-  if (response.status === 201) {
-    const shift = readShift(((await response.json()) as { shift: unknown }).shift);
-    if (!shift) throw new Error("The answer about the shift is not a shift");
-    return { ok: true, shift };
-  }
-  if (response.status === 409) {
-    const body = (await response.json().catch(() => null)) as { shift?: unknown } | null;
-    return { ok: false, reason: "already-open", shift: readShift(body?.shift ?? null) };
-  }
-  throw new Error(`Unexpected status ${response.status} from /api/shifts`);
-}
-
-/** A shift as the owner reads it: who worked, when, and how the count of the cash came out. */
-export type ShiftReport = {
-  /** The average rate of the shift's ruble incomes, times 10 000, fixed when it was closed; null while open or when there was none. */
-  averageRateE4: number | null;
-  id: string;
-  openedAt: string;
-  /** Null while the shift is open. */
-  closedAt: string | null;
-  cashier: { login: string; displayName: string };
-  closedBy: { login: string; displayName: string } | null;
+  madeAt: string;
+  madeBy: { login: string; displayName: string };
   currencies: Array<{
     currency: Currency;
-    openingMinor: number;
-    /** What the books said at the end of the shift, what was counted, and the difference (counted minus books); null while open. */
-    calculatedMinor: number | null;
-    actualMinor: number | null;
-    differenceMinor: number | null;
+    /** What the book said at that moment, what was counted in the cash desk, and the difference (counted minus book: a shortage is negative). */
+    calculatedMinor: number;
+    actualMinor: number;
+    differenceMinor: number;
   }>;
 };
 
-function readReport(value: unknown): ShiftReport | null {
-  const report = value as Partial<ShiftReport> | null;
-  if (!report || typeof report.id !== "string" || typeof report.openedAt !== "string" || !Array.isArray(report.currencies) || typeof report.cashier?.login !== "string") {
+function readReconciliation(value: unknown): Reconciliation | null {
+  const report = value as Partial<Reconciliation> | null;
+  if (!report || typeof report.id !== "string" || typeof report.madeAt !== "string" || !Array.isArray(report.currencies) || typeof report.madeBy?.login !== "string") {
     return null;
   }
-  return report as ShiftReport;
+  return report as Reconciliation;
 }
 
-export type CloseShiftResult =
-  | { ok: true; shift: ShiftReport }
-  | { ok: false; reason: "not-yours" | "not-found" | "rejected" | "server-error" }
-  /** It was closed before, with another count. */
-  | { ok: false; reason: "already-closed"; shift: ShiftReport | null };
+export type ReconcileResult =
+  | { ok: true; reconciliation: Reconciliation; balances: Balance[] }
+  /** `rejected`: the sums were not accepted; `server-error`: the server did not manage, and sending the same count again counts once. */
+  | { ok: false; reason: "forbidden" | "id-conflict" | "rejected" | "server-error" };
 
-/** Closes a shift with the count of the cash, one amount per currency (what was counted, not what the books say). */
-export async function closeShift(shiftId: string, counted: Balance[]): Promise<CloseShiftResult> {
-  const response = await request(`/api/shifts/${encodeURIComponent(shiftId)}/close`, {
+/**
+ * The admin counts the cash: one amount per currency (what was counted, not what the book says). The id is made once per
+ * count and kept across retries, so that a lost answer cannot make the count twice. Throws when the server cannot be reached.
+ */
+export async function reconcileCash(id: string, counted: Balance[]): Promise<ReconcileResult> {
+  const response = await request("/api/reconciliations", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ counted }),
+    body: JSON.stringify({ id, counted }),
   });
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (response.ok) {
-    const shift = readReport(((await response.json().catch(() => null)) as { shift?: unknown } | null)?.shift ?? null);
-    return shift ? { ok: true, shift } : { ok: false, reason: "server-error" };
+    const body = (await response.json().catch(() => null)) as { reconciliation?: unknown; balances?: unknown } | null;
+    const reconciliation = readReconciliation(body?.reconciliation ?? null);
+    return reconciliation && Array.isArray(body?.balances) ? { ok: true, reconciliation, balances: body.balances as Balance[] } : { ok: false, reason: "server-error" };
   }
-  if (response.status === 403) return { ok: false, reason: "not-yours" };
-  if (response.status === 404) return { ok: false, reason: "not-found" };
-  if (response.status === 409) {
-    const body = (await response.json().catch(() => null)) as { shift?: unknown } | null;
-    return { ok: false, reason: "already-closed", shift: readReport(body?.shift ?? null) };
-  }
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 409) return { ok: false, reason: "id-conflict" };
   return { ok: false, reason: response.status >= 500 ? "server-error" : "rejected" };
 }
 
-export type ShiftsPage = { shifts: ShiftReport[]; nextBefore: string | null };
+export type ReconciliationsPage = { reconciliations: Reconciliation[]; nextBefore: string | null };
 
-/** The shifts, newest first (the owner). `before` asks for the page after the one that ended there. */
-export async function fetchShifts(before?: string): Promise<ShiftsPage> {
-  const response = await request(`/api/shifts${before ? `?${new URLSearchParams({ before })}` : ""}`);
+/** The counts of the cash, newest first (the owner and the admin). `before` asks for the page after the one that ended there. */
+export async function fetchReconciliations(before?: string): Promise<ReconciliationsPage> {
+  const response = await request(`/api/reconciliations${before ? `?${new URLSearchParams({ before })}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
-  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/shifts`);
-  const body = (await response.json()) as { shifts?: unknown[]; nextBefore?: unknown };
-  const shifts = (body.shifts ?? []).map(readReport);
-  if (!Array.isArray(body.shifts) || shifts.some((shift) => shift === null)) throw new Error("The answer of /api/shifts is not a list of shifts");
-  return { shifts: shifts as ShiftReport[], nextBefore: typeof body.nextBefore === "string" ? body.nextBefore : null };
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/reconciliations`);
+  const body = (await response.json()) as { reconciliations?: unknown[]; nextBefore?: unknown };
+  const reconciliations = (body.reconciliations ?? []).map(readReconciliation);
+  if (!Array.isArray(body.reconciliations) || reconciliations.some((item) => item === null)) {
+    throw new Error("The answer of /api/reconciliations is not a list of counts");
+  }
+  return { reconciliations: reconciliations as Reconciliation[], nextBefore: typeof body.nextBefore === "string" ? body.nextBefore : null };
 }
 
 // ---- The owner's lists of categories ----

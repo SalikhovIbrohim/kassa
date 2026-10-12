@@ -1,12 +1,16 @@
 /**
- * The cash desk keeps Moscow time, whatever time zone the phone is set to. A "day" is a
- * Moscow calendar day written YYYY-MM-DD, the way the server takes it.
+ * The cash desk keeps Moscow time, whatever time zone the phone is set to. A "day" of the cash desk runs from 03:00 to
+ * 03:00 Moscow time (the cashiers work until midnight and a little after, and there is no shift to close: the day turns
+ * over by itself at three in the morning). It is written YYYY-MM-DD, the date it begins on, the way the server takes it.
  * Moscow is UTC+3 all year round, so the conversion is a plain offset.
  */
 const MOSCOW_OFFSET_MS = 3 * 60 * 60 * 1000;
+/** The hour of Moscow time at which a day of the cash desk begins. */
+const DAY_STARTS_AT_MS = 3 * 60 * 60 * 1000;
 
-export function moscowToday(now: Date = new Date()): string {
-  return new Date(now.getTime() + MOSCOW_OFFSET_MS).toISOString().slice(0, 10);
+/** The day of the cash desk it is at `now`: at 01:00 on the 6th in Moscow it is still the 5th. */
+export function cashDayToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + MOSCOW_OFFSET_MS - DAY_STARTS_AT_MS).toISOString().slice(0, 10);
 }
 
 export function shiftDay(day: string, days: number): string {
@@ -45,7 +49,7 @@ export function formatMoscowShort(iso: string): string {
 
 export type PeriodPreset = "today" | "yesterday" | "week" | "month";
 
-/** The first and the last Moscow day of a quick choice of period, `today` being the Moscow day it is now. */
+/** The first and the last day of the cash desk of a quick choice of period, `today` being the day it is now. */
 export function presetPeriod(preset: PeriodPreset, today: string): { from: string; to: string } {
   switch (preset) {
     case "today":

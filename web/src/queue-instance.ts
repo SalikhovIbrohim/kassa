@@ -2,7 +2,6 @@ import { useSyncExternalStore } from "react";
 import { createOperation, type Balance, type Operation, type OperationInput } from "./api";
 import { createQueue, type QueueState, type SendOutcome } from "./queue";
 import { indexedDbStore, memoryStore } from "./queue-store";
-import { rememberedShift } from "./remembered-shift";
 
 /** The cashier who is signed in on this phone now. Entries go out only under this login. */
 let signedIn: string | null = null;
@@ -76,9 +75,7 @@ export function keepStorage() {
 /** Writes an entry of the signed-in cashier to the phone and sends it right away. */
 export function submitEntry(input: OperationInput): Promise<SendOutcome> {
   if (!signedIn) throw new Error("Nobody is signed in");
-  // The shift that is open on this phone now goes with the entry: if it can only be sent later, it still belongs to it.
-  const shiftId = rememberedShift(signedIn);
-  return queue.submit(shiftId ? { ...input, shiftId } : input, signedIn);
+  return queue.submit(input, signedIn);
 }
 
 export function useQueueState(): QueueState {

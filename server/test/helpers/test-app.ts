@@ -23,6 +23,7 @@ export type TestAdmin = {
   revokeUser(login: string): Promise<void>;
   restoreUser(login: string): Promise<void>;
   resetPassword(login: string, newPassword: string): Promise<void>;
+  setRole(login: string, role: string): Promise<unknown>;
   /** Amount as the developer types it, e.g. "1000.50". */
   setOpeningBalance(currency: string, amount: string): Promise<void>;
 };
@@ -203,6 +204,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       restoreUser: (login) => adminUsers.restoreUser(adminPool, login),
       resetPassword: (login, newPassword) =>
         adminUsers.resetPassword(adminPool, login, newPassword),
+      setRole: (login, role) => adminUsers.setRole(adminPool, login, role),
       setOpeningBalance: async (currency, amount) => {
         await adminBalances.setOpeningBalance(adminPool, currency, amount);
       },

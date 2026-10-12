@@ -4,7 +4,6 @@ import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.j
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 
 const OPENED = new Date("2026-03-05T08:30:00Z");
-const CLOSED = new Date("2026-03-05T15:00:00Z");
 
 type Entry = Record<string, unknown>;
 
@@ -32,7 +31,6 @@ describe("the rate and the dollars", () => {
 
   const income = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "income", amountMinor: 79_000, currency: "RUB", rateE4: 790_000, clientCode: "K17", ...overrides });
   const expense = (overrides: Entry = {}): Entry => ({ id: randomUUID(), type: "expense", amountMinor: 79_000, currency: "RUB", category: "fuel_road", ...overrides });
-  const counted = { counted: [{ currency: "RUB", amountMinor: 0 }, { currency: "USD", amountMinor: 0 }] };
 
   async function post(started: TestApp, cookie: string, body: Entry) {
     const response = await postJson(started, "/api/operations", body, cookie);
@@ -167,80 +165,80 @@ describe("the rate and the dollars", () => {
     });
   });
 
-  describe("the average rate of a shift, when it is closed", () => {
-    async function open(started: TestApp, cookie: string) {
-      return (await (await postJson(started, "/api/shifts", {}, cookie)).json()).shift as { id: string };
-    }
-    const close = (started: TestApp, id: string, cookie: string) => postJson(started, `/api/shifts/${id}/close`, counted, cookie);
+  describe("the average rate of the day, for an expense without a rate of its own", () => {
+    const journalOf = async (started: TestApp, owner: string, day: string) =>
+      (await (await get(started, `/api/operations?from=${day}&to=${day}`, owner)).json()).operations as Array<Record<string, unknown>>;
 
-    it("is the average of the rates of the ruble incomes of the shift, fixed at closing", async () => {
-      const { started, ivan } = await desk();
-      const shift = await open(started, ivan);
+    it("counts it at the average of the rates of the ruble incomes of its day, dollars left out, and says so", async () => {
+      const { started, ivan, owner } = await desk();
       await post(started, ivan, income({ rateE4: 780_000 }));
       await post(started, ivan, income({ rateE4: 790_000 }));
       await post(started, ivan, income({ rateE4: 800_000 }));
       await post(started, ivan, income({ currency: "USD", rateE4: undefined, amountMinor: 100 }));
-      started.setNow(CLOSED);
+      await post(started, ivan, expense({ amountMinor: 395_000 }));
 
-      const closed = await (await close(started, shift.id, ivan)).json();
+      const shown = (await journal(started, owner)).find((item) => item.amountMinor === 395_000);
 
-      expect(closed.shift.averageRateE4).toBe(790_000);
+      // 3 950,00 rubles at the average 79: 50,00 dollars.
+      expect(shown).toMatchObject({ rateE4: null, usdMinor: 5_000, rateSource: "day" });
     });
 
-    it("counts the expenses without a rate at the average once the shift is closed, and not before", async () => {
+    it("counts it at once, and follows the incomes that come later in the day: there is no shift to close", async () => {
       const { started, ivan, owner } = await desk();
-      const shift = await open(started, ivan);
       await post(started, ivan, income({ amountMinor: 790_000, rateE4: 790_000 }));
       await post(started, ivan, expense({ amountMinor: 395_000 }));
       await post(started, ivan, expense({ amountMinor: 395_000, rateE4: 800_000 }));
 
-      // The shift is open: the expense without a rate is not in dollars yet, and the totals say so.
-      const before = await summary(started, owner);
-      expect(before.usd).toMatchObject({ incomeMinor: 10_000, expenseMinor: 4_938, withoutRate: { expense: { rubMinor: 395_000, count: 1 } } });
-      expect((await journal(started, owner)).find((item) => item.amountMinor === 395_000 && item.rateSource === null)).toMatchObject({ usdMinor: null });
-
-      started.setNow(CLOSED);
-      await close(started, shift.id, ivan);
-
       // 3 950,00 rubles at the average 79: 50,00 dollars, and the other one at its own 80: 49,38.
-      const after = await summary(started, owner);
-      expect(after.usd).toEqual({
+      const early = await summary(started, owner);
+      expect(early.usd).toEqual({
         incomeMinor: 10_000,
         expenseMinor: 5_000 + 4_938,
         handoverMinor: 0,
         resultMinor: 10_000 - 5_000 - 4_938,
         withoutRate: { income: { rubMinor: 0, count: 0 }, expense: { rubMinor: 0, count: 0 } },
       });
-      const shown = (await journal(started, owner)).find((item) => item.amountMinor === 395_000 && item.rateE4 === null);
-      expect(shown).toMatchObject({ usdMinor: 5_000, rateSource: "shift" });
+
+      // Another income at 80 moves the average of the day to 79,5: the expense is worth 49,69 now.
+      await post(started, ivan, income({ amountMinor: 800_000, rateE4: 800_000 }));
+      const later = await summary(started, owner);
+      expect(later.usd.expenseMinor).toBe(4_969 + 4_938);
+      expect((await journal(started, owner)).find((item) => item.amountMinor === 395_000 && item.rateE4 === null)).toMatchObject({ usdMinor: 4_969, rateSource: "day" });
     });
 
-    it("takes the last rate of an income when the shift had none of its own, and none when there never was one", async () => {
-      const { started, ivan } = await desk();
-      const first = await open(started, ivan);
+    it("takes the incomes of its own day only, and the day turns over at 03:00 Moscow time", async () => {
+      const { started, ivan, owner } = await desk();
+      // 01:00 Moscow time on the 5th is still the day of the 4th; 03:00 begins the 5th.
+      started.setNow(new Date("2026-03-04T22:00:00Z"));
       await post(started, ivan, income({ rateE4: 770_000 }));
-      started.setNow(CLOSED);
-      await close(started, first.id, ivan);
-      const second = await open(started, ivan);
-      started.setNow(new Date("2026-03-05T20:00:00Z"));
+      started.setNow(new Date("2026-03-05T00:00:00Z"));
+      await post(started, ivan, income({ rateE4: 790_000 }));
+      await post(started, ivan, expense({ amountMinor: 395_000 }));
+      started.setNow(new Date("2026-03-04T23:59:59Z"));
+      await post(started, ivan, expense({ amountMinor: 385_000 }));
 
-      const closed = await (await close(started, second.id, ivan)).json();
+      const fifth = (await journalOf(started, owner, "2026-03-05")).find((item) => item.amountMinor === 395_000);
+      const fourth = (await journalOf(started, owner, "2026-03-04")).find((item) => item.amountMinor === 385_000);
 
-      expect(closed.shift.averageRateE4).toBe(770_000);
-
-      const other = await desk();
-      const alone = await open(other.started, other.ivan);
-      const empty = await (await close(other.started, alone.id, other.ivan)).json();
-      expect(empty.shift.averageRateE4).toBeNull();
+      expect(fifth).toMatchObject({ usdMinor: 5_000, rateSource: "day" });
+      // 3 850,00 rubles at the 77 of the income at 01:00, the only one of that day.
+      expect(fourth).toMatchObject({ usdMinor: 5_000, rateSource: "day" });
     });
 
-    it("leaves an expense outside any shift without dollars, and says so in the totals", async () => {
+    it("takes the last rate of an income when its day had none of its own, and none when there never was one", async () => {
       const { started, ivan, owner } = await desk();
       await post(started, ivan, expense({ amountMinor: 120_000 }));
+      expect((await summary(started, owner)).usd).toMatchObject({ expenseMinor: 0, withoutRate: { expense: { rubMinor: 120_000, count: 1 } } });
+      expect((await journal(started, owner))[0]).toMatchObject({ usdMinor: null, rateSource: null });
 
-      const { usd } = await summary(started, owner);
+      started.setNow(new Date("2026-03-04T10:00:00Z"));
+      await post(started, ivan, income({ rateE4: 770_000 }));
+      started.setNow(new Date("2026-03-05T20:00:00Z"));
+      const body = expense({ amountMinor: 770_000 });
+      await post(started, ivan, body);
 
-      expect(usd).toMatchObject({ expenseMinor: 0, withoutRate: { expense: { rubMinor: 120_000, count: 1 } } });
+      // The day of the 5th has no income, so the last rate before it ends counts: 77,00.
+      expect((await journal(started, owner)).find((item) => item.id === body.id)).toMatchObject({ usdMinor: 10_000, rateSource: "day" });
     });
 
     it("does not count a deleted operation", async () => {
@@ -250,6 +248,17 @@ describe("the rate and the dollars", () => {
       await deleteRequest(started, `/api/operations/${body.id}`, ivan);
 
       expect((await summary(started, owner)).usd.incomeMinor).toBe(0);
+    });
+
+    it("does not take a deleted income into the average", async () => {
+      const { started, ivan, owner } = await desk();
+      const odd = income({ rateE4: 900_000 });
+      await post(started, ivan, odd);
+      await post(started, ivan, income({ rateE4: 790_000 }));
+      await deleteRequest(started, `/api/operations/${odd.id}`, ivan);
+      await post(started, ivan, expense({ amountMinor: 395_000 }));
+
+      expect((await journal(started, owner)).find((item) => item.amountMinor === 395_000)).toMatchObject({ usdMinor: 5_000 });
     });
   });
 

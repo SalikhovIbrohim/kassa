@@ -7,8 +7,8 @@ export type Balance = { currency: Currency; amountMinor: number };
 export type Queryable = Pick<pg.Pool, "query">;
 
 /**
- * Opening balance plus incomes minus expenses, per currency, always all currencies, plus what counting
- * the cash found at the end of shifts (a shortage lowers it, a surplus raises it: the books then say what
+ * Opening balance plus incomes minus expenses, per currency, always all currencies, plus what the
+ * reconciliations found when the cash was counted (a shortage lowers it, a surplus raises it: the books then say what
  * is really in the cash desk). A deleted operation counts for nothing.
  */
 export async function getBalances(db: Queryable): Promise<Balance[]> {
@@ -16,7 +16,7 @@ export async function getBalances(db: Queryable): Promise<Balance[]> {
     `SELECT c.currency,
             COALESCE(o.amount_minor, 0)
               + COALESCE(SUM(CASE op.kind WHEN 'income' THEN op.amount_minor ELSE -op.amount_minor END), 0)
-              + COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb WHERE sb.currency = c.currency), 0)
+              + COALESCE((SELECT SUM(rb.difference_minor) FROM reconciliation_balances rb WHERE rb.currency = c.currency), 0)
               AS amount_minor
        FROM unnest($1::text[]) AS c(currency)
        LEFT JOIN opening_balances o ON o.currency = c.currency

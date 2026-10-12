@@ -39,7 +39,7 @@ export function ExpenseForm({
 }: Props) {
   const [category, setCategory] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
-  // Empty to start with, and again after each entry: an expense without a rate is counted at the average of its shift.
+  // Empty to start with, and again after each entry: an expense without a rate is counted at the average of its day.
   const [rate, setRate] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [recipient, setRecipient] = useState("");
@@ -67,7 +67,7 @@ export function ExpenseForm({
       entry.setError("Выберите, на что ушли деньги.");
       return;
     }
-    // The rate of an expense is optional: left empty, the average of the shift is used when it is closed.
+    // The rate of an expense is optional: left empty, the average rate of the ruble incomes of the day is used.
     const rateE4 = currency === "RUB" && rate.trim() !== "" ? parseRateInput(rate) : null;
     if (currency === "RUB" && rate.trim() !== "" && rateE4 === null) {
       entry.setError("Курс введён неверно: сколько рублей за 1 доллар, например 79 или 78,5. Или оставьте поле пустым.");

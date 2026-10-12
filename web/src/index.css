@@ -1137,45 +1137,43 @@ button.danger {
   font-weight: 500;
 }
 
-/* ---- The shift on the cashier's screen ---- */
+/* ---- Counting the cash: the admin's button on the cashier's screen ---- */
 
-.shift-bar {
+.reconcile-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 6px;
-  margin: 0 0 16px;
-  padding: 12px 14px;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
 }
 
-.shift-bar p {
+.reconcile-bar p {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.shift-bar .shift-opening {
-  color: #475569;
-  font-size: 0.9rem;
-}
-
-.shift-bar button {
+.reconcile-bar button {
   justify-self: start;
 }
 
-.journal .presets {
-  margin-bottom: 8px;
+.reconcile-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.close-shift {
+.reconcile-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
-  margin-top: 4px;
 }
 
-.shift-result {
+.reconcile-result {
   display: grid;
   gap: 4px;
   padding: 10px 12px;
@@ -1183,12 +1181,12 @@ button.danger {
   border-radius: 10px;
 }
 
-.shift-result p,
-.shift-result ul {
+.reconcile-result p,
+.reconcile-result ul {
   margin: 0;
 }
 
-.shift-result ul {
+.reconcile-result ul {
   padding-left: 18px;
 }
 
@@ -1204,15 +1202,15 @@ button.danger {
   color: #166534;
 }
 
-/* ---- The owner's list of shifts ---- */
+/* ---- The owner's list of the counts of the cash ---- */
 
-.shifts {
+.reconciliations {
   display: grid;
   gap: 12px;
   min-width: 0;
 }
 
-.shift-list {
+.reconciliation-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 12px;
@@ -1221,7 +1219,7 @@ button.danger {
   list-style: none;
 }
 
-.shift-card {
+.reconciliation-card {
   display: grid;
   gap: 6px;
   align-content: start;
@@ -1232,95 +1230,34 @@ button.danger {
   border-radius: 12px;
 }
 
-.shift-card p {
+.reconciliation-card p {
   margin: 0;
 }
 
-.shift-card-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.shift-card-times {
+.reconciliation-card-time {
   color: #475569;
   font-size: 0.9rem;
 }
 
-.shift-card dl {
+.reconciliation-card dl {
   display: grid;
   gap: 4px;
   margin: 0;
 }
 
-.shift-row {
+.reconciliation-row {
   display: grid;
   gap: 2px;
 }
 
-.shift-row dt {
+.reconciliation-row dt {
   color: #475569;
   font-size: 0.85rem;
 }
 
-.shift-row dd {
+.reconciliation-row dd {
   margin: 0;
   overflow-wrap: anywhere;
-}
-
-.badge.open {
-  color: #166534;
-  background: #dcfce7;
-}
-
-/* The shift on the cashier's screen takes one line: the forms start high, without scrolling. */
-.shift-bar {
-  gap: 4px;
-  margin: 0;
-  padding: 6px 12px;
-}
-
-.shift-row-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.shift-bar .shift-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  min-height: 40px;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  background: none;
-  border: 0;
-  border-radius: 0;
-}
-
-.shift-chevron {
-  color: #475569;
-}
-
-.shift-details {
-  display: grid;
-  gap: 8px;
-  padding-bottom: 6px;
-}
-
-.page:has(.shift-bar) {
-  gap: 12px;
-}
-
-.page:has(.shift-bar) .balance {
-  padding: 8px 14px;
 }
 
 /* ---- Telegram ---- */

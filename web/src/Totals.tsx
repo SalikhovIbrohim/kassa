@@ -8,7 +8,7 @@ import {
   type DollarTotals,
   type Totals as TotalsData,
 } from "./api";
-import { formatDay, moscowToday, presetPeriod, type PeriodPreset } from "./days";
+import { formatDay, cashDayToday, presetPeriod, type PeriodPreset } from "./days";
 import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
 
 type Props = {
@@ -51,7 +51,7 @@ function signed(minor: number, sign: "+" | "−", currency: CurrencyTotals["curr
 /** The viewer's totals of a period: for each currency what was there at the start, what came in and went out, what is left. */
 export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
-  const today = moscowToday();
+  const today = cashDayToday();
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [reloadCount, setReloadCount] = useState(0);
@@ -220,7 +220,7 @@ function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code:
         </div>
         {totals.differenceMinor !== 0 && (
           <div className={totals.differenceMinor < 0 ? "total-row expense" : "total-row income"}>
-            <dt>Разница при сверке (смены закрыты)</dt>
+            <dt>Разница при сверке кассы</dt>
             <dd data-total="difference">{formatDifference(totals.differenceMinor, currency)}</dd>
           </div>
         )}
@@ -243,7 +243,7 @@ function DollarCard({ usd }: { usd: DollarTotals }) {
     side.count === 0 ? null : (
       <p className="hint" data-without-rate={what}>
         Не в расчёте: {what === "income" ? "приходов" : "расходов"} в рублях без курса: {side.count}, на{" "}
-        {formatMoney(side.rubMinor, "RUB")}. Курс такой записи берётся из среднего по смене, когда смена закрыта.
+        {formatMoney(side.rubMinor, "RUB")}. Расход без курса считается по среднему курсу рублёвых приходов его дня, а приходов с курсом пока не было вовсе.
       </p>
     );
   return (

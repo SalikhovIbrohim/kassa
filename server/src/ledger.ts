@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { getBalances, type Balance } from "./balances.js";
+import { cashDayStartSql } from "./cash-day.js";
 import { CURRENCIES, toUsdMinor, type Currency } from "./money.js";
 
 export type OperationRow = {
@@ -9,16 +10,14 @@ export type OperationRow = {
   currency: Currency;
   /** Rubles for one dollar, times 10 000 (bigint comes as text); only for rubles. */
   rate_e4: string | null;
-  /** The average rate of the shift's ruble incomes, once the shift is closed (see `closeShift`). */
-  shift_average_rate_e4: string | null;
+  /** For a ruble expense without a rate of its own: the average rate of the ruble incomes of its day (see `dayAverageRateSql`). */
+  day_average_rate_e4: string | null;
   category: string | null;
   recipient: string | null;
   client_code: string | null;
   comment: string | null;
   created_at: Date;
   author_id: string;
-  /** The shift it was entered in; null for operations from before there were shifts, or without a shift of the author's own. */
-  shift_id: string | null;
   author_login: string;
   author_display_name: string;
   /** How many times it was corrected or deleted; 0 means as first written. */
@@ -28,27 +27,43 @@ export type OperationRow = {
   deleted_by_display_name: string | null;
 };
 
+/**
+ * SQL for the rate at which a ruble expense without a rate of its own is counted in dollars: the average of the rates of
+ * the ruble incomes of its day (null for any other operation). A day with no ruble income takes the rate of the last one
+ * before the day ended; none at all, none. It is worked out when read, so what is entered later in the day moves it, and
+ * once the day is over (03:00) it only moves if an income of that day is corrected.
+ */
+export function dayAverageRateSql(operation: string): string {
+  const dayStart = cashDayStartSql(`${operation}.created_at`);
+  const rated = "i.kind = 'income' AND i.currency = 'RUB' AND i.rate_e4 IS NOT NULL AND i.deleted_at IS NULL";
+  return `CASE WHEN ${operation}.kind = 'expense' AND ${operation}.currency = 'RUB' AND ${operation}.rate_e4 IS NULL THEN COALESCE(
+      (SELECT ROUND(AVG(i.rate_e4))::bigint FROM operations i
+        WHERE ${rated} AND i.created_at >= ${dayStart} AND i.created_at < ${dayStart} + interval '24 hours'),
+      (SELECT i.rate_e4 FROM operations i
+        WHERE ${rated} AND i.created_at < ${dayStart} + interval '24 hours'
+        ORDER BY i.created_at DESC, i.id DESC LIMIT 1)) END`;
+}
+
 /** The columns every read of an operation returns: the row, who wrote it, who deleted it. */
 export const OPERATION_SELECT = `o.*,
-  s.average_rate_e4 AS shift_average_rate_e4,
+  ${dayAverageRateSql("o")} AS day_average_rate_e4,
   u.login AS author_login, u.display_name AS author_display_name,
   d.login AS deleted_by_login, d.display_name AS deleted_by_display_name`;
 
 export const OPERATION_FROM = `operations o
   JOIN users u ON u.id = o.author_id
-  LEFT JOIN shifts s ON s.id = o.shift_id
   LEFT JOIN users d ON d.id = o.deleted_by`;
 
 /**
  * What a ruble operation is in dollars, and by which rate: its own, or for an expense without one the
- * average of its shift, once the shift is closed. Dollars are what they are. Null when there is no rate yet.
+ * average of its day. Dollars are what they are. Null when there is no rate at all yet.
  */
-export function inDollars(row: OperationRow): { usdMinor: number | null; rateSource: "own" | "shift" | null } {
+export function inDollars(row: OperationRow): { usdMinor: number | null; rateSource: "own" | "day" | null } {
   const amountMinor = Number(row.amount_minor);
   if (row.currency === "USD") return { usdMinor: amountMinor, rateSource: null };
   if (row.rate_e4 !== null) return { usdMinor: toUsdMinor(amountMinor, Number(row.rate_e4)), rateSource: "own" };
-  if (row.kind === "expense" && row.shift_average_rate_e4 !== null) {
-    return { usdMinor: toUsdMinor(amountMinor, Number(row.shift_average_rate_e4)), rateSource: "shift" };
+  if (row.kind === "expense" && row.day_average_rate_e4 !== null) {
+    return { usdMinor: toUsdMinor(amountMinor, Number(row.day_average_rate_e4)), rateSource: "day" };
   }
   return { usdMinor: null, rateSource: null };
 }
@@ -69,7 +84,6 @@ export function toOperation(row: OperationRow) {
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
     createdAt: row.created_at.toISOString(),
-    shiftId: row.shift_id,
     revision: row.revision,
     deletedAt: row.deleted_at?.toISOString() ?? null,
     deletedBy:
@@ -126,8 +140,6 @@ export type NewOperation = Snapshot & {
   kind: "income" | "expense";
   authorId: string;
   createdAt: Date;
-  /** The shift the sender says was open when the entry was made (a phone that was offline); see `shiftFor`. */
-  shiftId?: string | null;
 };
 
 /**
@@ -209,21 +221,6 @@ export async function lockBalances(client: pg.ClientBase, currencies: readonly C
   }
 }
 
-/**
- * The shift a new operation belongs to. A phone that was offline says which shift was open on it when the
- * entry was made, and that one counts, also if it has been closed since. Otherwise it is the shift the author
- * has open now. Never a shift of somebody else, never one that does not exist: an entry is not refused for
- * that, it simply belongs to no shift (the owner sees it as one made outside a shift).
- */
-async function shiftFor(db: pg.ClientBase, authorId: string, named: string | null | undefined): Promise<string | null> {
-  if (named) {
-    const found = await db.query<{ id: string }>("SELECT id FROM shifts WHERE id = $1 AND cashier_id = $2", [named, authorId]);
-    if (found.rows[0]) return found.rows[0].id;
-  }
-  const open = await db.query<{ id: string }>("SELECT id FROM shifts WHERE closed_at IS NULL AND cashier_id = $1", [authorId]);
-  return open.rows[0]?.id ?? null;
-}
-
 async function findOperation(db: pg.ClientBase, id: string): Promise<OperationRow | undefined> {
   const found = await db.query<OperationRow>(
     `SELECT ${OPERATION_SELECT} FROM ${OPERATION_FROM} WHERE o.id = $1`,
@@ -276,8 +273,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const inserted = await client.query(
       `INSERT INTO operations
          (id, kind, amount_minor, currency, rate_e4, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at, shift_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          client_code_key, comment, author_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
@@ -292,7 +289,6 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
         wanted.comment,
         wanted.authorId,
         wanted.createdAt,
-        await shiftFor(client, wanted.authorId, wanted.shiftId),
       ],
     );
     // Zero rows: another request with this id got in between our look and our insert. The

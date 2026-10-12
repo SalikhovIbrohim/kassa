@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { get, loginAs, postJson } from "./helpers/http.js";
+import { deleteRequest, get, loginAs, postJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 import { withRate } from "./helpers/entries.js";
 
-// 11:30 in Moscow (UTC+3), the middle of 5 March.
+// 11:30 in Moscow (UTC+3), the middle of 5 March. A day of the cash desk runs from 03:00 to 03:00 Moscow time.
 const NOW = new Date("2026-03-05T08:30:00Z");
 
 type Who = "ivan" | "petr";
@@ -82,15 +82,15 @@ describe("the journal of operations", () => {
             amountMinor: 30_000,
             currency: "RUB",
             rateE4: null,
-            usdMinor: null,
-            rateSource: null,
+            // 300,00 rubles at the 79 of the income of the same day: 3,80 dollars.
+            usdMinor: 380,
+            rateSource: "day",
             category: "owner_handover",
             recipient: "Азамат",
             clientCode: null,
             comment: null,
             author: { login: "ivan", displayName: "Иван" },
             createdAt: "2026-03-05T07:00:00.000Z",
-            shiftId: null,
             revision: 0,
             deletedAt: null,
             deletedBy: null,
@@ -109,7 +109,6 @@ describe("the journal of operations", () => {
             comment: "за рейс",
             author: { login: "ivan", displayName: "Иван" },
             createdAt: "2026-03-05T06:00:00.000Z",
-            shiftId: null,
             revision: 0,
             deletedAt: null,
             deletedBy: null,
@@ -136,31 +135,33 @@ describe("the journal of operations", () => {
     });
   });
 
-  describe("days are Moscow days", () => {
-    it("starts a day at midnight Moscow time, not at midnight UTC", async () => {
+  describe("days are days of the cash desk: from 03:00 to 03:00 Moscow time", () => {
+    it("starts a day at 03:00 Moscow time, which is midnight UTC, and what is entered after midnight is still the day that ends", async () => {
       const { started, ivan } = await deskWithPeople();
-      const lateYesterday = await record(started, ivan, "2026-03-04T20:59:59Z", income());
-      const earlyToday = await record(started, ivan, "2026-03-04T21:00:00Z", income());
-      const lateToday = await record(started, ivan, "2026-03-05T20:59:59Z", income());
-      const earlyTomorrow = await record(started, ivan, "2026-03-05T21:00:00Z", income());
+      // 02:59:59 in Moscow is the night of the 4th; 03:00:00 begins the 5th.
+      const lateYesterday = await record(started, ivan, "2026-03-04T23:59:59Z", income());
+      const earlyToday = await record(started, ivan, "2026-03-05T00:00:00Z", income());
+      // 01:00 in Moscow on the 6th: the cashiers are still at work, and it is the 5th.
+      const afterMidnight = await record(started, ivan, "2026-03-05T22:00:00Z", income());
+      const lateToday = await record(started, ivan, "2026-03-05T23:59:59Z", income());
+      const earlyTomorrow = await record(started, ivan, "2026-03-06T00:00:00Z", income());
 
       const today = await journal(started, ivan, "?from=2026-03-05&to=2026-03-05");
       const yesterday = await journal(started, ivan, "?from=2026-03-04&to=2026-03-04");
       const tomorrow = await journal(started, ivan, "?from=2026-03-06&to=2026-03-06");
 
-      expect(ids(today.body)).toEqual([lateToday, earlyToday]);
+      expect(ids(today.body)).toEqual([lateToday, afterMidnight, earlyToday]);
       expect(ids(yesterday.body)).toEqual([lateYesterday]);
       expect(ids(tomorrow.body)).toEqual([earlyTomorrow]);
     });
 
-    it("takes 'today' from the application's clock in Moscow time", async () => {
+    it("takes 'today' from the application's clock: still the 5th at 01:00 Moscow time on the 6th, the 6th from 03:00", async () => {
       const { started, ivan } = await deskWithPeople();
-      // 22:00 UTC on 5 March is already 6 March in Moscow.
       started.setNow(new Date("2026-03-05T22:00:00Z"));
+      expect((await journal(started, ivan)).body).toMatchObject({ from: "2026-03-05", to: "2026-03-05" });
 
-      const { body } = await journal(started, ivan);
-
-      expect(body).toMatchObject({ from: "2026-03-06", to: "2026-03-06" });
+      started.setNow(new Date("2026-03-06T00:00:00Z"));
+      expect((await journal(started, ivan)).body).toMatchObject({ from: "2026-03-06", to: "2026-03-06" });
     });
 
     it("reads one bound on its own as that single day", async () => {
@@ -179,45 +180,56 @@ describe("the journal of operations", () => {
   });
 
   describe("what a cashier sees", () => {
-    it("only their own operations, never a colleague's", async () => {
+    it("the entries of everybody who works in the cash desk, each with who entered it: it is one book and one box", async () => {
       const { started, ivan, petr } = await deskWithPeople();
       const mine = await record(started, ivan, "2026-03-05T06:00:00Z", income());
-      await record(started, petr, "2026-03-05T07:00:00Z", income({ clientCode: "SECRET" }));
+      const theirs = await record(started, petr, "2026-03-05T07:00:00Z", income({ clientCode: "K99" }));
 
       const { body } = await journal(started, ivan);
 
-      expect(ids(body)).toEqual([mine]);
-      expect(JSON.stringify(body)).not.toContain("SECRET");
+      expect(ids(body)).toEqual([theirs, mine]);
+      expect(body.operations.map((item: { author: { login: string } }) => item.author.login)).toEqual(["petr", "ivan"]);
     });
 
-    it("may name themselves as the author, in any letter case", async () => {
+    it("the same for an admin, who is a cashier with one more button", async () => {
       const { started, ivan } = await deskWithPeople();
+      await started.admin.createUser({ login: "anvar", password: "admin pass word", role: "admin", displayName: "Анвар" });
+      const anvar = await loginAs(started, "anvar", "admin pass word");
       const mine = await record(started, ivan, "2026-03-05T06:00:00Z", income());
 
-      const { status, body } = await journal(started, ivan, "?author=IVAN");
-
-      expect(status).toBe(200);
-      expect(ids(body)).toEqual([mine]);
+      expect(ids((await journal(started, anvar)).body)).toEqual([mine]);
+      const own = await record(started, anvar, "2026-03-05T07:00:00Z", income());
+      expect(ids((await journal(started, ivan)).body)).toEqual([own, mine]);
     });
 
-    it("is refused when asking for a colleague's operations", async () => {
+    it("may filter by an author, in any letter case: their own or a colleague's", async () => {
       const { started, ivan, petr } = await deskWithPeople();
-      await record(started, petr, "2026-03-05T07:00:00Z", income());
+      const mine = await record(started, ivan, "2026-03-05T06:00:00Z", income());
+      const theirs = await record(started, petr, "2026-03-05T07:00:00Z", income());
 
-      const { status, body } = await journal(started, ivan, "?author=petr");
-
-      expect(status).toBe(403);
-      expect(body.operations).toBeUndefined();
+      expect(ids((await journal(started, ivan, "?author=IVAN")).body)).toEqual([mine]);
+      expect(ids((await journal(started, ivan, "?author=Petr")).body)).toEqual([theirs]);
     });
 
-    it("can look at any earlier day, still only at their own", async () => {
+    it("can look at any earlier day", async () => {
       const { started, ivan, petr } = await deskWithPeople();
       const mine = await record(started, ivan, "2026-03-02T10:00:00Z", income());
-      await record(started, petr, "2026-03-02T11:00:00Z", income());
+      const theirs = await record(started, petr, "2026-03-02T11:00:00Z", income());
 
       const { body } = await journal(started, ivan, "?from=2026-03-02&to=2026-03-02");
 
-      expect(ids(body)).toEqual([mine]);
+      expect(ids(body)).toEqual([theirs, mine]);
+    });
+
+    it("does not see what was deleted, nor may ask for it: only the owner does", async () => {
+      const { started, ivan, petr } = await deskWithPeople();
+      const gone = income();
+      await record(started, petr, "2026-03-05T06:00:00Z", gone);
+      expect((await deleteRequest(started, `/api/operations/${gone.id}`, petr)).status).toBe(200);
+
+      expect(ids((await journal(started, ivan)).body)).toEqual([]);
+      expect((await journal(started, ivan, "?deleted=include")).status).toBe(403);
+      expect((await journal(started, ivan, "?deleted=only")).status).toBe(403);
     });
   });
 
@@ -384,7 +396,7 @@ describe("the journal of operations", () => {
     });
   });
 
-  describe("a cashier stays within their own operations under every filter and cursor", () => {
+  describe("a cashier uses the filters and the pages as the owner does", () => {
     async function twoCashiersTradingTurns() {
       const desk = await deskWithPeople();
       const { started, ivan, petr } = desk;
@@ -399,40 +411,34 @@ describe("the journal of operations", () => {
       return { ...desk, mine, theirs };
     }
 
-    it("when filtering by currency, type and client code", async () => {
-      const { started, ivan, mine } = await twoCashiersTradingTurns();
+    it("when filtering by currency, type and client code: both colleagues' entries come", async () => {
+      const { started, ivan, mine, theirs } = await twoCashiersTradingTurns();
 
       const { body } = await journal(started, ivan, "?currency=RUB&type=income&clientCode=K17");
 
-      expect([...ids(body)].sort()).toEqual([...mine].sort());
+      expect([...ids(body)].sort()).toEqual([...mine, ...theirs].sort());
     });
 
-    it("when asking for their own login as the author", async () => {
-      const { started, ivan, mine } = await twoCashiersTradingTurns();
+    it("when asking for one author", async () => {
+      const { started, ivan, mine, theirs } = await twoCashiersTradingTurns();
 
-      const { body } = await journal(started, ivan, "?author=ivan");
-
-      expect([...ids(body)].sort()).toEqual([...mine].sort());
+      expect([...ids((await journal(started, ivan, "?author=ivan")).body)].sort()).toEqual([...mine].sort());
+      expect([...ids((await journal(started, ivan, "?author=petr")).body)].sort()).toEqual([...theirs].sort());
     });
 
-    it("page after page, even with a cursor taken from the viewer's view of everybody", async () => {
-      const { started, ivan, owner, mine, theirs } = await twoCashiersTradingTurns();
-      const everybody = await journal(started, owner, "?limit=3");
+    it("page after page, through everybody's entries, each once", async () => {
+      const { started, ivan, mine, theirs } = await twoCashiersTradingTurns();
 
-      // A cursor the viewer was given points into the middle of the colleagues' rows too.
       const seen: string[] = [];
-      let cursor: string | null = everybody.body.nextCursor;
-      let page = await journal(started, ivan, `?limit=2&cursor=${encodeURIComponent(cursor!)}`);
+      let page = await journal(started, ivan, "?limit=5");
       for (;;) {
         seen.push(...ids(page.body));
-        cursor = page.body.nextCursor;
+        const cursor: string | null = page.body.nextCursor;
         if (!cursor) break;
-        page = await journal(started, ivan, `?limit=2&cursor=${encodeURIComponent(cursor)}`);
+        page = await journal(started, ivan, `?limit=5&cursor=${encodeURIComponent(cursor)}`);
       }
 
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.every((id) => mine.includes(id))).toBe(true);
-      expect(seen.some((id) => theirs.includes(id))).toBe(false);
+      expect([...seen].sort()).toEqual([...mine, ...theirs].sort());
     });
   });
 

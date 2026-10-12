@@ -116,10 +116,11 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
-      onRequest: [app.authenticate, app.requireRole("cashier"), mustBeSentForTheSessionsOwner],
+      onRequest: [app.authenticate, app.requireRole("cashier", "admin"), mustBeSentForTheSessionsOwner],
       schema: {
         // The id is made by the client, so that sending the same entry twice stores it once.
-        // The shift is named by a phone that was offline when the entry was made; see `shiftFor` in the ledger.
+        // `shiftId` is accepted and ignored: a phone that was offline when the shifts were taken away still has entries
+        // in its queue that name one, and an entry is never turned away for that.
         body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }),
       },
     },
@@ -138,7 +139,6 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
-        shiftId: body.shiftId,
       }, events);
       // The messages were written with the operation; now that it is committed, the worker is asked to send them.
       if (recorded.status === "created") outbox.nudge();

@@ -21,8 +21,6 @@ type JournalQuery = {
   category?: string;
   clientCode?: string;
   author?: string;
-  /** "current" (the shift that is open now) or the id of a shift. */
-  shift?: string;
   deleted?: "exclude" | "include" | "only";
   limit?: string;
   cursor?: string;
@@ -64,8 +62,9 @@ function decodeCursor(cursor: string): Position | null {
 export async function registerJournal(app: FastifyInstance, options: JournalOptions) {
   const { pool, now } = options;
 
-  // The journal: newest first, one page at a time. A cashier sees only their own
-  // operations, the viewer everyone's. Everything else is a filter on top of that.
+  // The journal: newest first, one page at a time. Everybody who works in the cash desk sees everybody's entries (it is
+  // one book and one box of money, and each line says who entered it); only the viewer sees the deleted ones.
+  // Everything else is a filter on top of that.
   app.get<{ Querystring: JournalQuery }>(
     "/api/operations",
     {
@@ -82,9 +81,6 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             category: { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
-            // The operations of one shift: "current", or the id of a shift. Without a day of its own the shift
-            // is not cut at midnight; with one, the two are asked for together.
-            shift: { type: "string", maxLength: 36, pattern: `^(current|${UUID_PATTERN})$` },
             // Deleted operations: left out (the default), shown among the others, or only them.
             deleted: { type: "string", enum: ["exclude", "include", "only"] },
             // Query strings arrive as text and this server does not guess types.
@@ -100,8 +96,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       const badRequest = (message: string) =>
         reply.code(400).send({ statusCode: 400, error: "Bad Request", message });
 
-      // One bound on its own means that single day; neither means today, unless a shift is asked for.
-      const byShift = query.shift !== undefined && query.from === undefined && query.to === undefined;
+      // One bound on its own means that single day; neither means today (the day of the cash desk, see cash-day.ts).
       const from = query.from ?? query.to ?? cashDayOf(now());
       const to = query.to ?? query.from ?? from;
       if (from > to) return badRequest("querystring/from must not be after querystring/to");
@@ -117,23 +112,10 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
         if (!position) return badRequest("querystring/cursor is not a cursor this server gave out");
       }
 
-      if (user.role === "cashier" && query.author !== undefined && query.author.toLowerCase() !== user.login.toLowerCase()) {
-        return reply.code(403).send({ error: "forbidden" });
-      }
       // A deleted operation disappears for cashiers; only the viewer can look at them.
       const deleted = query.deleted ?? "exclude";
-      if (user.role === "cashier" && deleted !== "exclude") {
+      if (user.role !== "viewer" && deleted !== "exclude") {
         return reply.code(403).send({ error: "forbidden" });
-      }
-
-      // "The current shift" with none open is a shift with nothing in it.
-      let shiftId = query.shift;
-      if (shiftId === "current") {
-        const open = await pool.query<{ id: string }>("SELECT id FROM shifts WHERE closed_at IS NULL");
-        if (!open.rows[0]) {
-          return { from: byShift ? null : from, to: byShift ? null : to, operations: [], nextCursor: null };
-        }
-        shiftId = open.rows[0].id;
       }
 
       const conditions: string[] = [];
@@ -142,18 +124,13 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
         values.push(value);
         conditions.push(condition(`$${values.length}`));
       };
-      if (!byShift) {
-        add((p) => `o.created_at >= ${p}`, cashDayStart(from));
-        add((p) => `o.created_at < ${p}`, cashDayEnd(to));
-      }
-      if (shiftId !== undefined) add((p) => `o.shift_id = ${p}::uuid`, shiftId);
+      add((p) => `o.created_at >= ${p}`, cashDayStart(from));
+      add((p) => `o.created_at < ${p}`, cashDayEnd(to));
       if (deleted === "exclude") conditions.push("o.deleted_at IS NULL");
       if (deleted === "only") conditions.push("o.deleted_at IS NOT NULL");
 
-      // The role decides whose operations these are, whatever the filters say.
-      if (user.role === "cashier") add((p) => `o.author_id = ${p}`, user.id);
       // lower() on both sides: the database folds case its own way, and so must the typed text.
-      else if (query.author !== undefined) add((p) => `lower(u.login) = lower(${p})`, query.author);
+      if (query.author !== undefined) add((p) => `lower(u.login) = lower(${p})`, query.author);
       if (query.currency !== undefined) add((p) => `o.currency = ${p}`, query.currency);
       if (query.type !== undefined) add((p) => `o.kind = ${p}`, query.type);
       if (query.category !== undefined) add((p) => `o.category = ${p}`, query.category);
@@ -179,8 +156,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       const page = found.rows.slice(0, limit);
       const last = page.at(-1);
       return {
-        from: byShift ? null : from,
-        to: byShift ? null : to,
+        from,
+        to,
         operations: page.map(toOperation),
         nextCursor:
           found.rows.length > limit && last
@@ -190,14 +167,14 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
     },
   );
 
-  // Who can be picked in the viewer's "cashier" filter: everyone with a cashier role,
+  // Who can be picked in the viewer's "cashier" filter: everyone who enters entries (cashier or admin),
   // also those whose access was withdrawn, since their old operations are still there.
   app.get(
     "/api/cashiers",
     { onRequest: [app.authenticate, app.requireRole("viewer")] },
     async () => {
       const found = await pool.query<{ login: string; display_name: string }>(
-        `SELECT login, display_name FROM users WHERE role = 'cashier' ORDER BY display_name, login`,
+        `SELECT login, display_name FROM users WHERE role IN ('cashier', 'admin') ORDER BY display_name, login`,
       );
       return { cashiers: found.rows.map((row) => ({ login: row.login, displayName: row.display_name })) };
     },

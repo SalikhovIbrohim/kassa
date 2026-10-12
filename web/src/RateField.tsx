@@ -3,7 +3,7 @@ import { AmountInput } from "./AmountInput";
 type Props = {
   value: string;
   onChange: (text: string) => void;
-  /** An income in rubles must have its rate; for an expense it is optional (the average of the shift is used). */
+  /** An income in rubles must have its rate; for an expense it is optional (the average of the day is used). */
   required: boolean;
 };
 
@@ -28,7 +28,7 @@ export function RateField({ value, onChange, required }: Props) {
         />
       </label>
       {!required && (
-        <p className="hint">Не знаете курс? Оставьте пустым: после закрытия смены возьмём средний курс прихода.</p>
+        <p className="hint">Не знаете курс? Оставьте пустым: возьмём средний курс приходов за этот день.</p>
       )}
     </>
   );

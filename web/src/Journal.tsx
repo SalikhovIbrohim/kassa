@@ -15,14 +15,14 @@ import { ClientCodeField } from "./ClientCodeField";
 import { DeleteConfirm } from "./DeleteConfirm";
 import { HistoryPanel } from "./HistoryPanel";
 import { OperationEditor } from "./OperationEditor";
-import { formatDay, formatMoscowClock, formatMoscowShort, moscowToday, shiftDay } from "./days";
+import { formatDay, formatMoscowClock, formatMoscowShort, cashDayToday, shiftDay } from "./days";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
 
 type Props = {
-  /** A cashier looks at one day, or one shift, of their own operations; the viewer filters everyone's. */
+  /** A cashier looks at one day of everybody's entries (one book, one box of money); the viewer filters them. */
   mode: "cashier" | "viewer";
-  /** The cashier has a shift open: their journal starts with its operations. */
-  shiftOpen?: boolean;
+  /** The cashier who is signed in: only their own entries can be corrected or deleted. */
+  login?: string;
   onSessionExpired: () => void;
   /** Called when the person asks for fresh data, so the screen can refresh its balances too. */
   onRefresh?: () => void;
@@ -45,8 +45,6 @@ type Draft = {
   clientCode: string;
   author: string;
   deleted: "" | "include" | "only";
-  /** "current": the operations of the open shift, whatever the day. */
-  shift: "" | "current";
 };
 
 type Load =
@@ -70,15 +68,14 @@ type Load =
 
 const TYPING_PAUSE_MS = 300;
 
-function startingDraft(today: string, shift: Draft["shift"] = ""): Draft {
-  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "", shift };
+function startingDraft(today: string): Draft {
+  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "" };
 }
 
 function toFilters(draft: Draft): JournalFilters {
   return {
-    from: draft.shift ? undefined : draft.from,
-    to: draft.shift ? undefined : draft.to,
-    shift: draft.shift || undefined,
+    from: draft.from,
+    to: draft.to,
     currency: draft.currency || undefined,
     type: draft.type || undefined,
     category: draft.category || undefined,
@@ -88,10 +85,10 @@ function toFilters(draft: Draft): JournalFilters {
   };
 }
 
-export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
+export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
-  const today = moscowToday();
-  const [draft, setDraft] = useState<Draft>(() => startingDraft(today, mode === "cashier" && shiftOpen ? "current" : ""));
+  const today = cashDayToday();
+  const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
   const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -129,13 +126,8 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
     if (mode === "viewer") fetchCashiers().then(setCashiers);
   }, [mode, loadCategories]);
 
-  // The shift was closed while its operations are on show: back to the day.
   useEffect(() => {
-    if (!shiftOpen) setDraft((previous) => (previous.shift ? { ...previous, shift: "" } : previous));
-  }, [shiftOpen]);
-
-  useEffect(() => {
-    const complete = draft.shift !== "" || (draft.from !== "" && draft.to !== "" && draft.from <= draft.to);
+    const complete = draft.from !== "" && draft.to !== "" && draft.from <= draft.to;
     if (!complete) return;
     const pause = draft.clientCode === applied.clientCode ? 0 : TYPING_PAUSE_MS;
     const timer = setTimeout(() => setApplied(draft), pause);
@@ -296,14 +288,9 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
 
   const labels = useMemo(() => new Map(categories.map((item) => [item.code, item.label])), [categories]);
   const change = (changes: Partial<Draft>) => setDraft((previous) => ({ ...previous, ...changes }));
-  const periodIsBackwards = draft.shift === "" && draft.from !== "" && draft.to !== "" && draft.from > draft.to;
-  const periodIsIncomplete = draft.shift === "" && (draft.from === "" || draft.to === "");
-  const shownPeriod =
-    applied.shift !== ""
-      ? "Операции текущей смены"
-      : applied.from === applied.to
-      ? `За ${formatDay(applied.from)}`
-      : `С ${formatDay(applied.from)} по ${formatDay(applied.to)}`;
+  const periodIsBackwards = draft.from !== "" && draft.to !== "" && draft.from > draft.to;
+  const periodIsIncomplete = draft.from === "" || draft.to === "";
+  const shownPeriod = applied.from === applied.to ? `За ${formatDay(applied.from)}` : `С ${formatDay(applied.from)} по ${formatDay(applied.to)}`;
 
   return (
     <section className="journal" aria-label="Журнал">
@@ -316,29 +303,7 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
         </button>
       </div>
 
-      {mode === "cashier" && shiftOpen && (
-        <div className="presets" role="group" aria-label="Что показывать">
-          <button
-            type="button"
-            className={draft.shift === "current" ? "secondary small chosen" : "secondary small"}
-            aria-pressed={draft.shift === "current"}
-            onClick={() => change({ shift: "current" })}
-          >
-            Смена
-          </button>
-          <button
-            type="button"
-            className={draft.shift === "" ? "secondary small chosen" : "secondary small"}
-            aria-pressed={draft.shift === ""}
-            onClick={() => change({ shift: "" })}
-          >
-            День
-          </button>
-        </div>
-      )}
-
       {mode === "cashier" ? (
-        draft.shift === "" && (
         <div className="day-picker">
           <button
             type="button"
@@ -367,7 +332,6 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
             →
           </button>
         </div>
-        )
       ) : (
         <details className="filters" open={filtersOpen}>
           <summary>Фильтры</summary>
@@ -496,18 +460,14 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
           )}
           {load.operations.length === 0 ? (
             <p className="hint">
-              {mode === "cashier"
-                ? applied.shift !== ""
-                  ? "В этой смене ваших записей пока нет."
-                  : `За ${formatDay(applied.from)} ваших записей нет.`
-                : "По этим условиям записей нет."}
+              {mode === "cashier" ? `За ${formatDay(applied.from)} записей нет.` : "По этим условиям записей нет."}
             </p>
           ) : (
             <table className="journal-table" aria-label="Журнал операций" aria-busy={load.stale}>
               <thead>
                 <tr>
                   <th scope="col">Время (МСК)</th>
-                  {mode === "viewer" && <th scope="col">Кассир</th>}
+                  <th scope="col">Кассир</th>
                   <th scope="col">Операция</th>
                   <th scope="col" className="amount">
                     Сумма
@@ -522,14 +482,15 @@ export function Journal({ mode, shiftOpen = false, onSessionExpired, onRefresh, 
               <tbody className={load.stale ? "stale" : undefined}>
                 {load.operations.map((operation) => {
                   const open = panel?.id === operation.id ? panel.kind : null;
-                  const columns = mode === "viewer" ? 7 : 6;
+                  const columns = 7;
                   const description = describe(operation, labels);
                   return (
                     <Fragment key={operation.id}>
                       <OperationRow
                         operation={operation}
                         mode={mode}
-                        withDate={mode === "viewer" || applied.shift !== ""}
+                        withDate={mode === "viewer"}
+                        canChange={mode === "cashier" && login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase()}
                         labels={labels}
                         description={description}
                         open={open}
@@ -612,6 +573,7 @@ function OperationRow({
   operation,
   mode,
   withDate,
+  canChange,
   labels,
   description,
   open,
@@ -621,8 +583,10 @@ function OperationRow({
 }: {
   operation: Operation;
   mode: Props["mode"];
-  /** The day is shown with the time: a shift can go through midnight. */
+  /** The day is shown with the time (a period of several days). */
   withDate: boolean;
+  /** The cashier may correct or delete it: it is their own. */
+  canChange: boolean;
   labels: Map<string, string>;
   description: string;
   open: Panel["kind"] | null;
@@ -658,7 +622,7 @@ function OperationRow({
           {withDate ? formatMoscowShort(operation.createdAt) : formatMoscowClock(operation.createdAt)}
         </time>
       </td>
-      {mode === "viewer" && <td className="c-who">{operation.author.displayName}</td>}
+      <td className="c-who">{operation.author.displayName}</td>
       <td className="c-what">
         {what}{" "}
         {deleted ? (
@@ -684,7 +648,7 @@ function OperationRow({
       <td className="c-details">{details}</td>
       <td className="c-comment">{operation.comment}</td>
       <td className={mode === "cashier" ? "c-actions corner" : "c-actions"}>
-        {mode === "cashier" && (
+        {canChange && (
           <>
             <button
               type="button"
@@ -722,18 +686,18 @@ function OperationRow({
   );
 }
 
-/** What a ruble entry is in dollars, and at which rate: its own, or the average of its shift. */
+/** What a ruble entry is in dollars, and at which rate: its own, or the average of its day. */
 function DollarNote({ operation }: { operation: Operation }) {
   if (operation.currency !== "RUB") return null;
   if (operation.usdMinor === null) {
-    // An expense without a rate of its own waits for the shift to be closed.
-    return operation.type === "expense" ? <small className="usd-note">в долларах после закрытия смены</small> : null;
+    // An expense without a rate of its own is counted at the average of the incomes of its day: none had a rate yet.
+    return operation.type === "expense" ? <small className="usd-note">в долларах: нет прихода с курсом</small> : null;
   }
   return (
     <small className="usd-note" data-usd={operation.usdMinor}>
       ≈ {formatMoney(operation.usdMinor, "USD")}
       {operation.rateSource === "own" && operation.rateE4 !== null && <> · курс {formatRate(operation.rateE4)}</>}
-      {operation.rateSource === "shift" && <> · средний курс смены</>}
+      {operation.rateSource === "day" && <> · средний курс дня</>}
     </small>
   );
 }

@@ -5,12 +5,14 @@ import { IncomeForm } from "./IncomeForm";
 import { Journal } from "./Journal";
 import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
-import { ShiftBar, useShift } from "./ShiftBar";
+import { ReconcileBar } from "./ReconcileBar";
 import { useCategories } from "./useCategories";
 
 type Props = {
-  /** The cashier signed in: whose shift is the open one. */
+  /** The cashier signed in. */
   login: string;
+  /** An admin is a cashier who also counts the cash against the book. */
+  admin: boolean;
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
@@ -19,10 +21,8 @@ type Props = {
 type Form = "income" | "expense";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
-export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired }: Props) {
-  const shift = useShift(login, onSessionExpired, onBalancesStale);
+export function EntryScreen({ login, admin, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
-  const ownShiftOpen = shift.state.kind === "known" && shift.state.shift?.cashier.login === login;
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
   // they left it (an expense that the server refused for lack of money is exactly when they go and enter
@@ -100,20 +100,13 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
         </button>
       </div>
 
-      {/* The shift is not touched with every entry, so it lives under the journal and takes no room on the forms.
-          It stays mounted while hidden: a count typed for closing survives a look at another tab. */}
-      <div hidden={!journalOpen}>
-        <ShiftBar
-          login={login}
-          state={shift.state}
-          opening={shift.opening}
-          problem={shift.problem}
-          lastClosed={shift.lastClosed}
-          onDismissClosed={shift.dismissClosed}
-          onOpen={shift.open}
-          onClose={shift.close}
-        />
-      </div>
+      {/* Counting the cash is not done with every entry, so it lives with the journal and takes no room on the forms.
+          It stays mounted while hidden: a count typed in survives a look at another tab. */}
+      {admin && (
+        <div hidden={!journalOpen}>
+          <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />
+        </div>
+      )}
 
       <div hidden={journalOpen || form !== "income"} onInputCapture={() => (currencyTouched.current = true)}>
         <IncomeForm {...shared} active={!journalOpen && form === "income"} />
@@ -124,7 +117,7 @@ export function EntryScreen({ login, onSaved, onBalancesStale, onSessionExpired 
       {journalOpen && (
         <Journal
           mode="cashier"
-          shiftOpen={ownShiftOpen}
+          login={login}
           onSessionExpired={onSessionExpired}
           onRefresh={onBalancesStale}
           onBalances={onSaved}

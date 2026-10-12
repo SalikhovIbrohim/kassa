@@ -31,6 +31,7 @@ type State =
 
 const ROLE_LABEL: Record<Role, string> = {
   cashier: "Кассир",
+  admin: "Кассир-админ",
   viewer: "Смотрящий",
 };
 
@@ -73,7 +74,7 @@ export function App() {
         // entries: they are kept on the phone and go out when the server answers. Whether the
         // session is still alive is found out then.
         const remembered = rememberedUser();
-        setState(remembered?.role === "cashier" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
+        setState(remembered && remembered.role !== "viewer" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
       },
     );
   }, []);
@@ -189,7 +190,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // A cashier's entries go out under this login, as soon as the connection is there: when the screen
   // opens, when the phone says it is online again, when the app comes back to the front, and after a
   // while by itself (the queue sees to that).
-  const cashier = user.role === "cashier";
+  const cashier = user.role !== "viewer";
   useEffect(() => {
     if (!cashier) return;
     setQueueLogin(user.login);
@@ -313,9 +314,10 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
       <Balances balances={balances} onRetry={loadBalances} unsent={cashier ? kept : 0} />
 
-      {user.role === "cashier" ? (
+      {cashier ? (
         <EntryScreen
           login={user.login}
+          admin={user.role === "admin"}
           onSaved={showSavedBalances}
           onBalancesStale={loadBalances}
           onSessionExpired={onLoggedOut}

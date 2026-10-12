@@ -1,7 +1,10 @@
 import type pg from "pg";
 import { hashPassword } from "../passwords.js";
 
-export type Role = "cashier" | "viewer";
+/** A cashier enters and corrects their own entries; an admin is a cashier who also reconciles the cash desk; the viewer (the owner) only looks. */
+export type Role = "cashier" | "admin" | "viewer";
+
+export const ROLES: readonly Role[] = ["cashier", "admin", "viewer"];
 
 /** A problem the developer can fix by changing the command (bad input, unknown login). */
 export class AdminError extends Error {}
@@ -34,9 +37,7 @@ export async function createUser(pool: pg.Pool, input: CreateUserInput): Promise
     throw new AdminError("Login must be 2-64 characters: letters, digits, dot, dash, underscore");
   }
   assertPassword(input.password);
-  if (input.role !== "cashier" && input.role !== "viewer") {
-    throw new AdminError('Role must be "cashier" or "viewer"');
-  }
+  assertRole(input.role);
   const displayName = input.displayName?.trim() || login;
 
   const passwordHash = await hashPassword(input.password);
@@ -52,6 +53,12 @@ export async function createUser(pool: pg.Pool, input: CreateUserInput): Promise
       throw new AdminError(`A user with login "${login}" already exists`);
     }
     throw error;
+  }
+}
+
+function assertRole(role: string): asserts role is Role {
+  if (!ROLES.includes(role as Role)) {
+    throw new AdminError('Role must be "cashier", "admin" or "viewer"');
   }
 }
 
@@ -80,6 +87,21 @@ export async function revokeUser(pool: pg.Pool, login: string): Promise<void> {
   } finally {
     client.release();
   }
+}
+
+/**
+ * Changes what a user may do. Takes effect at their next request: the role is read with the session each time. Nothing
+ * they entered changes.
+ */
+export async function setRole(pool: pg.Pool, login: string, role: string): Promise<{ login: string; displayName: string; role: Role }> {
+  assertRole(role);
+  const userId = await findUserId(pool, login);
+  const result = await pool.query<{ login: string; display_name: string }>(
+    "UPDATE users SET role = $2 WHERE id = $1 RETURNING login, display_name",
+    [userId, role],
+  );
+  const row = result.rows[0]!;
+  return { login: row.login, displayName: row.display_name, role };
 }
 
 /** Gives access back. The user has to log in again: old sessions stay gone. */

@@ -70,7 +70,7 @@ export function OperationEditor({
       amountInput.current?.focus();
       return;
     }
-    // An income in rubles must have its rate; for an expense it may stay empty (the average of its shift is used).
+    // An income in rubles must have its rate; for an expense it may stay empty (the average of its day is used).
     const rateText = currency === "RUB" ? rate.trim() : "";
     const rateE4 = rateText === "" ? null : parseRateInput(rateText);
     if (currency === "RUB" && (isIncome || rateText !== "") && rateE4 === null) {

@@ -1,4 +1,4 @@
-import { moscowToday } from "./days";
+import { cashDayToday } from "./days";
 
 const KEY = "kassa.rate";
 
@@ -8,7 +8,7 @@ const KEY = "kassa.rate";
  */
 export function rememberRate(rateE4: number, now: Date = new Date()) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ rateE4, day: moscowToday(now) }));
+    localStorage.setItem(KEY, JSON.stringify({ rateE4, day: cashDayToday(now) }));
   } catch {
     // not remembered; the form then starts empty
   }
@@ -17,7 +17,7 @@ export function rememberRate(rateE4: number, now: Date = new Date()) {
 export function rememberedRate(now: Date = new Date()): number | null {
   try {
     const kept = JSON.parse(localStorage.getItem(KEY) ?? "null") as { rateE4?: unknown; day?: unknown } | null;
-    if (kept && typeof kept.rateE4 === "number" && kept.day === moscowToday(now)) return kept.rateE4;
+    if (kept && typeof kept.rateE4 === "number" && kept.day === cashDayToday(now)) return kept.rateE4;
   } catch {
     // nothing remembered
   }

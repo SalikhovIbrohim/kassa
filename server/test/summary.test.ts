@@ -4,7 +4,7 @@ import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.j
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 import { withRate } from "./helpers/entries.js";
 
-// 11:30 in Moscow (UTC+3), the middle of 10 March.
+// 11:30 in Moscow (UTC+3), the middle of 10 March. A day of the cash desk runs from 03:00 to 03:00 Moscow time.
 const NOW = new Date("2026-03-10T08:30:00Z");
 
 type Entry = Record<string, unknown>;
@@ -124,13 +124,15 @@ describe("the totals for a period", () => {
             expenseByCategory: byCategory({}),
           },
         ],
-        // 3 000,00 and 1 000,00 rubles at 79: 37,97 and 12,66 dollars. The expenses have no rate and are in no shift.
+        // 3 000,00 and 1 000,00 rubles at 79: 37,97 and 12,66 dollars. The expenses have no rate of their own and are
+        // counted at the 79 of the incomes of their day (the 6th has none, so the last one before it): costs 6,33 +
+        // 15,19 + 2,53 + 0,63, the handover 5,06.
         usd: {
           incomeMinor: 5_063,
-          expenseMinor: 0,
-          handoverMinor: 0,
-          resultMinor: 5_063,
-          withoutRate: { income: { rubMinor: 0, count: 0 }, expense: { rubMinor: 235_000, count: 5 } },
+          expenseMinor: 633 + 1_519 + 253 + 63,
+          handoverMinor: 506,
+          resultMinor: 5_063 - (633 + 1_519 + 253 + 63),
+          withoutRate: { income: { rubMinor: 0, count: 0 }, expense: { rubMinor: 0, count: 0 } },
         },
       });
     });
@@ -203,15 +205,16 @@ describe("the totals for a period", () => {
     });
   });
 
-  describe("the days are Moscow days", () => {
-    it("starts a day at midnight in Moscow and ends it there, to the second", async () => {
+  describe("the days are days of the cash desk: from 03:00 to 03:00 Moscow time", () => {
+    it("starts a day at 03:00 in Moscow, which is midnight UTC, and ends it there, to the second", async () => {
       const { started, ivan, owner } = await desk();
-      // 22:59:59 and 23:59:59 in Moscow on 4 March, then midnight, then the last second of 5 March, then 6 March.
-      await record(started, ivan, "2026-03-04T19:59:59Z", income({ amountMinor: 1_000 }));
-      await record(started, ivan, "2026-03-04T20:59:59Z", income({ amountMinor: 2_000 }));
-      await record(started, ivan, "2026-03-04T21:00:00Z", income({ amountMinor: 4_000 }));
-      await record(started, ivan, "2026-03-05T20:59:59Z", income({ amountMinor: 8_000 }));
-      await record(started, ivan, "2026-03-05T21:00:00Z", income({ amountMinor: 16_000 }));
+      // 13:00 and 02:59:59 on the night of the 5th in Moscow still belong to the 4th; 03:00:00 begins the 5th, which ends at
+      // 02:59:59 on the night of the 6th, and 03:00:00 begins the 6th.
+      await record(started, ivan, "2026-03-04T10:00:00Z", income({ amountMinor: 1_000 }));
+      await record(started, ivan, "2026-03-04T23:59:59Z", income({ amountMinor: 2_000 }));
+      await record(started, ivan, "2026-03-05T00:00:00Z", income({ amountMinor: 4_000 }));
+      await record(started, ivan, "2026-03-05T23:59:59Z", income({ amountMinor: 8_000 }));
+      await record(started, ivan, "2026-03-06T00:00:00Z", income({ amountMinor: 16_000 }));
 
       const day = (await summary(started, owner, "?from=2026-03-05&to=2026-03-05")).body;
       const before = (await summary(started, owner, "?from=2026-03-04&to=2026-03-04")).body;

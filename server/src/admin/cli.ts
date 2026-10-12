@@ -14,6 +14,7 @@ import {
   resetPassword,
   restoreUser,
   revokeUser,
+  setRole,
   type Role,
 } from "./users.js";
 
@@ -28,8 +29,12 @@ Commands:
   migrate                             apply the database migrations that have not run yet
                                       (the server does this at start too; this lets an update
                                       script see it fail before the new version is started)
-  create-user    --login <login> --role <cashier|viewer> [--name <display name>]
+  create-user    --login <login> --role <cashier|admin|viewer> [--name <display name>]
+                                      cashier enters entries; admin is a cashier who also reconciles the cash desk
+                                      ("Сверить кассу"); viewer is the owner, who only looks
   list-users
+  set-role       --login <login> --role <cashier|admin|viewer>
+                                      change what a user may do (at their next request; their entries stay)
   revoke-user    --login <login>      block access and end all sessions
   restore-user   --login <login>      give access back (the user logs in again)
   reset-password --login <login>      set a new password and end all sessions
@@ -105,6 +110,11 @@ async function main(): Promise<void> {
           const status = user.active ? "active " : "REVOKED";
           console.log(`${status}  ${user.role.padEnd(7)}  ${user.login}  (${user.displayName})`);
         }
+        break;
+      }
+      case "set-role": {
+        const user = await setRole(pool, required(values.login, "--login"), required(values.role, "--role"));
+        console.log(`"${user.login}" (${user.displayName}) is now ${user.role}.`);
         break;
       }
       case "revoke-user":

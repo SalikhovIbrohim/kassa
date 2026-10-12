@@ -12,7 +12,7 @@ export const SESSION_COOKIE = "kassa_session";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type Role = "cashier" | "viewer";
+export type Role = "cashier" | "admin" | "viewer";
 
 export type SessionUser = {
   id: string;

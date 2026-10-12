@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
 import { readCategories } from "./categories.js";
+import { dayAverageRateSql } from "./ledger.js";
 import { CURRENCIES, type Currency } from "./money.js";
 
 export type SummaryOptions = {
@@ -17,7 +18,7 @@ export type CurrencySummary = {
   /** Everything paid out except the money handed to the owner (that is not a cost of the business). */
   expenseMinor: number;
   handoverMinor: number;
-  /** What counting the cash found at the end of the shifts closed in the period: a shortage is negative, a surplus positive. */
+  /** What the reconciliations made in the period found when the cash was counted: a shortage is negative, a surplus positive. */
   differenceMinor: number;
   /** The balance when the last day of the period ends. */
   closingMinor: number;
@@ -27,7 +28,7 @@ export type CurrencySummary = {
 
 /**
  * The period counted in dollars, which is what the owner reckons in: dollars as they are, rubles at the rate of the
- * operation (an expense without one at the average rate of its shift, once the shift is closed). The balances above
+ * operation (an expense without one at the average rate of the ruble incomes of its day). The balances above
  * stay in the currency the money is in; this is the result of the business.
  */
 export type DollarSummary = {
@@ -37,7 +38,7 @@ export type DollarSummary = {
   handoverMinor: number;
   /** Income minus expense. */
   resultMinor: number;
-  /** Ruble operations that have no rate to count them at (an expense of a shift that is still open, say): not in the figures above. */
+  /** Ruble operations that have no rate to count them at (an expense before there was any income with a rate at all): not in the figures above. */
   withoutRate: {
     income: { rubMinor: number; count: number };
     expense: { rubMinor: number; count: number };
@@ -105,10 +106,10 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
                          FILTER (WHERE op.created_at < $1), 0) AS until_start,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'income' AND ${inPeriod}), 0) AS income,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = ANY(${handover}) AND ${inPeriod}), 0) AS handover,
-                COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
-                           WHERE sb.currency = c.currency AND s.closed_at < $2), 0) AS difference_until_end,
-                COALESCE((SELECT SUM(sb.difference_minor) FROM shift_balances sb JOIN shifts s ON s.id = sb.shift_id
-                           WHERE sb.currency = c.currency AND s.closed_at < $1), 0) AS difference_until_start,
+                COALESCE((SELECT SUM(rb.difference_minor) FROM reconciliation_balances rb JOIN reconciliations r ON r.id = rb.reconciliation_id
+                           WHERE rb.currency = c.currency AND r.made_at < $2), 0) AS difference_until_end,
+                COALESCE((SELECT SUM(rb.difference_minor) FROM reconciliation_balances rb JOIN reconciliations r ON r.id = rb.reconciliation_id
+                           WHERE rb.currency = c.currency AND r.made_at < $1), 0) AS difference_until_start,
                 ${categoryColumns.join(",\n                ")}
            FROM unnest($3::text[]) AS c(currency)
            LEFT JOIN opening_balances ob ON ob.currency = c.currency
@@ -146,8 +147,8 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
       }>(
         `WITH rated AS (
            SELECT op.kind, op.currency, op.amount_minor, COALESCE(op.category = ANY($3::text[]), false) AS handover,
-                  COALESCE(op.rate_e4, CASE WHEN op.kind = 'expense' THEN s.average_rate_e4 END) AS rate
-             FROM operations op LEFT JOIN shifts s ON s.id = op.shift_id
+                  COALESCE(op.rate_e4, ${dayAverageRateSql("op")}) AS rate
+             FROM operations op
             WHERE op.deleted_at IS NULL AND op.created_at >= $1 AND op.created_at < $2
          )
          SELECT kind, handover,

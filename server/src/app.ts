@@ -12,7 +12,7 @@ import { registerJournal } from "./journal.js";
 import { mergeEvents } from "./ledger.js";
 import { registerOperations } from "./operations.js";
 import { createOutbox } from "./outbox.js";
-import { registerShifts } from "./shifts.js";
+import { registerReconciliations } from "./reconciliations.js";
 import { registerTelegram } from "./telegram.js";
 import { registerSummary } from "./summary.js";
 import { isApiPath, pathnameOf } from "./paths.js";
@@ -160,7 +160,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     now: options.now ?? (() => new Date()),
   });
 
-  await registerShifts(app, {
+  await registerReconciliations(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
   });

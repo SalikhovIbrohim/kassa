@@ -78,15 +78,17 @@ describe("the rate field", () => {
     // The journal says what the income is in dollars.
     await page.getByRole("button", { name: "Журнал", exact: true }).click();
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "RATE-1");
-    await seeVisible(page.locator(".usd-note", { hasText: "в долларах после закрытия смены" }));
     await seeText(page.locator('.usd-note[data-usd="100000"]'), /≈\s*1\s000,00\s\$ · курс 79,00/);
+    // The expense has no rate of its own: it is counted at the average rate of the day, here the 79 of the income.
+    await seeText(page.locator('.usd-note[data-usd="1266"]'), /≈\s*12,66\s\$ · средний курс дня/);
 
     // The owner reads the day in dollars.
     const owner = await signedIn(started, "owner", "long enough pass");
     await owner.page.getByRole("button", { name: "Итоги", exact: true }).click();
     await seeText(owner.page.locator('[data-usd="income"]'), /\+1\s000,00\s\$/);
-    await seeText(owner.page.locator("[data-without-rate=expense]"), "расходов в рублях без курса: 1");
-    expect(await owner.page.locator('[data-usd="result"]').innerText()).toMatch(/\+1\s000,00\s\$/);
+    await seeText(owner.page.locator('[data-usd="expense"]'), /−12,66\s\$/);
+    expect(await owner.page.locator("[data-without-rate=expense]").count()).toBe(0);
+    expect(await owner.page.locator('[data-usd="result"]').innerText()).toMatch(/\+987,34\s\$/);
 
     // The next time the form opens it starts with the rate of today.
     await page.reload({ waitUntil: "domcontentloaded" });
