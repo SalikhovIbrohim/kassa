@@ -63,17 +63,33 @@ describe("the admin role", () => {
     expect(removed.status).toBe(403);
   });
 
-  it("reads the list of the counts of the cash, and nothing that is the owner's", async () => {
-    const { started, anvar } = await desk();
+  it("stands above the owner: reads what the owner reads and settles what the owner settles", async () => {
+    const { started, anvar, ivan } = await desk();
+    const kept = income();
+    const gone = income({ clientCode: "K18" });
+    await postJson(started, "/api/operations", kept, ivan);
+    await postJson(started, "/api/operations", gone, ivan);
+    await deleteRequest(started, `/api/operations/${gone.id}`, ivan);
+
+    expect((await get(started, "/api/summary", anvar)).status).toBe(200);
+    expect((await get(started, `/api/operations/${kept.id}/history`, anvar)).status).toBe(200);
+    expect((await get(started, "/api/cashiers", anvar)).status).toBe(200);
+    expect((await get(started, "/api/reconciliations", anvar)).status).toBe(200);
+    const withDeleted = await (await get(started, "/api/operations?deleted=include", anvar)).json();
+    expect(withDeleted.operations.map((item: { id: string }) => item.id).sort()).toEqual([kept.id, gone.id].sort());
+    const category = await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, anvar);
+    expect(category.status).toBe(200);
+  });
+
+  it("is what a cashier is not: the cashier gets none of that", async () => {
+    const { started, ivan, anvar } = await desk();
     const body = income();
     await postJson(started, "/api/operations", body, anvar);
 
-    expect((await get(started, "/api/reconciliations", anvar)).status).toBe(200);
-    for (const path of ["/api/summary", `/api/operations/${body.id}/history`, "/api/cashiers"]) {
-      expect((await get(started, path, anvar)).status, path).toBe(403);
+    for (const path of ["/api/summary", `/api/operations/${body.id}/history`, "/api/cashiers", "/api/reconciliations", "/api/operations?deleted=include"]) {
+      expect((await get(started, path, ivan)).status, path).toBe(403);
     }
-    expect((await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, anvar)).status).toBe(403);
-    expect((await get(started, "/api/operations?deleted=include", anvar)).status).toBe(403);
+    expect((await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, ivan)).status).toBe(403);
   });
 
   it("is among the people the owner can filter the journal by", async () => {

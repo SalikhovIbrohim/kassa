@@ -109,7 +109,7 @@ describe("the cash desk without shifts", () => {
   it("lets the admin enter entries like a cashier, and shows the button that counts the cash in the journal", async () => {
     const { phoneOf } = await desk();
     const anvar = await phoneOf("anvar", "admin pass word");
-    await seeText(anvar.page.locator(".role"), "Кассир-админ");
+    await seeText(anvar.page.locator(".role"), "Админ");
 
     await enterIncome(anvar.page, "654", "ADM-1");
     await seeText(anvar.page.locator(".success"), "Записано: приход");
@@ -169,6 +169,27 @@ describe("the cash desk without shifts", () => {
     await owner.page.getByRole("button", { name: "Итоги", exact: true }).click();
     await seeText(owner.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
     await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
+  }, 90_000);
+
+  it("gives the admin the owner's screen as well, behind \"Управление\": the counts of the cash, the totals, the lists of categories", async () => {
+    const { phoneOf } = await desk();
+    const anvar = await phoneOf("anvar", "admin pass word");
+    await countWith(anvar.page, "990", "50");
+    await seeText(bar(anvar.page), "Касса сверена");
+
+    await anvar.page.getByRole("button", { name: "Управление", exact: true }).click();
+    await anvar.page.getByRole("button", { name: "Сверки", exact: true }).click();
+    await seeText(anvar.page.locator(".reconciliation-card").first(), "Анвар");
+    await anvar.page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await seeText(anvar.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
+    await anvar.page.getByRole("button", { name: "Категории", exact: true }).click();
+    await seeVisible(anvar.page.getByRole("heading", { name: "Категории" }));
+
+    // Back at the cash desk, the count can be made again.
+    await anvar.page.getByRole("button", { name: "Касса", exact: true }).click();
+    await seeVisible(anvar.page.getByRole("button", { name: "Приход", exact: true }));
+    await showJournal(anvar.page);
+    await seeVisible(bar(anvar.page).getByRole("button", { name: "Сверить кассу" }));
   }, 90_000);
 
   it("does not count the cash while an entry waits on the phone", async () => {

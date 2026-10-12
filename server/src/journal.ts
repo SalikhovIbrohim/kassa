@@ -63,7 +63,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
   const { pool, now } = options;
 
   // The journal: newest first, one page at a time. Everybody who works in the cash desk sees everybody's entries (it is
-  // one book and one box of money, and each line says who entered it); only the viewer sees the deleted ones.
+  // one book and one box of money, and each line says who entered it); only the owner and the admin see the deleted ones.
   // Everything else is a filter on top of that.
   app.get<{ Querystring: JournalQuery }>(
     "/api/operations",
@@ -112,9 +112,9 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
         if (!position) return badRequest("querystring/cursor is not a cursor this server gave out");
       }
 
-      // A deleted operation disappears for cashiers; only the viewer can look at them.
+      // A deleted operation disappears for cashiers; only the owner and the admin can look at them.
       const deleted = query.deleted ?? "exclude";
-      if (user.role !== "viewer" && deleted !== "exclude") {
+      if (user.role === "cashier" && deleted !== "exclude") {
         return reply.code(403).send({ error: "forbidden" });
       }
 
@@ -167,11 +167,11 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
     },
   );
 
-  // Who can be picked in the viewer's "cashier" filter: everyone who enters entries (cashier or admin),
+  // Who can be picked in the "cashier" filter of the owner and the admin: everyone who enters entries (cashier or admin),
   // also those whose access was withdrawn, since their old operations are still there.
   app.get(
     "/api/cashiers",
-    { onRequest: [app.authenticate, app.requireRole("viewer")] },
+    { onRequest: [app.authenticate, app.requireRole("viewer", "admin")] },
     async () => {
       const found = await pool.query<{ login: string; display_name: string }>(
         `SELECT login, display_name FROM users WHERE role IN ('cashier', 'admin') ORDER BY display_name, login`,

@@ -22,11 +22,11 @@ function isDuplicateLabel(error: unknown): boolean {
 /**
  * The owner's lists of categories: he adds one, renames it, says whether it names a client, moves it in the
  * list, and archives it when it is not wanted any more (never deletes: old entries keep reading it). Only the
- * viewer, who is the owner, may; the cashiers only read the lists (see `/api/categories`).
+ * viewer, who is the owner, and the admin, who stands above him, may; the cashiers only read the lists (see `/api/categories`).
  */
 export async function registerCategoryAdmin(app: FastifyInstance, options: CategoryAdminOptions) {
   const { pool } = options;
-  const owner = [app.authenticate, app.requireRole("viewer")];
+  const owner = [app.authenticate, app.requireRole("viewer", "admin")];
 
   /** One change at a time, so that two taps cannot each see the same order and number two categories alike. */
   const lockCategories = (client: pg.ClientBase) => client.query("SELECT pg_advisory_xact_lock(hashtext('kassa.categories'))");

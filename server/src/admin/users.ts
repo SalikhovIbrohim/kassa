@@ -1,7 +1,10 @@
 import type pg from "pg";
 import { hashPassword } from "../passwords.js";
 
-/** A cashier enters and corrects their own entries; an admin is a cashier who also reconciles the cash desk; the viewer (the owner) only looks. */
+/**
+ * A cashier enters and corrects their own entries. An admin stands above the owner: he does what a cashier does,
+ * reconciles the cash desk, and sees and settles what the viewer (the owner, who only looks) does.
+ */
 export type Role = "cashier" | "admin" | "viewer";
 
 export const ROLES: readonly Role[] = ["cashier", "admin", "viewer"];

@@ -11,6 +11,7 @@ import {
   type Role,
   type User,
 } from "./api";
+import { AdminScreen } from "./AdminScreen";
 import { Balances, type BalancesState } from "./Balances";
 import { EntryScreen } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
@@ -31,7 +32,7 @@ type State =
 
 const ROLE_LABEL: Record<Role, string> = {
   cashier: "Кассир",
-  admin: "Кассир-админ",
+  admin: "Админ",
   viewer: "Смотрящий",
 };
 
@@ -314,10 +315,12 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
       <Balances balances={balances} onRetry={loadBalances} unsent={cashier ? kept : 0} />
 
-      {cashier ? (
+      {user.role === "admin" ? (
+        <AdminScreen login={user.login} onSaved={showSavedBalances} onBalancesStale={loadBalances} onSessionExpired={onLoggedOut} />
+      ) : cashier ? (
         <EntryScreen
           login={user.login}
-          admin={user.role === "admin"}
+          admin={false}
           onSaved={showSavedBalances}
           onBalancesStale={loadBalances}
           onSessionExpired={onLoggedOut}

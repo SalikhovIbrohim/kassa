@@ -62,12 +62,12 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     },
   );
 
-  // The whole story of an operation, for the person who watches over the cash desk. A
+  // The whole story of an operation, for the people who watch over the cash desk (the owner and the admin). A
   // cashier does not get it, not even for their own operations.
   app.get<{ Params: { id: string } }>(
     "/api/operations/:id/history",
     {
-      onRequest: [app.authenticate, app.requireRole("viewer")],
+      onRequest: [app.authenticate, app.requireRole("viewer", "admin")],
       schema: { params: idParams, querystring: NO_QUERY },
     },
     async (request, reply) => {
