@@ -39,6 +39,17 @@ describe("the lists of categories", () => {
 
   const options = (page: Page) => page.locator("select[name=category]:visible option");
 
+  /** "+ Новая" opens a window: income or expense, the name, the ticks. */
+  async function addCategory(page: Page, kind: "Приход" | "Расход", label: string, ticks: string[] = []) {
+    await page.getByRole("button", { name: "+ Новая" }).click();
+    const dialog = page.getByRole("dialog", { name: "Новая категория" });
+    await dialog.getByText(kind, { exact: true }).click();
+    await dialog.getByRole("textbox", { name: "Название" }).fill(label);
+    for (const tick of ticks) await dialog.getByRole("checkbox", { name: tick }).check();
+    await dialog.getByRole("button", { name: "Добавить" }).click();
+    return dialog;
+  }
+
   it("are changed by the owner, and the cashier's forms ask for the category: a client only where the category names one", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
@@ -49,13 +60,12 @@ describe("the lists of categories", () => {
     // The owner adds an expense category and an income category, and archives one.
     await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
-    await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("Ремонт склада");
-    await expenseList.getByRole("button", { name: "Добавить" }).click();
+    await addCategory(owner.page, "Расход", "Ремонт склада");
+    await seeGone(owner.page.getByRole("dialog"));
     await seeText(expenseList, "Ремонт склада");
 
     const incomeList = owner.page.getByRole("region", { name: "Категории: приход" });
-    await incomeList.getByRole("textbox", { name: "Новая категория" }).fill("Аренда мест");
-    await incomeList.getByRole("button", { name: "Добавить" }).click();
+    await addCategory(owner.page, "Приход", "Аренда мест");
     await seeText(incomeList, "Аренда мест");
 
     // The pencil opens the category; the archive is in there.
@@ -64,9 +74,10 @@ describe("the lists of categories", () => {
     await seeText(expenseList.locator('[data-category="tickets"]'), "в архиве");
 
     // The same label twice in a list is said no to.
-    await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("обед склад");
-    await expenseList.getByRole("button", { name: "Добавить" }).click();
-    await seeVisible(owner.page.getByRole("alert").filter({ hasText: "Такая категория уже есть" }));
+    const dialog = await addCategory(owner.page, "Расход", "обед склад");
+    await seeVisible(dialog.getByRole("alert").filter({ hasText: "Такая категория уже есть" }));
+    await dialog.getByRole("button", { name: "Отмена" }).click();
+    await seeGone(owner.page.getByRole("dialog"));
 
     // The cashier sees the lists as they are now.
     const { page } = await signedIn(started, "ivan", "correct horse");
@@ -127,11 +138,7 @@ describe("the lists of categories", () => {
 
     await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
-    await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("Перевозчику");
-    await expenseList.getByRole("checkbox", { name: "Нужен номер рейса" }).check();
-    await expenseList.getByRole("checkbox", { name: "Нужен контрагент" }).check();
-    await expenseList.getByRole("checkbox", { name: "Нужен сотрудник" }).check();
-    await expenseList.getByRole("button", { name: "Добавить" }).click();
+    await addCategory(owner.page, "Расход", "Перевозчику", ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]);
     await seeText(expenseList, "нужен сотрудник");
     await seeText(expenseList, "нужен рейс");
     await seeText(expenseList, "нужен контрагент");
