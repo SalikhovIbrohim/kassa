@@ -7,6 +7,7 @@ import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
 import { ReconcileBar } from "./ReconcileBar";
 import { useCategories } from "./useCategories";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Props = {
   /** The cashier signed in. */
@@ -18,17 +19,16 @@ type Props = {
   onSessionExpired: () => void;
 };
 
-type Form = "income" | "expense";
+type Section = "income" | "expense" | "journal";
 
-/** The cashier's working screen: income, expense (sharing the currency choice) and their journal. */
+/** The cashier's working screen: income, expense (sharing the currency choice) and the journal. */
 export function EntryScreen({ login, admin, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
   // they left it (an expense that the server refused for lack of money is exactly when they go and enter
   // the income first).
-  const [form, setForm] = useState<Form>("income");
-  const [journalOpen, setJournalOpen] = useState(false);
+  const [section, setSection] = useState<Section>("income");
   // What the cashier last corrected or deleted in the journal, for the "saved" banners.
   const [changed, setChanged] = useState<Operation | null>(null);
   // The currency of the last entry is known without the server: a form opened offline starts with it.
@@ -66,64 +66,34 @@ export function EntryScreen({ login, admin, onSaved, onBalancesStale, onSessionE
   };
 
   return (
-    <>
-      <div className="tabs" role="group" aria-label="Раздел">
-        <button
-          type="button"
-          className={!journalOpen && form === "income" ? "tab active" : "tab"}
-          aria-pressed={!journalOpen && form === "income"}
-          onClick={() => {
-            setForm("income");
-            setJournalOpen(false);
-          }}
-        >
-          Приход
-        </button>
-        <button
-          type="button"
-          className={!journalOpen && form === "expense" ? "tab active" : "tab"}
-          aria-pressed={!journalOpen && form === "expense"}
-          onClick={() => {
-            setForm("expense");
-            setJournalOpen(false);
-          }}
-        >
-          Расход
-        </button>
-        <button
-          type="button"
-          className={journalOpen ? "tab active" : "tab"}
-          aria-pressed={journalOpen}
-          onClick={() => setJournalOpen(true)}
-        >
-          Журнал
-        </button>
-      </div>
+    <Tabs value={section} onValueChange={(next) => setSection(next as Section)}>
+      <TabsList className="grid grid-cols-3">
+        <TabsTrigger value="income">Приход</TabsTrigger>
+        <TabsTrigger value="expense">Расход</TabsTrigger>
+        <TabsTrigger value="journal">Журнал</TabsTrigger>
+      </TabsList>
 
-      {/* Counting the cash is not done with every entry, so it lives with the journal and takes no room on the forms.
-          It stays mounted while hidden: a count typed in survives a look at another tab. */}
-      {admin && (
-        <div hidden={!journalOpen}>
-          <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />
-        </div>
-      )}
-
-      <div hidden={journalOpen || form !== "income"} onInputCapture={() => (currencyTouched.current = true)}>
-        <IncomeForm {...shared} active={!journalOpen && form === "income"} />
-      </div>
-      <div hidden={journalOpen || form !== "expense"} onInputCapture={() => (currencyTouched.current = true)}>
-        <ExpenseForm {...shared} active={!journalOpen && form === "expense"} />
-      </div>
-      {journalOpen && (
-        <Journal
-          mode="cashier"
-          login={login}
-          onSessionExpired={onSessionExpired}
-          onRefresh={onBalancesStale}
-          onBalances={onSaved}
-          onOperationChanged={setChanged}
-        />
-      )}
-    </>
+      <TabsContent value="income" forceMount onInputCapture={() => (currencyTouched.current = true)}>
+        <IncomeForm {...shared} active={section === "income"} />
+      </TabsContent>
+      <TabsContent value="expense" forceMount onInputCapture={() => (currencyTouched.current = true)}>
+        <ExpenseForm {...shared} active={section === "expense"} />
+      </TabsContent>
+      <TabsContent value="journal" forceMount className="grid gap-4">
+        {/* Counting the cash is not done with every entry, so it lives with the journal and takes no room on the forms.
+            It stays mounted while hidden: a count typed in survives a look at another tab. */}
+        {admin && <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />}
+        {section === "journal" && (
+          <Journal
+            mode="cashier"
+            login={login}
+            onSessionExpired={onSessionExpired}
+            onRefresh={onBalancesStale}
+            onBalances={onSaved}
+            onOperationChanged={setChanged}
+          />
+        )}
+      </TabsContent>
+    </Tabs>
   );
 }

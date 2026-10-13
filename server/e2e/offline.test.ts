@@ -88,7 +88,7 @@ describe("making entries without a connection", () => {
   const rateField = (page: Page) => page.locator("input[name=rate]:visible");
 
   async function enterIncome(page: Page, amount: string, clientCode: string) {
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     await amountField(page).fill(amount);
     await rateField(page).fill("79");
     await page.locator("input[name=clientCode]").fill(clientCode);
@@ -106,7 +106,7 @@ describe("making entries without a connection", () => {
   const pickCategory = (page: Page, label: string) => page.locator("select[name=category]:visible").selectOption({ label });
 
   async function enterExpense(page: Page, amount: string, category = "Топливо и дорога") {
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await amountField(page).fill(amount);
     await pickCategory(page, category);
     await page.getByRole("button", { name: "Записать расход" }).click();
@@ -391,10 +391,10 @@ describe("making entries without a connection", () => {
   it("does not write one entry over the other when the second form is pressed while the first is still on its way", async () => {
     const { page, onServer } = await desk({ RUB: "1000" });
     // Both forms are filled in before anything is pressed, so that the second press comes within a moment.
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await amountField(page).fill("10");
     await pickCategory(page, "Топливо и дорога");
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     await amountField(page).fill("654");
     await rateField(page).fill("79");
     await page.locator("input[name=clientCode]").fill("BUSY-1");
@@ -407,7 +407,7 @@ describe("making entries without a connection", () => {
     });
 
     await page.getByRole("button", { name: "Записать приход" }).click();
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await page.getByRole("button", { name: "Записать расход" }).click();
 
     await seeVisible(page.getByRole("alert").filter({ hasText: "Предыдущая запись ещё отправляется" }));
@@ -481,13 +481,13 @@ describe("making entries without a connection", () => {
 
   it("keeps what is typed in the expense form while the income form is looked at", async () => {
     const { page } = await desk({ RUB: "1000" });
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await amountField(page).fill("250");
     await pickCategory(page, "Топливо и дорога");
 
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     await seeValue(amountField(page), "");
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
 
     await seeValue(amountField(page), "250");
     expect(await page.locator("select[name=category]:visible").inputValue()).toBe("fuel_road");
@@ -496,7 +496,7 @@ describe("making entries without a connection", () => {
   it("starts a form with the currency of the last entry also when the server cannot be asked", async () => {
     const { page, context } = await desk();
     await waitUntilKeptOnThePhone(page);
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     await page.getByRole("radio", { name: "Доллары" }).check();
     await amountField(page).fill("10");
     await page.locator("input[name=clientCode]").fill("USD-1");

@@ -13,6 +13,8 @@ import {
 } from "./api";
 import { AdminScreen } from "./AdminScreen";
 import { Balances, type BalancesState } from "./Balances";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EntryScreen } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
 import { plural } from "./plural";
@@ -255,17 +257,18 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
   return (
     <main className="page">
-      <header className="topbar">
-        <div>
-          <h1>Касса</h1>
-          <p className="who">
+      <header className="flex items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h1 className="text-[1.6rem] leading-tight font-bold text-primary">Касса</h1>
+          {/* The classes "who" and "role" are hooks for the tests of the browser. */}
+          <p className="who m-0 flex flex-wrap items-center gap-2 text-lg font-semibold">
             {user.displayName}
-            <span className="role">{ROLE_LABEL[user.role]}</span>
+            <Badge className="role">{ROLE_LABEL[user.role]}</Badge>
           </p>
         </div>
-        <button ref={leaveButton} type="button" className="secondary small" onClick={() => void leave()}>
+        <Button ref={leaveButton} type="button" variant="outline" size="sm" onClick={() => void leave()}>
           Выйти
-        </button>
+        </Button>
       </header>
 
       {inTelegram() && !user.telegramLinked && <TelegramLink />}

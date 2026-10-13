@@ -51,12 +51,12 @@ describe("the cash desk without shifts", () => {
   }
 
   const bar = (page: Page) => page.getByRole("region", { name: "Сверка кассы", exact: true });
-  const showJournal = (page: Page) => page.getByRole("button", { name: "Журнал", exact: true }).click();
+  const showJournal = (page: Page) => page.getByRole("tab", { name: "Журнал", exact: true }).click();
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
   const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
 
   async function enterIncome(page: Page, amount: string, clientCode: string) {
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     await amountField(page).fill(amount);
     await page.locator("input[name=rate]:visible").fill("79");
     await page.locator("input[name=clientCode]").fill(clientCode);
@@ -158,7 +158,7 @@ describe("the cash desk without shifts", () => {
     await seeText(bar(anvar.page), "Касса сверена");
 
     const owner = await phoneOf("owner", "long enough pass");
-    await owner.page.getByRole("button", { name: "Сверки", exact: true }).click();
+    await owner.page.getByRole("tab", { name: "Сверки", exact: true }).click();
 
     const card = owner.page.locator(".reconciliation-card").first();
     await seeText(card, "Анвар");
@@ -166,7 +166,7 @@ describe("the cash desk without shifts", () => {
     await seeText(card.locator('[data-currency="RUB"] [data-difference]'), /−10,00\s₽/);
     await seeText(card.locator('[data-currency="USD"] [data-difference]'), "сошлось");
 
-    await owner.page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await owner.page.getByRole("tab", { name: "Итоги", exact: true }).click();
     await seeText(owner.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
     await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
   }, 90_000);
@@ -177,17 +177,17 @@ describe("the cash desk without shifts", () => {
     await countWith(anvar.page, "990", "50");
     await seeText(bar(anvar.page), "Касса сверена");
 
-    await anvar.page.getByRole("button", { name: "Управление", exact: true }).click();
-    await anvar.page.getByRole("button", { name: "Сверки", exact: true }).click();
+    await anvar.page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await anvar.page.getByRole("tab", { name: "Сверки", exact: true }).click();
     await seeText(anvar.page.locator(".reconciliation-card").first(), "Анвар");
-    await anvar.page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await anvar.page.getByRole("tab", { name: "Итоги", exact: true }).click();
     await seeText(anvar.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
-    await anvar.page.getByRole("button", { name: "Категории", exact: true }).click();
+    await anvar.page.getByRole("tab", { name: "Категории", exact: true }).click();
     await seeVisible(anvar.page.getByRole("heading", { name: "Категории" }));
 
     // Back at the cash desk, the count can be made again.
-    await anvar.page.getByRole("button", { name: "Касса", exact: true }).click();
-    await seeVisible(anvar.page.getByRole("button", { name: "Приход", exact: true }));
+    await anvar.page.getByRole("tab", { name: "Касса", exact: true }).click();
+    await seeVisible(anvar.page.getByRole("tab", { name: "Приход", exact: true }));
     await showJournal(anvar.page);
     await seeVisible(bar(anvar.page).getByRole("button", { name: "Сверить кассу" }));
   }, 90_000);

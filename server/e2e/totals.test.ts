@@ -91,7 +91,7 @@ describe("the totals of a period, on the viewer's screen", () => {
 
   /** The journal stays alive, hidden, under the same names for its own date fields: ask in the totals. */
   const totalsRegion = (page: Page) => page.getByRole("region", { name: "Итоги", exact: true });
-  const openTotals = (page: Page) => page.getByRole("button", { name: "Итоги", exact: true }).click();
+  const openTotals = (page: Page) => page.getByRole("tab", { name: "Итоги", exact: true }).click();
   const card = (page: Page, name: "Рубли" | "Доллары") => page.getByRole("region", { name, exact: true }).filter({ has: page.locator("dl") });
   const total = (page: Page, name: "Рубли" | "Доллары", what: string) => card(page, name).locator(`[data-total="${what}"]`);
 
@@ -163,8 +163,8 @@ describe("the totals of a period, on the viewer's screen", () => {
     await sees(total(page, "Рубли", "income"), "+4 000,00 ₽");
 
     await record(income({ amountMinor: 50_000, clientCode: "K9" }));
-    await page.getByRole("button", { name: "Журнал", exact: true }).click();
-    await page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
+    await page.getByRole("tab", { name: "Итоги", exact: true }).click();
 
     await sees(total(page, "Рубли", "income"), "+4 500,00 ₽");
 
@@ -180,8 +180,8 @@ describe("the totals of a period, on the viewer's screen", () => {
     await page.getByRole("button", { name: "Вчера", exact: true }).click();
     await sees(total(page, "Рубли", "income"), "+1 000,00 ₽");
 
-    await page.getByRole("button", { name: "Журнал", exact: true }).click();
-    await page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
+    await page.getByRole("tab", { name: "Итоги", exact: true }).click();
 
     expect(await page.getByRole("button", { name: "Вчера", exact: true }).getAttribute("aria-pressed")).toBe("true");
     await sees(total(page, "Рубли", "income"), "+1 000,00 ₽");
@@ -190,7 +190,7 @@ describe("the totals of a period, on the viewer's screen", () => {
   it("is not offered to a cashier", async () => {
     const { page } = await desk({ signInAs: "ivan" });
 
-    expect(await page.getByRole("button", { name: "Итоги", exact: true }).count()).toBe(0);
+    expect(await page.getByRole("tab", { name: "Итоги", exact: true }).count()).toBe(0);
   }, 90_000);
 
   it("fits a phone: nothing is wider than the screen", async () => {

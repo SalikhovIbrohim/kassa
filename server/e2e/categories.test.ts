@@ -47,7 +47,7 @@ describe("the lists of categories", () => {
     const owner = await signedIn(started, "owner", "long enough pass");
 
     // The owner adds an expense category and an income category, and archives one.
-    await owner.page.getByRole("button", { name: "Категории", exact: true }).click();
+    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
     await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("Ремонт склада");
     await expenseList.getByRole("button", { name: "Добавить" }).click();
@@ -68,13 +68,13 @@ describe("the lists of categories", () => {
 
     // The cashier sees the lists as they are now.
     const { page } = await signedIn(started, "ivan", "correct horse");
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     const expenseOptions = await options(page).allInnerTexts();
     expect(expenseOptions).toContain("Ремонт склада");
     expect(expenseOptions).toContain("Оплата фура");
     expect(expenseOptions).not.toContain("Билеты");
 
-    await page.getByRole("button", { name: "Приход", exact: true }).click();
+    await page.getByRole("tab", { name: "Приход", exact: true }).click();
     const incomeOptions = await options(page).allInnerTexts();
     expect(incomeOptions).toEqual(["Оплата от клиента", "Взяли долг", "Приход от субаренды", "Сотрудник вернул долг", "Прочее", "Аренда мест"]);
 
@@ -89,7 +89,7 @@ describe("the lists of categories", () => {
     await seeText(page.locator(".success:visible"), "(Взяли долг)");
 
     // The journal names the income by its category.
-    await page.getByRole("button", { name: "Журнал", exact: true }).click();
+    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "Взяли долг");
   }, 120_000);
 });

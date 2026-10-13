@@ -1,6 +1,9 @@
 import type { CSSProperties } from "react";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, type Currency } from "./money";
 import type { Balance } from "./api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /** Null while loading, undefined when loading failed, "offline" when the server could not be reached. */
 export type BalancesState = Balance[] | null | undefined | "offline";
@@ -15,14 +18,14 @@ type Props = {
 export function Balances({ balances, onRetry, unsent = 0 }: Props) {
   if (balances === undefined) {
     return (
-      <section className="card" aria-label="Остатки">
+      <Card role="region" aria-label="Остатки" className="gap-3 p-4">
         <p className="error" role="alert">
           Не удалось загрузить остатки.
         </p>
-        <button type="button" className="secondary" onClick={onRetry}>
+        <Button type="button" variant="outline" onClick={onRetry}>
           Повторить
-        </button>
-      </section>
+        </Button>
+      </Card>
     );
   }
 
@@ -35,30 +38,31 @@ export function Balances({ balances, onRetry, unsent = 0 }: Props) {
   const longest = Math.max(...CURRENCIES.map((currency) => shownFor(currency).length));
 
   return (
-    <section className="balances" aria-label="Остатки" style={{ "--chars": longest } as CSSProperties}>
+    // The class "balances" is also what the journal's wide page narrows to the width of a phone (legacy.css).
+    <section className="balances grid grid-cols-2 gap-3" aria-label="Остатки" style={{ "--chars": longest } as CSSProperties}>
       {CURRENCIES.map((currency) => {
         const balance = known?.find((item) => item.currency === currency);
         const shown = shownFor(currency);
         return (
-          <div className="balance" key={currency}>
-            <span className="balance-name">{CURRENCY_NAME[currency]}</span>
-            <strong
-              className={balance && balance.amountMinor < 0 ? "balance-amount negative" : "balance-amount"}
-              data-currency={currency}
-            >
-              {shown}
-            </strong>
-          </div>
+          <Card key={currency} className="min-w-0 gap-1 py-3.5">
+            {/* The amount is sized by the width of this box (see .balance-amount in index.css). */}
+            <CardContent className="grid min-w-0 gap-1 px-3.5 [container-type:inline-size]">
+              <span className="text-sm text-muted-foreground">{CURRENCY_NAME[currency]}</span>
+              <strong className={cn("balance-amount", balance && balance.amountMinor < 0 && "text-destructive")} data-currency={currency}>
+                {shown}
+              </strong>
+            </CardContent>
+          </Card>
         );
       })}
       {unsent > 0 && (
-        <p className="hint balances-unsent">
+        <p className="hint balances-unsent col-span-2">
           Без учёта неотправленных записей: {unsent}.{" "}
           <a href="#queue">Показать</a>
         </p>
       )}
       {balances === "offline" && (
-        <p className="hint balances-offline">
+        <p className="hint balances-offline col-span-2">
           Нет связи: остатков не видно. Они появятся, когда связь вернётся.{" "}
           <button type="button" className="link" onClick={onRetry}>
             Проверить

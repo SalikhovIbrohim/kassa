@@ -68,7 +68,7 @@ describe("the rate field", () => {
     await seeValue(rateField(page), "79");
 
     // An expense: its rate may stay empty.
-    await page.getByRole("button", { name: "Расход", exact: true }).click();
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await amountField(page).fill("1000");
     await page.locator("select[name=category]:visible").selectOption({ label: "Топливо и дорога" });
     await seeValue(rateField(page), "");
@@ -76,7 +76,7 @@ describe("the rate field", () => {
     await seeText(page.locator(".success:visible"), "Записано: Топливо и дорога");
 
     // The journal says what the income is in dollars.
-    await page.getByRole("button", { name: "Журнал", exact: true }).click();
+    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "RATE-1");
     await seeText(page.locator('.usd-note[data-usd="100000"]'), /≈\s*1\s000,00\s\$ · курс 79,00/);
     // The expense has no rate of its own: it is counted at the average rate of the day, here the 79 of the income.
@@ -84,7 +84,7 @@ describe("the rate field", () => {
 
     // The owner reads the day in dollars.
     const owner = await signedIn(started, "owner", "long enough pass");
-    await owner.page.getByRole("button", { name: "Итоги", exact: true }).click();
+    await owner.page.getByRole("tab", { name: "Итоги", exact: true }).click();
     await seeText(owner.page.locator('[data-usd="income"]'), /\+1\s000,00\s\$/);
     await seeText(owner.page.locator('[data-usd="expense"]'), /−12,66\s\$/);
     expect(await owner.page.locator("[data-without-rate=expense]").count()).toBe(0);

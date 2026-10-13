@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Balance } from "./api";
 import { EntryScreen } from "./EntryScreen";
 import { ViewerScreen } from "./ViewerScreen";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Props = {
   login: string;
@@ -29,24 +30,18 @@ export function AdminScreen({ login, onSaved, onBalancesStale, onSessionExpired 
   };
 
   return (
-    <>
-      <div className="presets side-switch" role="group" aria-label="Режим">
-        <button type="button" className={side === "cash" ? "secondary small chosen" : "secondary small"} aria-pressed={side === "cash"} onClick={() => show("cash")}>
-          Касса
-        </button>
-        <button type="button" className={side === "manage" ? "secondary small chosen" : "secondary small"} aria-pressed={side === "manage"} onClick={() => show("manage")}>
-          Управление
-        </button>
-      </div>
+    <Tabs value={side} onValueChange={(next) => show(next as Side)}>
+      <TabsList className="grid min-h-11 grid-cols-2 md:max-w-sm" aria-label="Режим">
+        <TabsTrigger value="cash">Касса</TabsTrigger>
+        <TabsTrigger value="manage">Управление</TabsTrigger>
+      </TabsList>
 
-      <div hidden={side !== "cash"}>
+      <TabsContent value="cash" forceMount>
         <EntryScreen login={login} admin onSaved={onSaved} onBalancesStale={onBalancesStale} onSessionExpired={onSessionExpired} />
-      </div>
-      {manageOpened && (
-        <div hidden={side !== "manage"}>
-          <ViewerScreen onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} />
-        </div>
-      )}
-    </>
+      </TabsContent>
+      <TabsContent value="manage" forceMount>
+        {manageOpened && <ViewerScreen onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} />}
+      </TabsContent>
+    </Tabs>
   );
 }
