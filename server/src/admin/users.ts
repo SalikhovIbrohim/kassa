@@ -26,7 +26,7 @@ export type CreatedUser = {
   role: Role;
 };
 
-const LOGIN_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u;
+export const LOGIN_PATTERN = /^[\p{L}\p{N}._-]{2,64}$/u;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 256;
 

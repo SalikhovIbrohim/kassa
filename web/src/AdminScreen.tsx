@@ -40,7 +40,7 @@ export function AdminScreen({ login, onSaved, onBalancesStale, onSessionExpired 
         <EntryScreen login={login} admin onSaved={onSaved} onBalancesStale={onBalancesStale} onSessionExpired={onSessionExpired} />
       </TabsContent>
       <TabsContent value="manage" forceMount>
-        {manageOpened && <ViewerScreen onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} />}
+        {manageOpened && <ViewerScreen onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} admin={login} />}
       </TabsContent>
     </Tabs>
   );

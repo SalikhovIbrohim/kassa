@@ -641,3 +641,76 @@ export async function changeCategory(
   });
   return categoryChangeResult(response);
 }
+
+// ---- The admin's accounts ----
+
+export type Account = {
+  id: string;
+  login: string;
+  displayName: string;
+  role: Role;
+  active: boolean;
+  createdAt: string;
+  /** The person wrote, changed or counted something: the account stays, it can only be blocked. */
+  hasEntries: boolean;
+};
+
+export type AccountResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "session-expired" | "forbidden" | "not-found" | "login-taken" | "bad-login" | "bad-password" | "bad-name" | "self" | "has-entries" | "rejected" | "server-error";
+    };
+
+async function accountResult(response: Response): Promise<AccountResult> {
+  if (response.ok) return { ok: true };
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  const known: Record<string, Extract<AccountResult, { ok: false }>["reason"]> = {
+    login_taken: "login-taken",
+    bad_login: "bad-login",
+    bad_password: "bad-password",
+    bad_name: "bad-name",
+    self: "self",
+    has_entries: "has-entries",
+  };
+  return { ok: false, reason: known[body?.error ?? ""] ?? "rejected" };
+}
+
+export async function fetchAccounts(): Promise<Account[]> {
+  const response = await request("/api/admin/users");
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/admin/users`);
+  const users = ((await response.json()) as { users: Account[] }).users;
+  if (!Array.isArray(users)) throw new Error("The answer of /api/admin/users is not a list of accounts");
+  return users;
+}
+
+export async function createAccount(input: { login: string; displayName?: string; password: string; role: Role }): Promise<AccountResult> {
+  const response = await request("/api/admin/users", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return accountResult(response);
+}
+
+export async function changeAccount(
+  id: string,
+  change: { login?: string; displayName?: string; role?: Role; password?: string; active?: boolean },
+): Promise<AccountResult> {
+  const response = await request(`/api/admin/users/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(change),
+  });
+  return accountResult(response);
+}
+
+export async function deleteAccount(id: string): Promise<AccountResult> {
+  const response = await request(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return accountResult(response);
+}
