@@ -46,6 +46,7 @@ function snapshotOfRow(row: OperationRow): Snapshot {
     clientCode: row.client_code,
     tripNumber: row.trip_number,
     counterparty: row.counterparty,
+    employee: row.employee,
     comment: row.comment,
   };
 }
@@ -65,6 +66,7 @@ function details(entry: Snapshot): string[] {
   return [
     entry.tripNumber !== null ? `Рейс: ${entry.tripNumber}` : "",
     entry.counterparty ? `Контрагент: ${entry.counterparty}` : "",
+    entry.employee ? `Сотрудник: ${entry.employee}` : "",
     entry.recipient ? `Кому: ${entry.recipient}` : "",
     entry.comment ? `Комментарий: ${entry.comment}` : "",
   ].filter(Boolean);
@@ -89,6 +91,7 @@ function differences(before: Snapshot, after: Snapshot, categories: readonly Cat
   if (before.clientCode !== after.clientCode) lines.push(`Клиент: было ${before.clientCode ?? "без кода"}, стало ${after.clientCode ?? "без кода"}`);
   if (before.tripNumber !== after.tripNumber) lines.push(`Рейс: было ${before.tripNumber ?? "без рейса"}, стало ${after.tripNumber ?? "без рейса"}`);
   if (before.counterparty !== after.counterparty) lines.push(`Контрагент: было «${before.counterparty ?? ""}», стало «${after.counterparty ?? ""}»`);
+  if (before.employee !== after.employee) lines.push(`Сотрудник: было «${before.employee ?? ""}», стало «${after.employee ?? ""}»`);
   if (before.recipient !== after.recipient) lines.push(`Кому: было «${before.recipient ?? ""}», стало «${after.recipient ?? ""}»`);
   if (before.comment !== after.comment) lines.push(`Комментарий: было «${before.comment ?? ""}», стало «${after.comment ?? ""}»`);
   return lines;

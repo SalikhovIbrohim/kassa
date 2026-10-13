@@ -58,6 +58,7 @@ export function OperationEditor({
   const [recipient, setRecipient] = useState(operation.recipient ?? "");
   const [trip, setTrip] = useState(operation.tripNumber ? String(operation.tripNumber) : "");
   const [counterparty, setCounterparty] = useState(operation.counterparty ?? "");
+  const [employee, setEmployee] = useState(operation.employee ?? "");
   const [comment, setComment] = useState(operation.comment ?? "");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,6 +70,7 @@ export function OperationEditor({
   const needsClient = chosen?.requiresClient ?? false;
   const needsTrip = chosen?.requiresTrip ?? false;
   const needsCounterparty = chosen?.requiresCounterparty ?? false;
+  const needsEmployee = chosen?.requiresEmployee ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -102,12 +104,17 @@ export function OperationEditor({
     }
     const tripNumber = parseTripNumber(trip);
     const party = counterparty.trim();
+    const person = employee.trim();
     if (needsTrip && tripNumber === null) {
       setError("Введите номер рейса: число, например 194.");
       return;
     }
     if (needsCounterparty && party === "") {
       setError("Введите контрагента.");
+      return;
+    }
+    if (needsEmployee && person === "") {
+      setError("Введите сотрудника.");
       return;
     }
 
@@ -117,6 +124,7 @@ export function OperationEditor({
       ...(rateE4 === null ? {} : { rateE4 }),
       ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
       ...(needsCounterparty ? { counterparty: party } : {}),
+      ...(needsEmployee ? { employee: person } : {}),
       comment: comment.trim() || undefined,
       reason: reason.trim() || undefined,
     };
@@ -194,6 +202,9 @@ export function OperationEditor({
         onTripChange={setTrip}
         counterparty={counterparty}
         onCounterpartyChange={setCounterparty}
+        needsEmployee={needsEmployee}
+        employee={employee}
+        onEmployeeChange={setEmployee}
       />
 
       {!isIncome && (

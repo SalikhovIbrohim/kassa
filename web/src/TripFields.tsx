@@ -16,9 +16,12 @@ type Props = {
   onTripChange: (text: string) => void;
   counterparty: string;
   onCounterpartyChange: (text: string) => void;
+  needsEmployee: boolean;
+  employee: string;
+  onEmployeeChange: (text: string) => void;
 };
 
-/** The number of the trip and the counterparty, shown only when the chosen category asks for them (then they must be filled in). */
+/** The number of the trip, the counterparty and the employee, shown only when the chosen category asks for them (then they must be filled in). */
 export function TripFields({
   needsTrip,
   needsCounterparty,
@@ -26,6 +29,9 @@ export function TripFields({
   onTripChange,
   counterparty,
   onCounterpartyChange,
+  needsEmployee,
+  employee,
+  onEmployeeChange,
 }: Props) {
   return (
     <>
@@ -61,6 +67,21 @@ export function TripFields({
             maxLength={100}
             value={counterparty}
             onChange={(event) => onCounterpartyChange(event.target.value)}
+          />
+        </Label>
+      )}
+      {needsEmployee && (
+        <Label>
+          Сотрудник
+          <Input
+            name="employee"
+            type="text"
+            autoComplete="off"
+            enterKeyHint="next"
+            required
+            maxLength={100}
+            value={employee}
+            onChange={(event) => onEmployeeChange(event.target.value)}
           />
         </Label>
       )}

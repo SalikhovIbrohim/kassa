@@ -16,9 +16,11 @@ export type Category = {
   archived: boolean;
   /** An entry of this category names a client, and an entry of any other does not. */
   requiresClient: boolean;
-  /** An entry of it must say the number of the trip, and the counterparty. */
+  /** An entry of it must say the number of the trip, the counterparty, the employee. */
   requiresTrip: boolean;
   requiresCounterparty: boolean;
+  /** An entry of it must name the employee. */
+  requiresEmployee: boolean;
   /** The Telegram group is told of the entries of this category (see `groupEvents`). */
   notifyGroup: boolean;
   /** False for the money handed to the owner: it leaves the cash desk but is not a cost of the business. */
@@ -34,6 +36,7 @@ type CategoryRow = {
   requires_client: boolean;
   requires_trip: boolean;
   requires_counterparty: boolean;
+  requires_employee: boolean;
   counts_as_cost: boolean;
   notify_group: boolean;
 };
@@ -48,6 +51,7 @@ export function toCategory(row: CategoryRow): Category {
     requiresClient: row.requires_client,
     requiresTrip: row.requires_trip,
     requiresCounterparty: row.requires_counterparty,
+    requiresEmployee: row.requires_employee,
     countsAsCost: row.counts_as_cost,
     notifyGroup: row.notify_group,
   };
@@ -56,7 +60,7 @@ export function toCategory(row: CategoryRow): Category {
 /** Every category, archived ones too, incomes first, each kind in its order. */
 export async function readCategories(db: Queryable): Promise<Category[]> {
   const found = await db.query<CategoryRow>(
-    `SELECT code, kind, label, sort_order, archived, requires_client, requires_trip, requires_counterparty, counts_as_cost, notify_group
+    `SELECT code, kind, label, sort_order, archived, requires_client, requires_trip, requires_counterparty, requires_employee, counts_as_cost, notify_group
        FROM categories ORDER BY kind DESC, sort_order, code`,
   );
   return found.rows.map(toCategory);

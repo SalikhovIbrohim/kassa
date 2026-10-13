@@ -139,6 +139,7 @@ export type Operation = {
   /** The number of the trip and the counterparty, where the category asks for them. */
   tripNumber?: number | null;
   counterparty?: string | null;
+  employee?: string | null;
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
@@ -165,6 +166,8 @@ export type Category = {
   /** An entry of this category must say the number of the trip, and the counterparty. */
   requiresTrip: boolean;
   requiresCounterparty: boolean;
+  /** An entry of this category must name the employee. */
+  requiresEmployee: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
   countsAsCost: boolean;
   /** The Telegram group is told of the entries of this category. */
@@ -226,6 +229,7 @@ function keptCategories(): Category[] | null {
       requiresClient: item.requiresClient ?? item.code === "client_refund",
       requiresTrip: item.requiresTrip ?? false,
       requiresCounterparty: item.requiresCounterparty ?? false,
+      requiresEmployee: item.requiresEmployee ?? false,
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
       notifyGroup: item.notifyGroup ?? true,
     }));
@@ -283,6 +287,7 @@ export type OperationInput =
       /** Only for a category that asks for them. */
       tripNumber?: number;
       counterparty?: string;
+      employee?: string;
     })
   | (EntryBase & {
       type: "expense";
@@ -292,6 +297,7 @@ export type OperationInput =
       clientCode?: string;
       tripNumber?: number;
       counterparty?: string;
+      employee?: string;
     });
 
 export type OperationResult =
@@ -445,6 +451,7 @@ export type Snapshot = {
   /** Missing in the history of before there were trips and counterparties. */
   tripNumber?: number | null;
   counterparty?: string | null;
+  employee?: string | null;
   comment: string | null;
 };
 
@@ -454,6 +461,7 @@ type EditBase = {
   rateE4?: number;
   tripNumber?: number;
   counterparty?: string;
+  employee?: string;
   comment?: string;
   /** Why, in the person's words. Optional. */
   reason?: string;
@@ -618,7 +626,7 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; notifyGroup: boolean };
+export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean };
 
 export async function createCategory(kind: CategoryKind, label: string, flags: CategoryFlags): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
@@ -632,7 +640,7 @@ export async function createCategory(kind: CategoryKind, label: string, flags: C
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",

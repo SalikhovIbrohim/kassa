@@ -52,6 +52,7 @@ export function ExpenseForm({
   const [recipient, setRecipient] = useState("");
   const [trip, setTrip] = useState("");
   const [counterparty, setCounterparty] = useState("");
+  const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
@@ -65,6 +66,7 @@ export function ExpenseForm({
   const needsClient = chosen?.requiresClient ?? false;
   const needsTrip = chosen?.requiresTrip ?? false;
   const needsCounterparty = chosen?.requiresCounterparty ?? false;
+  const needsEmployee = chosen?.requiresEmployee ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -91,12 +93,17 @@ export function ExpenseForm({
     }
     const tripNumber = parseTripNumber(trip);
     const party = counterparty.trim();
+    const person = employee.trim();
     if (needsTrip && tripNumber === null) {
       entry.setError("Введите номер рейса: число, например 194.");
       return;
     }
     if (needsCounterparty && party === "") {
       entry.setError("Введите контрагента.");
+      return;
+    }
+    if (needsEmployee && person === "") {
+      entry.setError("Введите сотрудника.");
       return;
     }
 
@@ -111,6 +118,7 @@ export function ExpenseForm({
       clientCode: needsClient ? code : undefined,
       ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
       ...(needsCounterparty ? { counterparty: party } : {}),
+      ...(needsEmployee ? { employee: person } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
@@ -120,6 +128,7 @@ export function ExpenseForm({
       setRecipient("");
       setTrip("");
       setCounterparty("");
+      setEmployee("");
       setComment("");
       setCategory(null);
       amountInput.current?.focus();
@@ -176,6 +185,9 @@ export function ExpenseForm({
         onTripChange={setTrip}
         counterparty={counterparty}
         onCounterpartyChange={setCounterparty}
+        needsEmployee={needsEmployee}
+        employee={employee}
+        onEmployeeChange={setEmployee}
       />
 
       <Label>

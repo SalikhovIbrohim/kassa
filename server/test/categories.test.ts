@@ -142,6 +142,31 @@ describe("categories", () => {
     });
   });
 
+  describe("the employee", () => {
+    it("is asked of an entry when the owner ticks it, kept in the history, and refused where it is not asked", async () => {
+      const { started, ivan, owner } = await desk();
+
+      expect((await post(started, ivan, expense({ category: "salaries", employee: "Бахтиёр" }))).status).toBe(400);
+      expect((await patchJson(started, "/api/admin/categories/salaries", { requiresEmployee: true }, owner)).status).toBe(200);
+
+      expect((await post(started, ivan, expense({ category: "salaries" }))).status).toBe(400);
+      expect((await post(started, ivan, expense({ category: "salaries", employee: "   " }))).status).toBe(400);
+      const body = expense({ category: "salaries", employee: " Бахтиёр " });
+      const saved = await post(started, ivan, body);
+      expect(saved.status).toBe(201);
+      expect(saved.body.operation).toMatchObject({ category: "salaries", employee: "Бахтиёр" });
+
+      const edit = await putJson(started, `/api/operations/${body.id}`, { type: "expense", amountMinor: 10_000, currency: "RUB", category: "salaries", employee: "Азамат" }, ivan);
+      expect(edit.status).toBe(200);
+      const history = await (await get(started, `/api/operations/${body.id}/history`, owner)).json();
+      expect(history.changes[0].before).toMatchObject({ employee: "Бахтиёр" });
+      expect(history.changes[0].after).toMatchObject({ employee: "Азамат" });
+
+      const made = await make(started, owner, { kind: "income", label: "Сотрудник вернул", requiresEmployee: true });
+      expect((await made.json()).category).toMatchObject({ requiresEmployee: true });
+    });
+  });
+
   describe("the owner's lists", () => {
     it("are changed by the owner only", async () => {
       const { started, ivan, owner } = await desk();

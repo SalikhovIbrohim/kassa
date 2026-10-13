@@ -58,8 +58,9 @@ describe("the lists of categories", () => {
     await incomeList.getByRole("button", { name: "Добавить" }).click();
     await seeText(incomeList, "Аренда мест");
 
-    await expenseList.getByRole("button", { name: "Действия: Билеты" }).click();
-    await owner.page.getByRole("menuitem", { name: "В архив" }).click();
+    // The pencil opens the category; the archive is in there.
+    await expenseList.getByRole("button", { name: "Изменить: Билеты" }).click();
+    await expenseList.getByRole("form", { name: "Изменить категорию Билеты" }).getByRole("button", { name: "В архив" }).click();
     await seeText(expenseList.locator('[data-category="tickets"]'), "в архиве");
 
     // The same label twice in a list is said no to.
@@ -129,7 +130,9 @@ describe("the lists of categories", () => {
     await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("Перевозчику");
     await expenseList.getByRole("checkbox", { name: "Нужен номер рейса" }).check();
     await expenseList.getByRole("checkbox", { name: "Нужен контрагент" }).check();
+    await expenseList.getByRole("checkbox", { name: "Нужен сотрудник" }).check();
     await expenseList.getByRole("button", { name: "Добавить" }).click();
+    await seeText(expenseList, "нужен сотрудник");
     await seeText(expenseList, "нужен рейс");
     await seeText(expenseList, "нужен контрагент");
 
@@ -148,11 +151,15 @@ describe("the lists of categories", () => {
     expect(await page.getByRole("textbox", { name: "Номер рейса" }).inputValue()).toBe("194");
     await page.getByRole("textbox", { name: "Контрагент" }).fill("ООО Трасса");
     await page.getByRole("button", { name: "Записать расход" }).click();
+    await expect.poll(() => page.locator(".success:visible").count()).toBe(0);
+    await page.getByRole("textbox", { name: "Сотрудник" }).fill("Бахтиёр");
+    await page.getByRole("button", { name: "Записать расход" }).click();
     await seeText(page.locator(".success:visible"), "Записано: Перевозчику");
 
     await page.getByRole("tab", { name: "Журнал", exact: true }).click();
     const journal = page.getByRole("table", { name: "Журнал операций" });
     await seeText(journal, "Рейс 194");
     await seeText(journal, "Контрагент: ООО Трасса");
+    await seeText(journal, "Сотрудник: Бахтиёр");
   }, 120_000);
 });

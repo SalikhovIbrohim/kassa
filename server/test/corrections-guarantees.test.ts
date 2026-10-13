@@ -424,7 +424,7 @@ describe("correcting and deleting: the guarantees at the edges", () => {
   describe("what the database refuses to whoever writes to it, the application or not", () => {
     /** The seven fields of an operation that the history keeps, as the database sees them. */
     const SNAPSHOT_SQL = `jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'rateE4', rate_e4, 'category', category,
-      'recipient', recipient, 'clientCode', client_code, 'tripNumber', trip_number, 'counterparty', counterparty, 'comment', comment)`;
+      'recipient', recipient, 'clientCode', client_code, 'tripNumber', trip_number, 'counterparty', counterparty, 'employee', employee, 'comment', comment)`;
 
     it("does not count a change recorded in a temporary table that stands in for the history", async () => {
       const { started, ivan } = await desk();
@@ -521,7 +521,7 @@ describe("correcting and deleting: the guarantees at the edges", () => {
         UPDATE operations SET amount_minor = 60000, revision = 1 WHERE id = '${id}';
         INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, state_before)
           VALUES ('${id}', 1, 'edit', now(), (SELECT author_id FROM operations WHERE id = '${id}'),
-            '{"amountMinor": 50000, "currency": "RUB", "rateE4": 790000, "category": "client_payment", "recipient": null, "clientCode": "K17", "tripNumber": null, "counterparty": null, "comment": null}');
+            '{"amountMinor": 50000, "currency": "RUB", "rateE4": 790000, "category": "client_payment", "recipient": null, "clientCode": "K17", "tripNumber": null, "counterparty": null, "employee": null, "comment": null}');
         COMMIT;`);
 
       const [row] = await started.query<{ amount_minor: string; revision: number }>(

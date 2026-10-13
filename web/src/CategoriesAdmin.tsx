@@ -15,7 +15,6 @@ import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -134,7 +133,7 @@ type ListProps = {
   onEdit: (code: string | null) => void;
   onChange: (
     code: string,
-    change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
+    change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
   ) => Promise<boolean>;
   onCreate: (label: string, flags: CategoryFlags) => Promise<boolean>;
 };
@@ -144,6 +143,7 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
   const [requiresClient, setRequiresClient] = useState(false);
   const [requiresTrip, setRequiresTrip] = useState(false);
   const [requiresCounterparty, setRequiresCounterparty] = useState(false);
+  const [requiresEmployee, setRequiresEmployee] = useState(false);
   const [notifyGroup, setNotifyGroup] = useState(true);
   // Dragging with the mouse: which row is held, and where it would land (before the row of that index; the length is the end).
   const [dragged, setDragged] = useState<number | null>(null);
@@ -162,11 +162,12 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
   async function add(event: FormEvent) {
     event.preventDefault();
     if (label.trim() === "") return;
-    if (await onCreate(label.trim(), { requiresClient, requiresTrip, requiresCounterparty, notifyGroup })) {
+    if (await onCreate(label.trim(), { requiresClient, requiresTrip, requiresCounterparty, requiresEmployee, notifyGroup })) {
       setLabel("");
       setRequiresClient(false);
       setRequiresTrip(false);
       setRequiresCounterparty(false);
+      setRequiresEmployee(false);
       setNotifyGroup(true);
     }
   }
@@ -214,6 +215,9 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                 onSave={async (change) => {
                   if (await onChange(item.code, change)) onEdit(null);
                 }}
+                onArchive={async () => {
+                  if (await onChange(item.code, { archived: !item.archived })) onEdit(null);
+                }}
               />
             ) : (
               <div className="flex items-center gap-2">
@@ -225,6 +229,7 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                   {item.requiresClient && <Badge variant="secondary" className="text-xs font-medium">нужен код клиента</Badge>}
                   {item.requiresTrip && <Badge variant="secondary" className="text-xs font-medium">нужен рейс</Badge>}
                   {item.requiresCounterparty && <Badge variant="secondary" className="text-xs font-medium">нужен контрагент</Badge>}
+                  {item.requiresEmployee && <Badge variant="secondary" className="text-xs font-medium">нужен сотрудник</Badge>}
                   {item.notifyGroup && <Badge variant="secondary" className="text-xs font-medium">в группу Telegram</Badge>}
                   {item.archived && <Badge variant="destructive" className="text-xs font-medium">в архиве</Badge>}
                 </span>
@@ -234,19 +239,9 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                 <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground" disabled={busy || index === items.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
                   ↓
                 </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="icon" className="size-9 text-lg leading-none" disabled={busy} aria-label={`Действия: ${item.label}`}>
-                      ⋯
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onSelect={() => onEdit(item.code)}>Изменить</DropdownMenuItem>
-                    <DropdownMenuItem variant={item.archived ? "default" : "destructive"} onSelect={() => void onChange(item.code, { archived: !item.archived })}>
-                      {item.archived ? "Вернуть из архива" : "В архив"}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button type="button" variant="outline" size="icon" className="size-9" disabled={busy} aria-label={`Изменить: ${item.label}`} title="Изменить" onClick={() => onEdit(item.code)}>
+                  <PencilIcon />
+                </Button>
               </div>
             )}
           </li>
@@ -271,6 +266,10 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
           Нужен контрагент
         </Label>
         <Label className="flex items-center gap-2.5 font-normal">
+          <Checkbox name="requiresEmployee" checked={requiresEmployee} onChange={(event) => setRequiresEmployee(event.target.checked)} />
+          Нужен сотрудник
+        </Label>
+        <Label className="flex items-center gap-2.5 font-normal">
           <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
           Сообщать в группу Telegram
         </Label>
@@ -287,16 +286,20 @@ function EditCategory({
   busy,
   onCancel,
   onSave,
+  onArchive,
 }: {
   item: Category;
   busy: boolean;
   onCancel: () => void;
   onSave: (change: { label?: string } & Partial<CategoryFlags>) => Promise<void>;
+  /** Archives the category, or brings it back from the archive. */
+  onArchive: () => Promise<void>;
 }) {
   const [label, setLabel] = useState(item.label);
   const [requiresClient, setRequiresClient] = useState(item.requiresClient);
   const [requiresTrip, setRequiresTrip] = useState(item.requiresTrip);
   const [requiresCounterparty, setRequiresCounterparty] = useState(item.requiresCounterparty);
+  const [requiresEmployee, setRequiresEmployee] = useState(item.requiresEmployee);
   const [notifyGroup, setNotifyGroup] = useState(item.notifyGroup);
 
   function save(event: FormEvent) {
@@ -308,6 +311,7 @@ function EditCategory({
       ...(requiresClient === item.requiresClient ? {} : { requiresClient }),
       ...(requiresTrip === item.requiresTrip ? {} : { requiresTrip }),
       ...(requiresCounterparty === item.requiresCounterparty ? {} : { requiresCounterparty }),
+      ...(requiresEmployee === item.requiresEmployee ? {} : { requiresEmployee }),
       ...(notifyGroup === item.notifyGroup ? {} : { notifyGroup }),
     });
   }
@@ -331,6 +335,10 @@ function EditCategory({
         Нужен контрагент
       </Label>
       <Label className="flex items-center gap-2.5 font-normal">
+        <Checkbox name="requiresEmployee" checked={requiresEmployee} onChange={(event) => setRequiresEmployee(event.target.checked)} />
+        Нужен сотрудник
+      </Label>
+      <Label className="flex items-center gap-2.5 font-normal">
         <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
         Сообщать в группу Telegram
       </Label>
@@ -341,7 +349,20 @@ function EditCategory({
         <Button type="button" variant="outline" onClick={onCancel}>
           Отмена
         </Button>
+        <Button type="button" variant={item.archived ? "outline" : "destructive"} className="ml-auto" disabled={busy} onClick={() => void onArchive()}>
+          {item.archived ? "Вернуть из архива" : "В архив"}
+        </Button>
       </div>
     </form>
+  );
+}
+
+/** A pencil, the sign of "change this". */
+function PencilIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z" />
+      <path d="m15 5 4 4" />
+    </svg>
   );
 }

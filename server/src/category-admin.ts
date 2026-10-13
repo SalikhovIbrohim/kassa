@@ -31,7 +31,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
   /** One change at a time, so that two taps cannot each see the same order and number two categories alike. */
   const lockCategories = (client: pg.ClientBase) => client.query("SELECT pg_advisory_xact_lock(hashtext('kassa.categories'))");
 
-  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean } }>(
+  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean } }>(
     "/api/admin/categories",
     {
       onRequest: owner,
@@ -47,6 +47,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             requiresClient: { type: "boolean" },
             requiresTrip: { type: "boolean" },
             requiresCounterparty: { type: "boolean" },
+            requiresEmployee: { type: "boolean" },
             notifyGroup: { type: "boolean" },
           },
         },
@@ -61,9 +62,9 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
           // A code is made once and never changes, so it says nothing about the label that it started with.
           const code = `c_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
           await client.query(
-            `INSERT INTO categories (code, kind, label, sort_order, requires_client, notify_group, requires_trip, requires_counterparty)
-             VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order) FROM categories WHERE kind = $2), 0) + 1, $4, $5, $6, $7)`,
-            [code, request.body.kind, label, request.body.requiresClient ?? false, request.body.notifyGroup ?? true, request.body.requiresTrip ?? false, request.body.requiresCounterparty ?? false],
+            `INSERT INTO categories (code, kind, label, sort_order, requires_client, notify_group, requires_trip, requires_counterparty, requires_employee)
+             VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order) FROM categories WHERE kind = $2), 0) + 1, $4, $5, $6, $7, $8)`,
+            [code, request.body.kind, label, request.body.requiresClient ?? false, request.body.notifyGroup ?? true, request.body.requiresTrip ?? false, request.body.requiresCounterparty ?? false, request.body.requiresEmployee ?? false],
           );
           return code;
         });
@@ -78,7 +79,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
   app.patch<{
     Params: { code: string };
-    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number };
+    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number };
   }>(
     "/api/admin/categories/:code",
     {
@@ -95,6 +96,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             requiresClient: { type: "boolean" },
             requiresTrip: { type: "boolean" },
             requiresCounterparty: { type: "boolean" },
+            requiresEmployee: { type: "boolean" },
             notifyGroup: { type: "boolean" },
             archived: { type: "boolean" },
             move: { type: "string", enum: ["up", "down"] },
@@ -127,9 +129,10 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             `UPDATE categories
                 SET label = COALESCE($2, label), requires_client = COALESCE($3, requires_client),
                     archived = COALESCE($4, archived), notify_group = COALESCE($5, notify_group),
-                    requires_trip = COALESCE($6, requires_trip), requires_counterparty = COALESCE($7, requires_counterparty)
+                    requires_trip = COALESCE($6, requires_trip), requires_counterparty = COALESCE($7, requires_counterparty),
+                    requires_employee = COALESCE($8, requires_employee)
               WHERE code = $1`,
-            [code, label ?? null, change.requiresClient ?? null, change.archived ?? null, change.notifyGroup ?? null, change.requiresTrip ?? null, change.requiresCounterparty ?? null],
+            [code, label ?? null, change.requiresClient ?? null, change.archived ?? null, change.notifyGroup ?? null, change.requiresTrip ?? null, change.requiresCounterparty ?? null, change.requiresEmployee ?? null],
           );
 
           if (change.move !== undefined) {

@@ -51,6 +51,9 @@ export function describeChange(before: Snapshot, after: Snapshot, labels: Map<st
   if ((before.counterparty ?? null) !== (after.counterparty ?? null)) {
     lines.push({ field: "Контрагент", before: text(before.counterparty), after: text(after.counterparty) });
   }
+  if ((before.employee ?? null) !== (after.employee ?? null)) {
+    lines.push({ field: "Сотрудник", before: text(before.employee), after: text(after.employee) });
+  }
   if (before.comment !== after.comment) {
     lines.push({ field: "Комментарий", before: text(before.comment), after: text(after.comment) });
   }
@@ -119,6 +122,7 @@ function HistoryList({ history, labels }: { history: OperationHistory; labels: M
     created.state.recipient && `кому: ${created.state.recipient}`,
     created.state.tripNumber && `рейс ${created.state.tripNumber}`,
     created.state.counterparty && `контрагент: ${created.state.counterparty}`,
+    created.state.employee && `сотрудник: ${created.state.employee}`,
     created.state.comment && `«${created.state.comment}»`,
   ]
     .filter(Boolean)

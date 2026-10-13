@@ -18,6 +18,7 @@ export type OperationRow = {
   /** The number of the trip, when the category asks for one. */
   trip_number: number | null;
   counterparty: string | null;
+  employee: string | null;
   comment: string | null;
   created_at: Date;
   author_id: string;
@@ -86,6 +87,7 @@ export function toOperation(row: OperationRow) {
     clientCode: row.client_code,
     tripNumber: row.trip_number,
     counterparty: row.counterparty,
+    employee: row.employee,
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
     createdAt: row.created_at.toISOString(),
@@ -110,6 +112,8 @@ export type Snapshot = {
   /** The number of the trip and the counterparty: only where the category asks for them. */
   tripNumber: number | null;
   counterparty: string | null;
+  /** The employee: only where the category asks for one. */
+  employee: string | null;
   comment: string | null;
 };
 
@@ -123,15 +127,21 @@ export function snapshotOf(row: OperationRow): Snapshot {
     clientCode: row.client_code,
     tripNumber: row.trip_number,
     counterparty: row.counterparty,
+    employee: row.employee,
     comment: row.comment,
   };
 }
 
-/** A line of history as it was kept: older lines were written before there was a rate, a trip or a counterparty, and have none. */
+/** A line of history as it was kept: older lines were written before there was a rate, a trip, a counterparty or an employee, and have none. */
 export function readSnapshot(
-  kept: Omit<Snapshot, "rateE4" | "tripNumber" | "counterparty"> & { rateE4?: number | null; tripNumber?: number | null; counterparty?: string | null },
+  kept: Omit<Snapshot, "rateE4" | "tripNumber" | "counterparty" | "employee"> & {
+    rateE4?: number | null;
+    tripNumber?: number | null;
+    counterparty?: string | null;
+    employee?: string | null;
+  },
 ): Snapshot {
-  return { ...kept, rateE4: kept.rateE4 ?? null, tripNumber: kept.tripNumber ?? null, counterparty: kept.counterparty ?? null };
+  return { ...kept, rateE4: kept.rateE4 ?? null, tripNumber: kept.tripNumber ?? null, counterparty: kept.counterparty ?? null, employee: kept.employee ?? null };
 }
 
 export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
@@ -144,6 +154,7 @@ export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
     a.clientCode === b.clientCode &&
     a.tripNumber === b.tripNumber &&
     a.counterparty === b.counterparty &&
+    a.employee === b.employee &&
     a.comment === b.comment
   );
 }
@@ -287,8 +298,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const inserted = await client.query(
       `INSERT INTO operations
          (id, kind, amount_minor, currency, rate_e4, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at, trip_number, counterparty)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          client_code_key, comment, author_id, created_at, trip_number, counterparty, employee)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
@@ -305,6 +316,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
         wanted.createdAt,
         wanted.tripNumber,
         wanted.counterparty,
+        wanted.employee,
       ],
     );
     // Zero rows: another request with this id got in between our look and our insert. The
@@ -408,7 +420,7 @@ export async function changeOperation(
       await client.query(
         `UPDATE operations
             SET amount_minor = $2, currency = $3, rate_e4 = $9, category = $4, recipient = $5,
-                client_code = $6, client_code_key = $7, comment = $8, trip_number = $10, counterparty = $11,
+                client_code = $6, client_code_key = $7, comment = $8, trip_number = $10, counterparty = $11, employee = $12,
                 revision = revision + 1
           WHERE id = $1`,
         [
@@ -423,6 +435,7 @@ export async function changeOperation(
           after.rateE4,
           after.tripNumber,
           after.counterparty,
+          after.employee,
         ],
       );
     }

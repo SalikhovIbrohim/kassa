@@ -44,6 +44,7 @@ const FALLBACK_CATEGORIES: Category[] = [
     requiresClient: true,
     requiresTrip: false,
     requiresCounterparty: false,
+    requiresEmployee: false,
     countsAsCost: true,
     notifyGroup: true,
   },
@@ -71,6 +72,7 @@ export function IncomeForm({
   const [clientCode, setClientCode] = useState("");
   const [trip, setTrip] = useState("");
   const [counterparty, setCounterparty] = useState("");
+  const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
@@ -92,6 +94,7 @@ export function IncomeForm({
   const needsClient = chosen?.requiresClient ?? false;
   const needsTrip = chosen?.requiresTrip ?? false;
   const needsCounterparty = chosen?.requiresCounterparty ?? false;
+  const needsEmployee = chosen?.requiresEmployee ?? false;
 
   // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
   useEffect(() => {
@@ -122,12 +125,17 @@ export function IncomeForm({
     }
     const tripNumber = parseTripNumber(trip);
     const party = counterparty.trim();
+    const person = employee.trim();
     if (needsTrip && tripNumber === null) {
       entry.setError("Введите номер рейса: число, например 194.");
       return;
     }
     if (needsCounterparty && party === "") {
       entry.setError("Введите контрагента.");
+      return;
+    }
+    if (needsEmployee && person === "") {
+      entry.setError("Введите сотрудника.");
       return;
     }
 
@@ -141,6 +149,7 @@ export function IncomeForm({
       ...(needsClient ? { clientCode: code } : {}),
       ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
       ...(needsCounterparty ? { counterparty: party } : {}),
+      ...(needsEmployee ? { employee: person } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
@@ -148,6 +157,7 @@ export function IncomeForm({
       setClientCode("");
       setTrip("");
       setCounterparty("");
+      setEmployee("");
       setComment("");
       amountInput.current?.focus();
     }
@@ -198,6 +208,9 @@ export function IncomeForm({
         onTripChange={setTrip}
         counterparty={counterparty}
         onCounterpartyChange={setCounterparty}
+        needsEmployee={needsEmployee}
+        employee={employee}
+        onEmployeeChange={setEmployee}
       />
 
       <Label>

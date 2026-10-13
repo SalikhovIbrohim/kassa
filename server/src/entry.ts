@@ -21,6 +21,8 @@ export type IncomeEntry = {
   /** Required when the category asks for the trip, and not allowed otherwise; the same for the counterparty. */
   tripNumber?: number;
   counterparty?: string;
+  /** Required when the category asks for the employee, and not allowed otherwise. */
+  employee?: string;
   comment?: string;
 };
 
@@ -36,6 +38,8 @@ export type ExpenseEntry = {
   /** Required when the category asks for the trip, and not allowed otherwise; the same for the counterparty. */
   tripNumber?: number;
   counterparty?: string;
+  /** Required when the category asks for the employee, and not allowed otherwise. */
+  employee?: string;
   comment?: string;
 };
 
@@ -73,6 +77,7 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           clientCode: clientCodeProperty,
           tripNumber: tripNumberProperty,
           counterparty: counterpartyProperty,
+          employee: counterpartyProperty,
         },
       },
       {
@@ -88,6 +93,7 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           clientCode: clientCodeProperty,
           tripNumber: tripNumberProperty,
           counterparty: counterpartyProperty,
+          employee: counterpartyProperty,
         },
       },
     ],
@@ -133,6 +139,13 @@ export function normalizeEntry(body: Entry, categories: readonly Category[], kee
   } else if (body.counterparty !== undefined) {
     return { error: `body/counterparty is not allowed for the category ${category.label}` };
   }
+  let employee: string | null = null;
+  if (category.requiresEmployee) {
+    employee = cleanText(body.employee ?? "");
+    if (employee === "") return { error: `body/employee is required for the category ${category.label}` };
+  } else if (body.employee !== undefined) {
+    return { error: `body/employee is not allowed for the category ${category.label}` };
+  }
 
   if (body.currency === "USD" && body.rateE4 !== undefined) {
     return { error: "body/rateE4 is only for rubles" };
@@ -152,6 +165,7 @@ export function normalizeEntry(body: Entry, categories: readonly Category[], kee
       clientCode,
       tripNumber,
       counterparty,
+      employee,
       comment,
     },
   };

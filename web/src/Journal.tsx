@@ -617,6 +617,7 @@ function OperationRow({
     operation.recipient && `Кому: ${operation.recipient}`,
     operation.tripNumber && `Рейс ${operation.tripNumber}`,
     operation.counterparty && `Контрагент: ${operation.counterparty}`,
+    operation.employee && `Сотрудник: ${operation.employee}`,
   ]
     .filter(Boolean)
     .join(" · ");
