@@ -114,18 +114,22 @@ h2 {
 
 .category-list ul {
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* One line a category, divided by thin rules, as a list of shadcn/ui. */
 .category-row {
   display: grid;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.category-row:last-child {
+  border-bottom: 0;
 }
 
 .category-row.archived .category-name {

@@ -58,7 +58,8 @@ describe("the lists of categories", () => {
     await incomeList.getByRole("button", { name: "Добавить" }).click();
     await seeText(incomeList, "Аренда мест");
 
-    await expenseList.getByRole("button", { name: "В архив: Билеты" }).click();
+    await expenseList.getByRole("button", { name: "Действия: Билеты" }).click();
+    await owner.page.getByRole("menuitem", { name: "В архив" }).click();
     await seeText(expenseList.locator('[data-category="tickets"]'), "в архиве");
 
     // The same label twice in a list is said no to.

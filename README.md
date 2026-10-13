@@ -9,7 +9,7 @@
 
 ## Оформление
 
-Экраны сделаны на Tailwind CSS 4 и компонентах в стиле [shadcn/ui](https://ui.shadcn.com/) (`web/src/components/ui`: `button`, `badge`, `card`, `tabs`, `input`, `label`, `native-select`, `checkbox`, `alert`), в цветах, которые у Кассы были всегда (бирюзовый на сером). Как это устроено:
+Экраны сделаны на Tailwind CSS 4 и компонентах в стиле [shadcn/ui](https://ui.shadcn.com/) (`web/src/components/ui`: `button`, `badge`, `card`, `tabs`, `input`, `label`, `native-select`, `checkbox`, `alert`, `dropdown-menu`), в цветах, которые у Кассы были всегда (бирюзовый на сером). Как это устроено:
 
 - `web/src/index.css`: слои `theme, base, screens, components, utilities`, reset Tailwind (preflight), цвета (переменные `--primary`, `--background` и так далее, одно место) и `screens.css`. В `screens.css` то, что особенное у экранов: журнал, который на телефоне карточки, а на ноутбуке таблица, итоги, список записей, ждущих на телефоне. Этот слой ниже утилит Tailwind, поэтому класс, данный элементу, всегда сильнее.
 - Размеры под телефон: кнопки и поля высотой 40 до 48 пикселей, текст в полях 16 пикселей (меньше нельзя: iPhone увеличивает страницу при вводе). Выпадающие списки это родные списки браузера (`native-select`): на телефоне открывается системный выбор, это быстрее. Валюта это две большие кнопки, под которыми обычные переключатели (radio).

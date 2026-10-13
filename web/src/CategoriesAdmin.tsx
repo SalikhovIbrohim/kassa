@@ -12,7 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -167,34 +169,33 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                 }}
               />
             ) : (
-              <>
-                <span className="category-name">
+              <div className="flex items-center gap-2">
+                <span className="category-name flex min-w-0 flex-1 flex-wrap items-center gap-1.5 font-semibold">
                   {item.label}
-                  {item.requiresClient && <span className="badge">нужен код клиента</span>}
-                  {item.notifyGroup && <span className="badge">в группу Telegram</span>}
-                  {item.archived && <span className="badge deleted">в архиве</span>}
+                  {item.requiresClient && <Badge variant="secondary" className="text-xs font-medium">нужен код клиента</Badge>}
+                  {item.notifyGroup && <Badge variant="secondary" className="text-xs font-medium">в группу Telegram</Badge>}
+                  {item.archived && <Badge variant="destructive" className="text-xs font-medium">в архиве</Badge>}
                 </span>
-                <span className="category-actions">
-                  <Button type="button" variant="outline" size="sm" disabled={busy || index === 0} aria-label={`Выше: ${item.label}`} onClick={() => onChange(item.code, { move: "up" })}>
-                    ↑
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" disabled={busy || index === items.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
-                    ↓
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" disabled={busy} aria-label={`Изменить: ${item.label}`} onClick={() => onEdit(item.code)}>
-                    Изменить
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline" size="sm"
-                    disabled={busy}
-                    aria-label={`${item.archived ? "Вернуть" : "В архив"}: ${item.label}`}
-                    onClick={() => onChange(item.code, { archived: !item.archived })}
-                  >
-                    {item.archived ? "Вернуть" : "В архив"}
-                  </Button>
-                </span>
-              </>
+                <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground" disabled={busy || index === 0} aria-label={`Выше: ${item.label}`} onClick={() => onChange(item.code, { move: "up" })}>
+                  ↑
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground" disabled={busy || index === items.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
+                  ↓
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" size="icon" className="size-9 text-lg leading-none" disabled={busy} aria-label={`Действия: ${item.label}`}>
+                      ⋯
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onEdit(item.code)}>Изменить</DropdownMenuItem>
+                    <DropdownMenuItem variant={item.archived ? "default" : "destructive"} onSelect={() => void onChange(item.code, { archived: !item.archived })}>
+                      {item.archived ? "Вернуть из архива" : "В архив"}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             )}
           </li>
         ))}
