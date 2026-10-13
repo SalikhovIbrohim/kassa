@@ -41,6 +41,27 @@ export async function newPhone(browser: Browser): Promise<{ context: BrowserCont
   return { context, page };
 }
 
+/** A laptop: a wide screen with a mouse, where «Управление» has its menu on the left. */
+export async function newLaptop(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", timezoneId: "Asia/Tashkent" });
+  const page = await context.newPage();
+  return { context, page };
+}
+
+/** Opens a section of «Управление» from its menu: on a phone the menu first comes out from behind ☰. */
+export async function openSection(page: Page, label: string): Promise<void> {
+  const burger = page.getByRole("button", { name: "Меню", exact: true });
+  if (await burger.isVisible()) await burger.click();
+  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: label, exact: true }).click();
+}
+
+/** The admin goes from «Управление» back to the cash desk (the switch at the top of the menu). */
+export async function backToCashDesk(page: Page): Promise<void> {
+  const burger = page.getByRole("button", { name: "Меню", exact: true });
+  if (await burger.isVisible()) await burger.click();
+  await page.getByRole("group", { name: "Режим" }).getByRole("button", { name: "Касса", exact: true }).click();
+}
+
 const WAIT = { timeout: 20_000, interval: 100 };
 
 const asPattern = (expected: string | RegExp) =>

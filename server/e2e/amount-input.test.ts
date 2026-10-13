@@ -38,7 +38,7 @@ describe("the amount field", () => {
     await page.getByLabel("Логин").fill("ivan");
     await page.getByLabel("Пароль").fill("correct horse");
     await page.getByRole("button", { name: "Войти" }).click();
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
 
     const amount = page.getByRole("textbox", { name: "Сумма" });
     await amount.click();

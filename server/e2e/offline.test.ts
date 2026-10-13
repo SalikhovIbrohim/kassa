@@ -48,7 +48,7 @@ describe("making entries without a connection", () => {
       await page.getByLabel("Логин").fill(login);
       await page.getByLabel("Пароль").fill(password);
       await page.getByRole("button", { name: "Войти" }).click();
-      await page.getByRole("button", { name: "Выйти" }).waitFor();
+      await page.locator("[data-signed-in]:visible").first().waitFor();
     };
     await page.goto(started.baseUrl);
     await signIn("ivan", "correct horse");
@@ -127,7 +127,7 @@ describe("making entries without a connection", () => {
 
     // The app is closed and opened again with no connection at all: it opens, and the entry is still there.
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await seeText(banner, "Не отправлено: 1 запись");
     await seeText(page.getByRole("region", { name: "Остатки" }), "Нет связи");
     expect(await onServer("OFF-1")).toBe(0);
@@ -317,7 +317,7 @@ describe("making entries without a connection", () => {
     await other.getByLabel("Логин").fill("petr");
     await other.getByLabel("Пароль").fill("another good one");
     await other.getByRole("button", { name: "Войти" }).click();
-    await other.getByRole("button", { name: "Выйти" }).waitFor();
+    await other.locator("[data-signed-in]:visible").first().waitFor();
 
     // The first tab does not go on as ivan: it asks for a sign-in, and says what waits on the phone.
     await seeVisible(page.getByRole("button", { name: "Войти" }));
@@ -431,7 +431,7 @@ describe("making entries without a connection", () => {
     await context.route("**/*", down);
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await enterIncome(page, "135", "BAD-1");
     await seeText(banner, "Не отправлено: 1 запись");
 
@@ -505,7 +505,7 @@ describe("making entries without a connection", () => {
 
     await context.setOffline(true);
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
 
     expect(await page.getByRole("radio", { name: "Доллары" }).isChecked()).toBe(true);
   });
@@ -533,7 +533,7 @@ describe("making entries without a connection", () => {
     await enteredElsewhere(started, "USD");
     await holdDefaults(context);
     await page.reload({ waitUntil: "load" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     expect(await page.getByRole("radio", { name: "Рубли" }).isChecked()).toBe(true);
 
     await amountField(page).fill("250");
@@ -547,7 +547,7 @@ describe("making entries without a connection", () => {
     await enteredElsewhere(started, "RUB");
     await page.evaluate(() => localStorage.setItem("kassa.currency", "USD"));
     await page.reload({ waitUntil: "load" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await page.waitForTimeout(1_500);
 
     expect(await page.getByRole("radio", { name: "Доллары" }).isChecked()).toBe(true);
@@ -562,7 +562,7 @@ describe("making entries without a connection", () => {
       };
     });
     await page.reload({ waitUntil: "load" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await page.route("**/api/operations", (route) =>
       route.request().method() === "POST"
         ? route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized" }) })

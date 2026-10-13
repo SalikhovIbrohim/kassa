@@ -46,7 +46,7 @@ describe("the app inside Telegram", () => {
     await page.getByLabel("Логин").fill("ivan");
     await page.getByLabel("Пароль").fill("correct horse");
     await page.getByRole("button", { name: "Войти" }).click();
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await page.getByRole("button", { name: "Привязать Telegram" }).click();
     await seeText(page.getByRole("status").filter({ hasText: "Telegram привязан" }), "без пароля");
 
@@ -54,7 +54,7 @@ describe("the app inside Telegram", () => {
     await page.getByLabel("Логин").waitFor();
     await page.goto(launch());
     await page.reload();
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
 
     await seeText(page.locator(".who"), "Иван");
     expect(await page.getByRole("button", { name: "Привязать Telegram" }).count()).toBe(0);
@@ -75,7 +75,7 @@ describe("the app inside Telegram", () => {
     await page.getByLabel("Логин").fill("ivan");
     await page.getByLabel("Пароль").fill("correct horse");
     await page.getByRole("button", { name: "Войти" }).click();
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
 
     expect(await page.getByRole("button", { name: "Привязать Telegram" }).count()).toBe(0);
     expect(await page.locator("body").innerText()).not.toContain("Telegram");

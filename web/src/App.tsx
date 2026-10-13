@@ -11,7 +11,6 @@ import {
   type Role,
   type User,
 } from "./api";
-import { AdminScreen } from "./AdminScreen";
 import { Balances, type BalancesState } from "./Balances";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,12 +20,15 @@ import { plural } from "./plural";
 import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
-import { ViewerScreen } from "./ViewerScreen";
+import { ManageScreen } from "./ManageScreen";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TelegramLink } from "./TelegramLink";
 import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
 import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+
+type Side = "cash" | "manage";
 
 type State =
   | { kind: "loading" }
@@ -229,6 +231,13 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   const blockedCount = mine.filter((entry) => entry.status === "blocked").length;
   const waitingCount = kept - blockedCount;
   const leaveButton = useRef<HTMLButtonElement>(null);
+  // The admin's two screens: the cash desk (as a cashier's) and «Управление» (as the owner's), the second made on first use.
+  const [side, setSide] = useState<Side>("cash");
+  const [manageOpened, setManageOpened] = useState(false);
+  const show = (next: Side) => {
+    if (next === "manage") setManageOpened(true);
+    setSide(next);
+  };
 
   async function leave(sure = false) {
     setError(null);
@@ -258,22 +267,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     leaveButton.current?.focus();
   }
 
-  return (
-    <main className="page">
-      <header className="flex items-start justify-between gap-3">
-        <div className="grid gap-1">
-          <h1 className="text-[1.6rem] leading-tight font-bold text-primary">Касса</h1>
-          {/* The classes "who" and "role" are hooks for the tests of the browser. */}
-          <p className="who m-0 flex flex-wrap items-center gap-2 text-lg font-semibold">
-            {user.displayName}
-            <Badge className="role">{ROLE_LABEL[user.role]}</Badge>
-          </p>
-        </div>
-        <Button ref={leaveButton} type="button" variant="outline" size="sm" onClick={() => void leave()}>
-          Выйти
-        </Button>
-      </header>
-
+  const notices = (
+    <>
       {inTelegram() && !user.telegramLinked && <TelegramLink />}
 
       {confirmingLeave && (
@@ -319,11 +314,59 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         </p>
       )}
 
-      <Balances balances={balances} onRetry={loadBalances} unsent={cashier ? kept : 0} />
+    </>
+  );
 
-      {user.role === "admin" ? (
-        <AdminScreen login={user.login} onSaved={showSavedBalances} onBalancesStale={loadBalances} onSessionExpired={onLoggedOut} />
-      ) : cashier ? (
+  // The owner has only «Управление»; the admin has the cash desk and «Управление», both kept alive (what he was
+  // typing, and the filters he set, are there when he comes back), only one shown.
+  const manage = (onCashDesk?: () => void) => (
+    <ManageScreen
+      displayName={user.displayName}
+      roleLabel={ROLE_LABEL[user.role]}
+      admin={user.role === "admin" ? user.login : undefined}
+      balances={balances}
+      onRetryBalances={loadBalances}
+      onLeave={() => void leave()}
+      leaveButton={leaveButton}
+      onCashDesk={onCashDesk}
+      notices={notices}
+      onSessionExpired={onLoggedOut}
+      onRefresh={loadBalances}
+    />
+  );
+
+  if (user.role === "viewer") return manage();
+
+  return (
+    <>
+      <main className="page" data-signed-in hidden={side === "manage"}>
+        <header className="flex items-start justify-between gap-3">
+          <div className="grid gap-1">
+            <h1 className="text-[1.6rem] leading-tight font-bold text-primary">Касса</h1>
+            {/* The classes "who" and "role" are hooks for the tests of the browser. */}
+            <p className="who m-0 flex flex-wrap items-center gap-2 text-lg font-semibold">
+              {user.displayName}
+              <Badge className="role">{ROLE_LABEL[user.role]}</Badge>
+            </p>
+          </div>
+          <Button ref={side === "cash" ? leaveButton : undefined} type="button" variant="outline" size="sm" onClick={() => void leave()}>
+            Выйти
+          </Button>
+        </header>
+
+        {side === "cash" && notices}
+
+        <Balances balances={balances} onRetry={loadBalances} unsent={kept} />
+
+        {user.role === "admin" && (
+          <Tabs value={side} onValueChange={(next) => show(next as Side)}>
+            <TabsList className="grid min-h-11 grid-cols-2 md:max-w-sm" aria-label="Режим">
+              <TabsTrigger value="cash">Касса</TabsTrigger>
+              <TabsTrigger value="manage">Управление</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+
         <EntryScreen
           login={user.login}
           canReconcile={user.role === "head_cashier"}
@@ -331,12 +374,11 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           onBalancesStale={loadBalances}
           onSessionExpired={onLoggedOut}
         />
-      ) : (
-        <ViewerScreen onSessionExpired={onLoggedOut} onRefresh={loadBalances} />
-      )}
 
-      {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
-      {cashier && <QueueBanner login={user.login} onSignIn={onLoggedOut} />}
-    </main>
+        {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
+        <QueueBanner login={user.login} onSignIn={onLoggedOut} />
+      </main>
+      {manageOpened && <div hidden={side !== "manage"}>{manage(() => show("cash"))}</div>}
+    </>
   );
 }

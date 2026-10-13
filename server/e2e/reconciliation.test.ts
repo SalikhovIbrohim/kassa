@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, backToCashDesk } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -45,7 +45,7 @@ describe("the cash desk without shifts", () => {
       await phone.page.getByLabel("Логин").fill(login);
       await phone.page.getByLabel("Пароль").fill(password);
       await phone.page.getByRole("button", { name: "Войти" }).click();
-      await phone.page.getByRole("button", { name: "Выйти" }).waitFor();
+      await phone.page.locator("[data-signed-in]:visible").first().waitFor();
       return phone;
     };
     return { started, phoneOf };
@@ -159,7 +159,7 @@ describe("the cash desk without shifts", () => {
     await seeText(bar(anvar.page), "Касса сверена");
 
     const owner = await phoneOf("owner", "long enough pass");
-    await owner.page.getByRole("tab", { name: "Сверки", exact: true }).click();
+    await openSection(owner.page, "Сверки");
 
     const card = owner.page.locator(".reconciliation-card").first();
     await seeText(card, "Анвар");
@@ -167,7 +167,7 @@ describe("the cash desk without shifts", () => {
     await seeText(card.locator('[data-currency="RUB"] [data-difference]'), /−10,00\s₽/);
     await seeText(card.locator('[data-currency="USD"] [data-difference]'), "сошлось");
 
-    await owner.page.getByRole("tab", { name: "Итоги", exact: true }).click();
+    await openSection(owner.page, "Итоги");
     await seeText(owner.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
     await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
   }, 90_000);
@@ -180,15 +180,15 @@ describe("the cash desk without shifts", () => {
 
     const mudir = await phoneOf("mudir", "admin password");
     await mudir.page.getByRole("tab", { name: "Управление", exact: true }).click();
-    await mudir.page.getByRole("tab", { name: "Сверки", exact: true }).click();
+    await openSection(mudir.page, "Сверки");
     await seeText(mudir.page.locator(".reconciliation-card").first(), "Анвар");
-    await mudir.page.getByRole("tab", { name: "Итоги", exact: true }).click();
+    await openSection(mudir.page, "Итоги");
     await seeText(mudir.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
-    await mudir.page.getByRole("tab", { name: "Категории", exact: true }).click();
-    await seeVisible(mudir.page.getByRole("heading", { name: "Категории" }));
+    await openSection(mudir.page, "Категории");
+    await seeVisible(mudir.page.getByRole("banner").getByRole("heading", { name: "Категории" }));
 
     // At the cash desk he enters like a cashier; only the head cashier counts the cash.
-    await mudir.page.getByRole("tab", { name: "Касса", exact: true }).click();
+    await backToCashDesk(mudir.page);
     await seeVisible(mudir.page.getByRole("tab", { name: "Приход", exact: true }));
     await showJournal(mudir.page);
     await seeVisible(mudir.page.getByRole("tab", { name: "Журнал", exact: true, selected: true }));

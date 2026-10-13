@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -33,7 +33,7 @@ describe("the lists of categories", () => {
     await phone.page.getByLabel("Логин").fill(login);
     await phone.page.getByLabel("Пароль").fill(password);
     await phone.page.getByRole("button", { name: "Войти" }).click();
-    await phone.page.getByRole("button", { name: "Выйти" }).waitFor();
+    await phone.page.locator("[data-signed-in]:visible").first().waitFor();
     return phone;
   }
 
@@ -58,7 +58,7 @@ describe("the lists of categories", () => {
     const owner = await signedIn(started, "owner", "long enough pass");
 
     // The owner adds an expense category and an income category, and archives one.
-    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await openSection(owner.page, "Категории");
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
     await addCategory(owner.page, "Расход", "Ремонт склада");
     await seeGone(owner.page.getByRole("dialog"));
@@ -112,7 +112,7 @@ describe("the lists of categories", () => {
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const owner = await signedIn(started, "owner", "long enough pass");
     await owner.page.setViewportSize({ width: 1100, height: 900 });
-    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await openSection(owner.page, "Категории");
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
     const order = () => expenseList.locator("li[data-category]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-category")));
     await expenseList.locator('[data-category="customs"]').waitFor();
@@ -125,7 +125,7 @@ describe("the lists of categories", () => {
     await expect.poll(async () => (await order()).slice(0, 3)).toEqual(["customs", "fuel_road", "salaries"]);
     // The order is the server's, also after the screen is loaded again.
     await owner.page.reload();
-    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await openSection(owner.page, "Категории");
     await expect.poll(async () => (await order()).slice(0, 1)).toEqual(["customs"]);
   }, 90_000);
 
@@ -136,7 +136,7 @@ describe("the lists of categories", () => {
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const owner = await signedIn(started, "owner", "long enough pass");
 
-    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await openSection(owner.page, "Категории");
     const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
     await addCategory(owner.page, "Расход", "Перевозчику", ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]);
     await seeText(expenseList, "нужен сотрудник");

@@ -113,8 +113,10 @@ export function CategoriesAdmin({ onSessionExpired, active = true }: Props) {
         </>
       )}
 
-      {all &&
-        (["income", "expense"] as const).map((kind) => (
+      {all && (
+        // On a wide screen the two lists stand side by side.
+        <div className="grid items-start gap-4 min-[1100px]:grid-cols-2">
+          {(["income", "expense"] as const).map((kind) => (
           <CategoryList
             key={kind}
             kind={kind}
@@ -125,6 +127,8 @@ export function CategoriesAdmin({ onSessionExpired, active = true }: Props) {
             onChange={(code, change) => apply(() => changeCategory(code, change))}
           />
         ))}
+        </div>
+      )}
     </section>
   );
 }

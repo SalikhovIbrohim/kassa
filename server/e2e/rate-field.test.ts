@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, openSection } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -33,7 +33,7 @@ describe("the rate field", () => {
     await phone.page.getByLabel("Логин").fill(login);
     await phone.page.getByLabel("Пароль").fill(password);
     await phone.page.getByRole("button", { name: "Войти" }).click();
-    await phone.page.getByRole("button", { name: "Выйти" }).waitFor();
+    await phone.page.locator("[data-signed-in]:visible").first().waitFor();
     return phone;
   }
 
@@ -84,7 +84,7 @@ describe("the rate field", () => {
 
     // The owner reads the day in dollars.
     const owner = await signedIn(started, "owner", "long enough pass");
-    await owner.page.getByRole("tab", { name: "Итоги", exact: true }).click();
+    await openSection(owner.page, "Итоги");
     await seeText(owner.page.locator('[data-usd="income"]'), /\+1\s000,00\s\$/);
     await seeText(owner.page.locator('[data-usd="expense"]'), /−12,66\s\$/);
     expect(await owner.page.locator("[data-without-rate=expense]").count()).toBe(0);
@@ -92,7 +92,7 @@ describe("the rate field", () => {
 
     // The next time the form opens it starts with the rate of today.
     await page.reload({ waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: "Выйти" }).waitFor();
+    await page.locator("[data-signed-in]:visible").first().waitFor();
     await seeValue(rateField(page), "79");
   }, 120_000);
 });
