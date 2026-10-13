@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>body{margin:0;background:#f0eee9;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#0f172a}a{color:#0f766e}a:hover{color:#115e59}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55);max-width:1280px}.dv-card{max-width:100%;background:#f8fafc;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}.dv-note{margin:0;font:13px/1.5 system-ui,sans-serif;color:#334155;max-width:1280px;text-wrap:pretty}.k-th{padding:10px 14px;text-align:left;font-size:13px;font-weight:600;color:#475569;background:#f1f5f9;border-bottom:1px solid #e2e8f0;white-space:nowrap}.k-td{padding:10px 14px;border-bottom:1px solid #e2e8f0;vertical-align:middle;font-size:15px}.k-badge{display:inline-flex;align-items:center;border:1px solid transparent;border-radius:9999px;padding:2px 10px;font-size:12px;line-height:16px;font-weight:500;background:#f1f5f9;color:#0f172a;white-space:nowrap}.k-badge-red{background:rgba(185,28,28,.1);color:#b91c1c}.k-badge-teal{background:rgba(15,118,110,.1);color:#0f766e;font-weight:600}.k-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 16px;border-radius:10px;border:1px solid #0f766e;background:#f8fafc;color:#0f766e;font:600 14px system-ui,sans-serif;box-shadow:0 1px 2px rgba(0,0,0,.05);cursor:pointer;white-space:nowrap}.k-btn-p{background:#0f766e;color:#fff}.k-btn-d{background:#b91c1c;border-color:#b91c1c;color:#fff}.k-btn-g{border-color:transparent;background:transparent;box-shadow:none;color:#475569}.k-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;border:1px solid #0f766e;background:#f8fafc;color:#0f766e;box-shadow:0 1px 2px rgba(0,0,0,.05);cursor:pointer}.k-input{height:40px;min-width:0;border-radius:10px;border:1px solid #94a3b8;background:#fff;padding:0 14px;font:400 15px system-ui,sans-serif;color:#0f172a;box-shadow:0 1px 2px rgba(0,0,0,.05);display:flex;align-items:center;gap:8px}.k-input-lg{height:48px;font-size:16px}.k-label{display:grid;gap:8px;font-size:15px;font-weight:600}.k-muted{color:#475569}.k-nav{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:10px;font:600 14px system-ui,sans-serif;color:#334155;cursor:pointer}.k-nav-on{background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}.k-grp{padding:18px 12px 6px;font:600 11px system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#64748b}.k-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px -1px rgba(0,0,0,.1)}.k-h2{margin:0;font-size:1.25rem;font-weight:700}.tab{font-variant-numeric:tabular-nums}.in{color:#166534}.out{color:#991b1b}</style></helmet>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Десктопное «Управление»: каркас, справочники, карточки, выбор из справочника. Опора — <a class="dv-oid" href="Касса - текущие экраны.dc.html">текущие экраны</a>, те же токены (teal on slate, shadcn-компоненты из web/src/components/ui).</span></div>
+<p class="dv-note"><b>Допущения.</b> Левое меню с группами; остатки и имя — в шапке справа; переключатель «Касса / Управление» остаётся, но живёт в верху меню. Таблицы — для ≥960px (как у журнала сейчас), ниже — карточки (<a class="dv-oid" href="#1i">1i</a>). Карандаш по-прежнему раскрывает запись на месте (<a class="dv-oid" href="#1b">1b</a>); клик по имени ведёт в карточку отдельной страницей (<a class="dv-oid" href="#1d">1d</a>, <a class="dv-oid" href="#1e">1e</a>). Вкладка «Люди» становится «Сотрудники»; доступ в Кассу — часть карточки сотрудника. Долг/аванс не считаем — только обороты за период.</p>
+<div class="dv-opts" style="margin-top:20px">
+
+<!-- 1a: Frame + Clients -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Каркас + шаблон справочника: «Клиенты». Поиск, фильтры, сортировка по колонке, счётчик, «+ Новый», карандаш раскрывает строку.</div>
+<div class="dv-card" data-screen-label="1a Клиенты" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:860px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navClients }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <h2 class="k-h2">Клиенты</h2>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;gap:14px;align-content:start">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+        <p class="k-muted" style="margin:0;max-width:640px;text-wrap:pretty">Код клиента совпадает с контрагентом в 1С. Клиента с записями в журнале удалить нельзя — только убрать в архив: в формах его не предложат, старые записи его помнят.</p>
+        <div style="display:flex;gap:8px"><button class="k-btn k-btn-p">+ Новый</button><button class="k-btn">Обновить</button></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <div class="k-input" style="width:300px;color:#475569"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Код, имя или телефон</div>
+        <div class="k-input" style="width:170px;justify-content:space-between">Активные<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <div class="k-input" style="width:190px;justify-content:space-between">Операции: все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <span class="k-muted" style="margin-left:auto;font-size:14px">{{ clientsShown }} из 38</span>
+      </div>
+      <div class="k-card" style="overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr><th class="k-th" style="width:90px">Код ▲</th><th class="k-th">Имя</th><th class="k-th">Телефон</th><th class="k-th">Заметка</th><th class="k-th">Последняя операция</th><th class="k-th" style="text-align:right">Приход за месяц</th><th class="k-th" style="width:1%"></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ clients }}" as="c" hint-placeholder-count="6">
+              <tr>
+                <td class="k-td" style="padding:{{ rowPad }} 14px"><a href="#1d" style="font-weight:700;text-decoration:none;color:{{ c.nameColor }}">{{ c.code }}</a></td>
+                <td class="k-td" style="padding:{{ rowPad }} 14px;font-weight:600;white-space:nowrap;color:{{ c.nameColor }};text-decoration:{{ c.deco }}">{{ c.name }}<sc-if value="{{ c.archived }}" hint-placeholder-val="{{ false }}"><span class="k-badge k-badge-red" style="margin-left:8px;text-decoration:none">в архиве</span></sc-if></td>
+                <td class="k-td tab" style="padding:{{ rowPad }} 14px;white-space:nowrap">{{ c.phone }}</td>
+                <td class="k-td k-muted" style="padding:{{ rowPad }} 14px;max-width:0;width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.note }}</td>
+                <td class="k-td k-muted tab" style="padding:{{ rowPad }} 14px;white-space:nowrap">{{ c.last }}</td>
+                <td class="k-td tab in" style="padding:{{ rowPad }} 14px;text-align:right;font-weight:600;white-space:nowrap">{{ c.month }}</td>
+                <td class="k-td" style="padding:{{ rowPad }} 10px"><button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button></td>
+              </tr>
+              <sc-if value="{{ c.editing }}" hint-placeholder-val="{{ false }}">
+              <tr><td colspan="7" style="padding:8px 14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0">
+                <form style="display:grid;gap:14px;max-width:760px">
+                  <div style="display:grid;grid-template-columns:140px 1fr 1fr;gap:12px">
+                    <label class="k-label">Код<div class="k-input k-input-lg">{{ c.code }}</div></label>
+                    <label class="k-label">Имя<div class="k-input k-input-lg">{{ c.name }}</div></label>
+                    <label class="k-label">Телефон <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg">{{ c.phone }}</div></label>
+                  </div>
+                  <label class="k-label">Заметка <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg">{{ c.note }}</div></label>
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px"><button class="k-btn k-btn-p" style="height:44px;padding:0 20px;font-size:16px">Сохранить</button><button class="k-btn" style="height:44px;padding:0 20px;font-size:16px">Отмена</button><div style="margin-left:auto;display:flex;gap:8px"><button class="k-btn" style="height:44px;padding:0 20px;font-size:16px">В архив</button></div></div>
+                </form>
+              </td></tr>
+              </sc-if>
+            </sc-for>
+          </tbody>
+        </table>
+        <div style="display:flex;justify-content:center;padding:12px"><button class="k-btn">Показать ещё</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1b: Employees -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>«Сотрудники» (бывшие «Люди»): все работники; у части — доступ в Кассу. Карандаш раскрывает всё о человеке, включая доступ.</div>
+<div class="dv-card" data-screen-label="1b Сотрудники" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:860px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navEmployees }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <h2 class="k-h2">Сотрудники</h2>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;gap:14px;align-content:start">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+        <p class="k-muted" style="margin:0;max-width:680px;text-wrap:pretty">Все, кому выдают зарплату, авансы и долги. У кого включён доступ в Кассу — тот ещё и входит в неё с логином и паролем. Новый пароль или отключение доступа сразу выводят человека со всех телефонов.</p>
+        <div style="display:flex;gap:8px"><button class="k-btn k-btn-p">+ Новый</button><button class="k-btn">Обновить</button></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <div class="k-input" style="width:300px;color:#475569"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Имя, должность или логин</div>
+        <div class="k-input" style="width:190px;justify-content:space-between">Должность: все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <div class="k-input" style="width:200px;justify-content:space-between">Доступ в Кассу: все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <div class="k-input" style="width:150px;justify-content:space-between">Работают<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <span class="k-muted" style="margin-left:auto;font-size:14px">{{ employeesShown }} из 23</span>
+      </div>
+      <div class="k-card" style="overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr><th class="k-th">Имя ▲</th><th class="k-th">Должность</th><th class="k-th">Телефон</th><th class="k-th">Доступ в Кассу</th><th class="k-th" style="text-align:right">Выплачено за месяц</th><th class="k-th" style="width:1%"></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ employees }}" as="e" hint-placeholder-count="8">
+              <tr>
+                <td class="k-td" style="padding:{{ rowPad }} 14px"><a href="#1e" style="font-weight:600;text-decoration:none;color:{{ e.nameColor }}">{{ e.name }}</a><sc-if value="{{ e.self }}" hint-placeholder-val="{{ false }}"><span class="k-muted" style="font-size:14px;margin-left:6px">(это вы)</span></sc-if><sc-if value="{{ e.archived }}" hint-placeholder-val="{{ false }}"><span class="k-badge k-badge-red" style="margin-left:8px">уволен</span></sc-if></td>
+                <td class="k-td" style="padding:{{ rowPad }} 14px">{{ e.post }}</td>
+                <td class="k-td tab" style="padding:{{ rowPad }} 14px;white-space:nowrap">{{ e.phone }}</td>
+                <td class="k-td" style="padding:{{ rowPad }} 14px"><sc-if value="{{ e.hasAccess }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px"><span class="k-badge {{ e.roleCls }}">{{ e.role }}</span><span class="k-muted" style="font-size:14px">{{ e.login }}</span><sc-if value="{{ e.off }}" hint-placeholder-val="{{ false }}"><span class="k-badge k-badge-red">отключён</span></sc-if></span></sc-if><sc-if value="{{ e.noAccess }}" hint-placeholder-val="{{ false }}"><span style="color:#94a3b8">—</span></sc-if></td>
+                <td class="k-td tab out" style="padding:{{ rowPad }} 14px;text-align:right;font-weight:600;white-space:nowrap">{{ e.month }}</td>
+                <td class="k-td" style="padding:{{ rowPad }} 10px"><button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button></td>
+              </tr>
+              <sc-if value="{{ e.editing }}" hint-placeholder-val="{{ false }}">
+              <tr><td colspan="6" style="padding:8px 14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0">
+                <form style="display:grid;gap:14px;max-width:820px">
+                  <div style="display:grid;grid-template-columns:1fr 200px 1fr;gap:12px">
+                    <label class="k-label">Имя<div class="k-input k-input-lg">{{ e.name }}</div></label>
+                    <label class="k-label">Должность<div class="k-input k-input-lg" style="justify-content:space-between">{{ e.post }}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+                    <label class="k-label">Телефон <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg">{{ e.phone }}</div></label>
+                  </div>
+                  <section style="display:grid;gap:12px;padding:14px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:12px">
+                    <label style="display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px"><span style="display:inline-grid;place-items:center;width:20px;height:20px;border-radius:4px;background:#0f766e;color:#fff;font-size:13px">✓</span>Входит в Кассу <span style="font-weight:400;color:#475569">(логин, пароль, роль)</span></label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                      <label class="k-label">Логин<div class="k-input k-input-lg">{{ e.login }}</div></label>
+                      <label class="k-label">Роль<div class="k-input k-input-lg" style="justify-content:space-between">{{ e.role }}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+                      <label class="k-label">Новый пароль <span style="font-weight:400;color:#475569">(пусто: не менять)</span><div class="k-input k-input-lg"></div></label>
+                    </div>
+                    <p class="k-muted" style="margin:0;font-size:14px">Главный кассир: всё, что кассир, плюс кнопка «Сверить кассу». Сверяет кассу только он.</p>
+                  </section>
+                  <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px"><button class="k-btn k-btn-p" style="height:44px;padding:0 20px;font-size:16px">Сохранить</button><button class="k-btn" style="height:44px;padding:0 20px;font-size:16px">Отмена</button><div style="margin-left:auto;display:flex;gap:8px"><button class="k-btn" style="height:44px;padding:0 20px;font-size:16px">Отключить доступ</button><button class="k-btn" style="height:44px;padding:0 20px;font-size:16px">Уволить</button></div></div>
+                </form>
+              </td></tr>
+              </sc-if>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1c: Counterparties -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>«Контрагенты»: перевозчики и поставщики. Тот же шаблон, что <a class="dv-oid" href="#1a">1a</a>; поля — название, тип, телефон, контакт, заметка.</div>
+<div class="dv-card" data-screen-label="1c Контрагенты" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:640px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navParties }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <h2 class="k-h2">Контрагенты</h2>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;gap:14px;align-content:start">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+        <p class="k-muted" style="margin:0;max-width:640px;text-wrap:pretty">Кому платим и от кого получаем: перевозчики, поставщики, арендодатели. Кассиры выбирают их в формах, когда категория просит контрагента.</p>
+        <div style="display:flex;gap:8px"><button class="k-btn k-btn-p">+ Новый</button><button class="k-btn">Обновить</button></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px">
+        <div class="k-input" style="width:300px;color:#475569"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>Название, контакт или телефон</div>
+        <div style="display:flex;gap:4px;padding:4px;border-radius:12px;background:#e2e8f0"><span style="display:flex;align-items:center;padding:0 12px;height:32px;border-radius:9px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff">Все</span><span style="display:flex;align-items:center;padding:0 12px;height:32px;border-radius:9px;font:600 13px system-ui,sans-serif;color:#334155">Перевозчики</span><span style="display:flex;align-items:center;padding:0 12px;height:32px;border-radius:9px;font:600 13px system-ui,sans-serif;color:#334155">Поставщики</span><span style="display:flex;align-items:center;padding:0 12px;height:32px;border-radius:9px;font:600 13px system-ui,sans-serif;color:#334155">Прочие</span></div>
+        <div class="k-input" style="width:150px;justify-content:space-between">Активные<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div>
+        <span class="k-muted" style="margin-left:auto;font-size:14px">{{ partiesShown }} из 17</span>
+      </div>
+      <div class="k-card" style="overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr><th class="k-th">Название ▲</th><th class="k-th">Тип</th><th class="k-th">Телефон</th><th class="k-th">Контакт</th><th class="k-th">Заметка</th><th class="k-th" style="text-align:right">Оборот за месяц</th><th class="k-th" style="width:1%"></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ parties }}" as="p" hint-placeholder-count="6">
+              <tr>
+                <td class="k-td" style="padding:{{ rowPad }} 14px;font-weight:600;white-space:nowrap;color:{{ p.nameColor }}">{{ p.name }}<sc-if value="{{ p.archived }}" hint-placeholder-val="{{ false }}"><span class="k-badge k-badge-red" style="margin-left:8px">в архиве</span></sc-if></td>
+                <td class="k-td" style="padding:{{ rowPad }} 14px"><span class="k-badge">{{ p.type }}</span></td>
+                <td class="k-td tab" style="padding:{{ rowPad }} 14px;white-space:nowrap">{{ p.phone }}</td>
+                <td class="k-td" style="padding:{{ rowPad }} 14px">{{ p.contact }}</td>
+                <td class="k-td k-muted" style="padding:{{ rowPad }} 14px;max-width:0;width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ p.note }}</td>
+                <td class="k-td tab" style="padding:{{ rowPad }} 14px;text-align:right;font-weight:600;white-space:nowrap;color:{{ p.amtColor }}">{{ p.month }}</td>
+                <td class="k-td" style="padding:{{ rowPad }} 10px"><button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1d: Client card -->
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Карточка клиента отдельной страницей: «Назад», реквизиты, обороты за период по валютам, операции. Карандаш правит реквизиты на месте.</div>
+<div class="dv-card" data-screen-label="1d Карточка клиента" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:820px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navClients }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <div style="display:flex;align-items:center;gap:12px"><a href="#1a" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:14px;text-decoration:none">← Клиенты</a><span style="color:#cbd5e1">/</span><h2 class="k-h2">А245 · Азизов Тимур</h2></div>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-content:start;align-items:start">
+      <div style="display:grid;gap:16px">
+        <div class="k-card" style="padding:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:8px 32px">
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Код (как в 1С)</span><strong style="font-size:17px">А245</strong></div>
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Телефон</span><strong class="tab" style="font-size:17px;font-weight:600;white-space:nowrap">+7 926 118-40-21</strong></div>
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Первая операция</span><strong style="font-size:17px;font-weight:600">14.03.2026</strong></div>
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Заметка</span><span style="font-size:15px">Рейсы Москва–Казань, платит частями</span></div>
+          </div>
+          <button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+          <h3 style="margin:0;font-size:17px;font-weight:700">Операции</h3>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px"><span class="k-btn" style="height:36px;padding:0 12px">Сегодня</span><span class="k-btn" style="height:36px;padding:0 12px">7 дней</span><span class="k-btn k-btn-p" style="height:36px;padding:0 12px">Этот месяц</span><span class="k-btn" style="height:36px;padding:0 12px">Всё время</span></div>
+            <div class="k-input" style="height:36px;width:130px;font-size:14px" class="tab">01.10.2026</div><span class="k-muted">—</span><div class="k-input tab" style="height:36px;width:130px;font-size:14px">13.10.2026</div>
+          </div>
+        </div>
+        <div class="k-card" style="overflow:hidden">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr><th class="k-th">Когда (МСК)</th><th class="k-th">Кассир</th><th class="k-th">Операция</th><th class="k-th" style="text-align:right">Сумма</th><th class="k-th">Рейс / комментарий</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ clientOps }}" as="o" hint-placeholder-count="6">
+                <tr><td class="k-td k-muted tab" style="white-space:nowrap;font-size:14px">{{ o.when }}</td><td class="k-td" style="font-size:14px">{{ o.who }}</td><td class="k-td" style="font-weight:600;white-space:nowrap">{{ o.what }}<sc-if value="{{ o.edited }}" hint-placeholder-val="{{ false }}"><span class="k-badge" style="margin-left:8px">изменена</span></sc-if></td><td class="k-td tab" style="text-align:right;white-space:nowrap"><span style="font-weight:700" class="{{ o.cls }}">{{ o.amount }}</span><small style="display:block;font-size:12.8px;color:#64748b">{{ o.usd }}</small></td><td class="k-td k-muted" style="font-size:14px">{{ o.comment }}</td></tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <div style="display:flex;justify-content:center;padding:12px"><button class="k-btn">Показать ещё</button></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:16px">
+        <section class="k-card" style="padding:16px;display:grid;gap:8px">
+          <h3 style="margin:0;font-size:16px;font-weight:700">За этот месяц</h3>
+          <p class="k-muted" style="margin:0;font-size:13px">Обороты по кассе: что принёс и что ему выдали. Долг не считаем.</p>
+          <dl style="margin:4px 0 0;display:grid">
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Приход, ₽</dt><dd class="tab in" style="margin:0;font-weight:600">+450 000,00 ₽</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Расход, ₽</dt><dd class="tab out" style="margin:0;font-weight:600">−12 000,00 ₽</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Приход, $</dt><dd class="tab in" style="margin:0;font-weight:600">+300,00 $</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Расход, $</dt><dd class="tab" style="margin:0;font-weight:500;color:#64748b">0,00 $</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;margin-top:4px;border-top:2px solid #94a3b8;font-size:1.05rem"><dt style="color:#334155">Всего в долларах</dt><dd class="tab" style="margin:0;font-weight:700">+5 775,00 $</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0 0"><dt style="color:#64748b;font-size:14px">Операций</dt><dd class="tab" style="margin:0;font-size:14px;color:#64748b">7</dd></div>
+          </dl>
+        </section>
+        <section class="k-card" style="padding:16px;display:grid;gap:8px">
+          <h3 style="margin:0;font-size:16px;font-weight:700">За всё время</h3>
+          <dl style="margin:4px 0 0;display:grid">
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Приход, ₽</dt><dd class="tab in" style="margin:0;font-weight:600">+3 940 000,00 ₽</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Приход, $</dt><dd class="tab in" style="margin:0;font-weight:600">+1 200,00 $</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0 0"><dt style="color:#64748b;font-size:14px">Операций · с 14.03.2026</dt><dd class="tab" style="margin:0;font-size:14px;color:#64748b">41</dd></div>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1e: Employee card -->
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Карточка сотрудника: блок «Доступ в Кассу» показывает, кто просто работник, а кто ещё и пользователь. У водителя без доступа — одна кнопка «Дать доступ».</div>
+<div class="dv-card" data-screen-label="1e Карточка сотрудника" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:760px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navEmployees }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <div style="display:flex;align-items:center;gap:12px"><a href="#1b" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:14px;text-decoration:none">← Сотрудники</a><span style="color:#cbd5e1">/</span><h2 class="k-h2">Мухаммад Али</h2><span class="k-badge">Кассир</span></div>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-content:start;align-items:start">
+      <div style="display:grid;gap:16px">
+        <div class="k-card" style="padding:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+          <div style="display:grid;grid-template-columns:repeat(3,auto);gap:8px 32px">
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Должность</span><strong style="font-size:17px;font-weight:600">Кассир</strong></div>
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Телефон</span><strong class="tab" style="font-size:17px;font-weight:600;white-space:nowrap">+7 903 775-20-14</strong></div>
+            <div style="display:grid;gap:2px"><span class="k-muted" style="font-size:13px">Работает с</span><strong style="font-size:17px;font-weight:600">02.2025</strong></div>
+          </div>
+          <button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+          <h3 style="margin:0;font-size:17px;font-weight:700">Выплаты и долги</h3>
+          <div style="display:flex;gap:8px"><span class="k-btn" style="height:36px;padding:0 12px">7 дней</span><span class="k-btn k-btn-p" style="height:36px;padding:0 12px">Этот месяц</span><span class="k-btn" style="height:36px;padding:0 12px">Всё время</span></div>
+        </div>
+        <div class="k-card" style="overflow:hidden">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr><th class="k-th">Когда (МСК)</th><th class="k-th">Кассир</th><th class="k-th">Операция</th><th class="k-th" style="text-align:right">Сумма</th><th class="k-th">Комментарий</th></tr></thead>
+            <tbody>
+              <sc-for list="{{ employeeOps }}" as="o" hint-placeholder-count="4">
+                <tr><td class="k-td k-muted tab" style="white-space:nowrap;font-size:14px">{{ o.when }}</td><td class="k-td" style="font-size:14px">{{ o.who }}</td><td class="k-td" style="font-weight:600;white-space:nowrap">{{ o.what }}</td><td class="k-td tab" style="text-align:right;white-space:nowrap"><span style="font-weight:700" class="{{ o.cls }}">{{ o.amount }}</span><small style="display:block;font-size:12.8px;color:#64748b">{{ o.usd }}</small></td><td class="k-td k-muted" style="font-size:14px">{{ o.comment }}</td></tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:grid;gap:16px">
+        <section class="k-card" style="padding:16px;display:grid;gap:12px;border-color:#99f6e4;background:#f0fdfa">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h3 style="margin:0;font-size:16px;font-weight:700">Доступ в Кассу</h3><span class="k-badge k-badge-teal">включён</span></div>
+          <dl style="margin:0;display:grid;gap:8px">
+            <div style="display:grid;grid-template-columns:110px 1fr;gap:8px"><dt class="k-muted" style="font-size:14px">Логин</dt><dd style="margin:0;font-weight:600">Muhammadali</dd></div>
+            <div style="display:grid;grid-template-columns:110px 1fr;gap:8px"><dt class="k-muted" style="font-size:14px">Роль</dt><dd style="margin:0"><span class="k-badge">Главный кассир</span></dd></div>
+            <div style="display:grid;grid-template-columns:110px 1fr;gap:8px"><dt class="k-muted" style="font-size:14px">Последний вход</dt><dd style="margin:0;font-size:14px">сегодня, 14:05 · iPhone</dd></div>
+            <div style="display:grid;grid-template-columns:110px 1fr;gap:8px"><dt class="k-muted" style="font-size:14px">Telegram</dt><dd style="margin:0;font-size:14px">привязан</dd></div>
+          </dl>
+          <p class="k-muted" style="margin:0;font-size:13px">Главный кассир: всё, что кассир, плюс «Сверить кассу».</p>
+          <div style="display:flex;flex-wrap:wrap;gap:8px"><button class="k-btn" style="height:36px;padding:0 12px">Изменить</button><button class="k-btn" style="height:36px;padding:0 12px">Сменить пароль</button><button class="k-btn" style="height:36px;padding:0 12px;margin-left:auto">Отключить</button></div>
+        </section>
+        <section class="k-card" style="padding:16px;display:grid;gap:10px;border-style:dashed">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h3 style="margin:0;font-size:16px;font-weight:700">Так выглядит у водителя</h3><span class="k-badge">нет доступа</span></div>
+          <p class="k-muted" style="margin:0;font-size:14px;text-wrap:pretty">Рустам Каримов не входит в Кассу: ему только выдают зарплату и авансы. Доступ включается одной кнопкой — появятся логин, пароль и роль.</p>
+          <button class="k-btn" style="height:36px;padding:0 12px;width:fit-content">Дать доступ в Кассу</button>
+        </section>
+        <section class="k-card" style="padding:16px;display:grid;gap:8px">
+          <h3 style="margin:0;font-size:16px;font-weight:700">За этот месяц</h3>
+          <dl style="margin:4px 0 0;display:grid">
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Зарплаты и выплаты</dt><dd class="tab out" style="margin:0;font-weight:600">−45 000,00 ₽</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Выдано в долг</dt><dd class="tab out" style="margin:0;font-weight:600">−20 000,00 ₽</dd></div>
+            <div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #f1f5f9"><dt style="color:#334155">Вернул долг</dt><dd class="tab in" style="margin:0;font-weight:600">+10 000,00 ₽</dd></div>
+          </dl>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1f: Picker field -->
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Поле выбора из справочника в форме записи. Десктоп: подсказки под полем + быстрое добавление на месте. Телефон: та же форма, список открывается шторкой снизу.</div>
+<div class="dv-card" data-screen-label="1f Поле выбора" style="width:1280px;padding:28px;display:grid;grid-template-columns:repeat(3,300px) 1fr;gap:28px;align-items:start;background:#f0eee9">
+  <div style="display:grid;gap:12px">
+    <span class="k-muted" style="font:600 12px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase">1 · Набирает «А24»</span>
+    <div class="k-card" style="padding:20px;display:grid;gap:16px">
+      <label class="k-label">Откуда деньги<div class="k-input k-input-lg" style="justify-content:space-between">Оплата от клиента<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+      <div class="k-label" style="position:relative">Код клиента
+        <div class="k-input k-input-lg" style="border-color:#0f766e;outline:3px solid #5eead4;outline-offset:2px">А24<span style="width:1px;height:20px;background:#0f172a;margin-left:-6px"></span></div>
+        <div class="k-card" style="position:absolute;top:100%;left:0;right:0;margin-top:6px;padding:6px;display:grid;gap:2px;font-weight:400;z-index:2;box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1)">
+          <sc-for list="{{ pickerHits }}" as="h" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 10px;border-radius:10px;background:{{ h.bg }}"><strong style="width:48px">{{ h.code }}</strong><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ h.name }}</span><span class="k-muted" style="font-size:13px;white-space:nowrap">{{ h.hint }}</span></div></sc-for>
+          <div style="height:1px;background:#e2e8f0;margin:4px 6px"></div>
+          <div style="display:flex;align-items:center;gap:10px;height:44px;padding:0 10px;border-radius:10px;color:#0f766e;font-weight:600">+ Добавить клиента «А24»</div>
+        </div>
+      </div>
+      <div style="height:170px"></div>
+      <label class="k-label">Комментарий <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg"></div></label>
+    </div>
+  </div>
+  <div style="display:grid;gap:12px">
+    <span class="k-muted" style="font:600 12px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase">2 · Нет такого — добавляет не уходя</span>
+    <div class="k-card" style="padding:20px;display:grid;gap:16px">
+      <label class="k-label">Откуда деньги<div class="k-input k-input-lg" style="justify-content:space-between">Оплата от клиента<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+      <div class="k-label">Код клиента
+        <section style="display:grid;gap:12px;padding:14px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:12px;font-weight:400">
+          <strong style="font-size:15px">Новый клиент</strong>
+          <label class="k-label" style="font-size:14px">Код<div class="k-input k-input-lg" style="background:#fff">А248</div></label>
+          <label class="k-label" style="font-size:14px">Имя<div class="k-input k-input-lg" style="background:#fff;color:#475569">как в 1С</div></label>
+          <label class="k-label" style="font-size:14px">Телефон <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg" style="background:#fff"></div></label>
+          <div style="display:flex;gap:8px"><button class="k-btn k-btn-p" style="height:44px">Добавить и выбрать</button><button class="k-btn" style="height:44px">Отмена</button></div>
+        </section>
+      </div>
+      <label class="k-label">Комментарий <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg"></div></label>
+    </div>
+  </div>
+  <div style="display:grid;gap:12px">
+    <span class="k-muted" style="font:600 12px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase">3 · Выбран</span>
+    <div class="k-card" style="padding:20px;display:grid;gap:16px">
+      <label class="k-label">Откуда деньги<div class="k-input k-input-lg" style="justify-content:space-between">Оплата от клиента<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+      <label class="k-label">Код клиента<div class="k-input k-input-lg" style="justify-content:space-between;padding-left:8px"><span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:rgba(15,118,110,.1);color:#0f766e;font-weight:600"><span>А245</span><span style="font-weight:400;color:#115e59">Азизов Тимур</span><span style="display:grid;place-items:center;width:22px;height:22px;border-radius:6px;font-size:16px;color:#0f766e">×</span></span></div></label>
+      <p class="k-muted" style="margin:-8px 0 0;font-size:13px">Код уходит в 1С как контрагент. Имя — только подсказка.</p>
+      <label class="k-label">Комментарий <span style="font-weight:400;color:#475569">(необязательно)</span><div class="k-input k-input-lg"></div></label>
+      <div style="display:grid;gap:8px;margin-top:8px;padding-top:16px;border-top:1px dashed #e2e8f0">
+        <span class="k-muted" style="font-size:13px">То же поле для расхода, когда категория просит сотрудника или контрагента:</span>
+        <label class="k-label">Сотрудник<div class="k-input k-input-lg" style="justify-content:space-between;padding-left:8px"><span style="display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 6px 0 10px;border-radius:8px;background:rgba(15,118,110,.1);color:#0f766e;font-weight:600"><span>Рустам Каримов</span><span style="font-weight:400;color:#115e59">водитель</span><span style="display:grid;place-items:center;width:22px;height:22px;border-radius:6px;font-size:16px;color:#0f766e">×</span></span></div></label>
+        <label class="k-label">Контрагент<div class="k-input k-input-lg" style="color:#475569;justify-content:space-between">Название или телефон<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></div></label>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;gap:12px;justify-items:start">
+    <span class="k-muted" style="font:600 12px system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase">Телефон · шторка снизу</span>
+    <div data-screen-label="1f Телефон" style="width:300px;height:620px;border-radius:28px;border:1px solid rgba(0,0,0,.12);background:#f8fafc;overflow:hidden;position:relative;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      <div style="padding:14px 16px 0;display:grid;gap:12px;opacity:.55">
+        <h1 style="margin:0;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:16px;background:#e2e8f0"><div style="display:flex;align-items:center;justify-content:center;min-height:36px;border-radius:12px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff">Приход</div><div style="display:flex;align-items:center;justify-content:center;min-height:36px;font:600 13px system-ui,sans-serif;color:#334155">Расход</div><div style="display:flex;align-items:center;justify-content:center;min-height:36px;font:600 13px system-ui,sans-serif;color:#334155">Журнал</div></div>
+        <div class="k-card" style="padding:16px;display:grid;gap:12px"><label class="k-label" style="font-size:14px">Сумма<div class="k-input k-input-lg tab">150 000</div></label><label class="k-label" style="font-size:14px">Код клиента<div class="k-input k-input-lg" style="border-color:#0f766e">А24</div></label></div>
+      </div>
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.4)"></div>
+      <div style="position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:20px 20px 0 0;padding:10px 12px 16px;display:grid;gap:10px;box-shadow:0 -10px 30px rgba(0,0,0,.15)">
+        <div style="width:36px;height:4px;border-radius:2px;background:#cbd5e1;justify-self:center"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between"><strong>Код клиента</strong><span style="font-weight:600;color:#0f766e;font-size:14px">Готово</span></div>
+        <div class="k-input k-input-lg" style="border-color:#0f766e;outline:3px solid #5eead4;outline-offset:2px">А24<span style="width:1px;height:20px;background:#0f172a;margin-left:-6px"></span></div>
+        <div style="display:grid;gap:2px">
+          <sc-for list="{{ pickerHits }}" as="h" hint-placeholder-count="3"><div style="display:flex;align-items:center;gap:10px;min-height:48px;padding:0 8px;border-radius:10px;background:{{ h.bg }}"><strong style="width:44px">{{ h.code }}</strong><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px">{{ h.name }}</span></div></sc-for>
+        </div>
+        <button class="k-btn" style="height:48px;font-size:16px">+ Добавить клиента «А24»</button>
+        <div style="display:grid;grid-template-columns:repeat(10,1fr);gap:4px;padding-top:6px;opacity:.35"><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span><span style="height:30px;border-radius:5px;background:#cbd5e1"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1g: Journal in frame -->
+<div class="dv-opt" id="1g">
+<div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Существующий «Журнал» в новом каркасе: фильтры — одной строкой над таблицей (без сворачивания на десктопе), клиент и сотрудник в строке — ссылки на карточки. Итоги, Сверки и Категории переезжают так же: прежняя разметка, только внутри каркаса.</div>
+<div class="dv-card" data-screen-label="1g Журнал" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:700px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navJournal }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <h2 class="k-h2">Журнал</h2>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;gap:14px;align-content:start">
+      <div style="display:flex;flex-wrap:wrap;align-items:end;gap:10px">
+        <label class="k-label" style="font-size:13px;color:#475569">С<div class="k-input tab" style="width:140px">13.10.2026</div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">По<div class="k-input tab" style="width:140px">13.10.2026</div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">Валюта<div class="k-input" style="width:120px;justify-content:space-between;color:#0f172a">Все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">Тип<div class="k-input" style="width:120px;justify-content:space-between;color:#0f172a">Все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">Категория<div class="k-input" style="width:170px;justify-content:space-between;color:#0f172a">Все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">Кассир<div class="k-input" style="width:150px;justify-content:space-between;color:#0f172a">Все<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></div></label>
+        <label class="k-label" style="font-size:13px;color:#475569">Клиент<div class="k-input" style="width:150px;color:#94a3b8">Код или имя</div></label>
+        <button class="k-btn k-btn-g">Сбросить</button>
+        <button class="k-btn" style="margin-left:auto">Обновить</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between"><p style="margin:0;font-weight:600;color:#334155">За 13.10.2026</p><span class="k-muted" style="font-size:14px">Удалённые: скрыты · 12 записей</span></div>
+      <div class="k-card" style="overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr><th class="k-th">Время (МСК)</th><th class="k-th">Кассир</th><th class="k-th">Операция</th><th class="k-th" style="text-align:right">Сумма</th><th class="k-th">Клиент и получатель</th><th class="k-th">Комментарий</th><th class="k-th" style="width:1%"></th></tr></thead>
+          <tbody>
+            <sc-for list="{{ journalOps }}" as="o" hint-placeholder-count="6">
+              <tr><td class="k-td k-muted tab" style="white-space:nowrap;font-size:14px">{{ o.when }}</td><td class="k-td" style="font-size:14px;white-space:nowrap">{{ o.who }}</td><td class="k-td" style="font-weight:600;white-space:nowrap">{{ o.what }}<sc-if value="{{ o.edited }}" hint-placeholder-val="{{ false }}"><span class="k-badge" style="margin-left:8px">изменена</span></sc-if></td><td class="k-td tab" style="text-align:right;white-space:nowrap"><span style="font-weight:700" class="{{ o.cls }}">{{ o.amount }}</span><small style="display:block;font-size:12.8px;color:#64748b">{{ o.usd }}</small></td><td class="k-td" style="font-size:14px"><sc-if value="{{ o.linkLabel }}" hint-placeholder-val="{{ false }}"><a href="{{ o.linkHref }}" style="font-weight:600;text-decoration:none">{{ o.linkLabel }}</a></sc-if><span class="k-muted"> {{ o.details }}</span></td><td class="k-td k-muted" style="font-size:14px">{{ o.comment }}</td><td class="k-td" style="padding:10px"><sc-if value="{{ o.edited }}" hint-placeholder-val="{{ false }}"><button class="k-btn" style="height:36px;padding:0 12px">История</button></sc-if></td></tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1h: Categories in frame -->
+<div class="dv-opt" id="1h">
+<div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>«Категории» в каркасе: два списка рядом, разметка строки — прежняя (<a class="dv-oid" href="Касса - текущие экраны.dc.html#0b">0b</a>). Галочки «нужен клиент / сотрудник / контрагент» теперь означают выбор из справочника.</div>
+<div class="dv-card" data-screen-label="1h Категории" style="width:1280px;display:grid;grid-template-columns:232px minmax(0,1fr);min-height:600px">
+  <aside style="background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;padding:16px 12px">
+    <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+    </div>
+    <sc-for list="{{ navCategories }}" as="g" hint-placeholder-count="3">
+      <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}">{{ n.label }}<sc-if value="{{ n.count }}" hint-placeholder-val="{{ false }}"><span style="margin-left:auto;font-weight:500;font-size:12px;opacity:.75">{{ n.count }}</span></sc-if></div></sc-for></div>
+    </sc-for>
+    <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></div>
+  </aside>
+  <div style="display:flex;flex-direction:column;min-width:0">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:16px;height:64px;padding:0 24px;border-bottom:1px solid #e2e8f0;background:#fff">
+      <h2 class="k-h2">Категории</h2>
+      <div style="display:flex;align-items:center;gap:20px">
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Рубли</span><strong class="tab" style="font-size:17px">2 812 739,00 ₽</strong></div>
+        <div style="display:flex;align-items:baseline;gap:8px"><span class="k-muted" style="font-size:13px">Доллары</span><strong class="tab" style="font-size:17px">300,00 $</strong></div>
+        <span style="width:1px;height:24px;background:#e2e8f0"></span>
+        <button class="k-btn">Выйти</button>
+      </div>
+    </header>
+    <div style="padding:20px 24px;display:grid;gap:14px;align-content:start">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px">
+        <p class="k-muted" style="margin:0;max-width:640px;text-wrap:pretty">Эти списки видят кассиры в формах. Убранная категория уходит в архив: старые записи её помнят, а в новых её уже не выбрать.</p>
+        <div style="display:flex;gap:8px"><button class="k-btn k-btn-p">+ Новая</button><button class="k-btn">Обновить</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start">
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <section class="k-card" style="display:grid;gap:10px;padding:16px">
+            <h3 style="margin:0;font-size:16px;font-weight:700">{{ g.title }}</h3>
+            <ul style="display:grid;margin:0;padding:0;list-style:none">
+              <sc-for list="{{ g.items }}" as="c" hint-placeholder-count="4">
+                <li style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid {{ c.border }}">
+                  <span aria-hidden="true" style="font-size:18px;line-height:1;color:#475569;cursor:grab;user-select:none">⠿</span>
+                  <span style="display:flex;min-width:0;flex:1;flex-wrap:wrap;align-items:center;gap:6px;font-weight:600">{{ c.label }}<sc-for list="{{ c.tags }}" as="t" hint-placeholder-count="1"><span class="k-badge">{{ t }}</span></sc-for></span>
+                  <button class="k-btn k-btn-g" style="width:36px;height:36px;padding:0;opacity:{{ c.upOpacity }}">↑</button><button class="k-btn k-btn-g" style="width:36px;height:36px;padding:0;opacity:{{ c.downOpacity }}">↓</button>
+                  <button class="k-icon" title="Изменить"><svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"></path><path d="m15 5 4 4"></path></svg></button>
+                </li>
+              </sc-for>
+            </ul>
+          </section>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- 1i: Phone -->
+<div class="dv-opt" id="1i">
+<div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Телефон (&lt;960px): меню прячется за кнопкой, таблица справочника становится карточками; те же данные и поиск.</div>
+<div style="display:flex;gap:24px;align-items:flex-start">
+  <div class="dv-card" data-screen-label="1i Телефон: Клиенты" style="width:390px;min-height:720px;background:#f8fafc">
+    <header style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:#fff;border-bottom:1px solid #e2e8f0">
+      <button class="k-btn k-btn-g" style="width:40px;padding:0;font-size:20px">☰</button>
+      <strong style="font-size:17px">Клиенты</strong>
+      <div style="display:grid;text-align:right;line-height:1.15"><span class="tab" style="font-size:13px;font-weight:600">2 812 739,00 ₽</span><span class="tab" style="font-size:13px;font-weight:600;color:#475569">300,00 $</span></div>
+    </header>
+    <div style="padding:14px 16px;display:grid;gap:12px">
+      <div style="display:flex;gap:8px"><div class="k-input k-input-lg" style="flex:1;color:#475569">Код, имя или телефон</div><button class="k-btn k-btn-p" style="height:48px">+ Новый</button></div>
+      <div style="display:flex;gap:8px;overflow:hidden"><span class="k-badge k-badge-teal" style="height:32px;padding:0 12px;font-size:13px">Активные</span><span class="k-badge" style="height:32px;padding:0 12px;font-size:13px">В архиве</span><span class="k-muted" style="margin-left:auto;font-size:13px;align-self:center">38</span></div>
+      <sc-for list="{{ clients }}" as="c" hint-placeholder-count="5">
+        <a href="#1d" class="k-card" style="display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:12px 14px;text-decoration:none;color:inherit">
+          <span style="display:flex;gap:8px;align-items:baseline;min-width:0"><strong style="color:#0f766e">{{ c.code }}</strong><span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:{{ c.nameColor }}">{{ c.name }}</span></span>
+          <span class="tab in" style="font-weight:600;white-space:nowrap">{{ c.month }}</span>
+          <span class="k-muted tab" style="font-size:14px">{{ c.phone }}</span>
+          <span class="k-muted" style="font-size:13px;text-align:right">{{ c.last }}</span>
+        </a>
+      </sc-for>
+    </div>
+  </div>
+  <div class="dv-card" data-screen-label="1i Телефон: меню" style="width:390px;min-height:720px;background:#f8fafc;position:relative;overflow:hidden">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.4)"></div>
+    <aside style="position:absolute;top:0;bottom:0;left:0;width:280px;background:#fff;display:flex;flex-direction:column;padding:16px 12px;box-shadow:0 10px 30px rgba(0,0,0,.2)">
+      <h1 style="margin:0 0 12px 12px;font-size:1.6rem;line-height:1.25;font-weight:700;color:#0f766e">Касса</h1>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;border-radius:14px;background:#e2e8f0;margin-bottom:8px">
+        <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;color:#334155">Касса</div>
+        <div style="display:flex;align-items:center;justify-content:center;min-height:34px;border-radius:10px;font:600 13px system-ui,sans-serif;background:#0f766e;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)">Управление</div>
+      </div>
+      <sc-for list="{{ navClients }}" as="g" hint-placeholder-count="3">
+        <div style="display:grid;gap:2px"><sc-if value="{{ g.title }}" hint-placeholder-val="{{ false }}"><div class="k-grp">{{ g.title }}</div></sc-if><sc-for list="{{ g.items }}" as="n" hint-placeholder-count="3"><div class="k-nav {{ n.cls }}" style="height:44px">{{ n.label }}</div></sc-for></div>
+      </sc-for>
+      <div style="margin-top:auto;padding:12px;border-top:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:8px"><span style="display:grid;gap:4px"><span style="font-weight:600">Админ</span><span class="k-badge k-badge-teal" style="width:fit-content">Админ</span></span><button class="k-btn" style="height:36px;padding:0 12px">Выйти</button></div>
+    </aside>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Дальше можно: «в <a class="dv-oid" href="#1a">1a</a> показать окно „+ Новый“» · «карточку <a class="dv-oid" href="#1d">1d</a> сделать с вкладками Операции / Реквизиты» · «меню <a class="dv-oid" href="#1a">1a</a> сворачивать до иконок» · «показать Итоги и Сверки в каркасе».</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;обычная&quot;,&quot;плотная&quot;],&quot;default&quot;:&quot;обычная&quot;,&quot;tsType&quot;:&quot;\&quot;обычная\&quot; | \&quot;плотная\&quot;&quot;,&quot;section&quot;:&quot;Таблицы&quot;},&quot;showArchived&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Таблицы&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const dense = (this.props.density ?? "обычная") === "плотная";
+    const showArchived = this.props.showArchived ?? true;
+    const rowPad = dense ? "6px" : "10px";
+    const nav = (active) => {
+      const item = (label, key, count) => ({ label, count, cls: key === active ? "k-nav-on" : "" });
+      return [
+        { title: null, items: [item("Журнал", "journal"), item("Итоги", "totals"), item("Сверки", "recon")] },
+        { title: "Справочники", items: [item("Клиенты", "clients", 38), item("Сотрудники", "employees", 23), item("Контрагенты", "parties", 17)] },
+        { title: "Настройки", items: [item("Категории", "categories")] },
+      ];
+    };
+    const arch = (o) => Object.assign(o, { nameColor: o.archived ? "#64748b" : "#0f172a", deco: o.archived ? "line-through" : "none" });
+    const keep = (list) => showArchived ? list : list.filter((x) => !x.archived);
+    const clients = keep([
+      { code: "А245", name: "Азизов Тимур", phone: "+7 926 118-40-21", note: "Рейсы Москва–Казань, платит частями", last: "12.10.2026", month: "+450 000,00 ₽" },
+      { code: "А246", name: "ООО «Альфа-Трейд»", phone: "+7 495 640-12-00", note: "Бухгалтер — Марина", last: "11.10.2026", month: "+1 180 000,00 ₽", editing: true },
+      { code: "Б102", name: "Бекзод (Самарканд)", phone: "+998 90 123-45-67", note: "", last: "09.10.2026", month: "+300,00 $" },
+      { code: "В017", name: "ИП Волков С. П.", phone: "+7 916 300-18-77", note: "Не работаем с 2025", last: "02.03.2025", month: "0,00 ₽", archived: true },
+      { code: "Г330", name: "Гранд Логистик", phone: "+7 812 400-20-20", note: "", last: "07.10.2026", month: "+620 000,00 ₽" },
+      { code: "Д088", name: "Дильшод Ю.", phone: "+7 977 215-60-03", note: "Только наличные", last: "30.09.2026", month: "+85 000,00 ₽" },
+    ].map(arch));
+    const emp = (name, post, phone, access, o = {}) => arch({ name, post, phone, hasAccess: !!access, noAccess: !access, login: access?.login ?? "", role: access?.role ?? "", roleCls: access?.role === "Админ" ? "k-badge-teal" : "", off: !!access?.off, month: o.month ?? "0,00 ₽", self: !!o.self, archived: !!o.archived, editing: !!o.editing });
+    const employees = keep([
+      emp("Админ", "Офис", "", { login: "mudir", role: "Админ" }, { self: true }),
+      emp("Владелец", "Офис", "", { login: "Владелец", role: "Смотрящий" }),
+      emp("Мухаммад Али", "Кассир", "+7 903 775-20-14", { login: "Muhammadali", role: "Главный кассир" }, { month: "−55 000,00 ₽", editing: true }),
+      emp("Хожиакбар", "Кассир", "+7 985 112-90-41", { login: "Hojiakbar", role: "Кассир" }, { month: "−40 000,00 ₽" }),
+      emp("Яхё", "Грузчик (склад)", "+7 926 004-17-55", { login: "Yahyo", role: "Кассир" }, { month: "−38 000,00 ₽" }),
+      emp("Иван", "Кассир", "", { login: "ivan", role: "Кассир", off: true }, { archived: true }),
+      emp("Рустам Каримов", "Водитель", "+7 915 640-30-12", null, { month: "−120 000,00 ₽" }),
+      emp("Санжар Тошев", "Водитель", "+7 968 221-05-90", null, { month: "−95 000,00 ₽" }),
+      emp("Олег Петров", "Грузчик", "+7 909 331-72-18", null, { month: "−32 000,00 ₽" }),
+    ]);
+    const parties = keep([
+      { name: "ООО «ТрансЛайн»", type: "Перевозчик", phone: "+7 495 120-33-10", contact: "Сергей", note: "оплата по факту выгрузки", month: "−840 000,00 ₽" },
+      { name: "ИП Хасанов", type: "Перевозчик", phone: "+7 926 700-11-22", contact: "Хасан", note: "", month: "−210 000,00 ₽" },
+      { name: "АЗС Лукойл (карта)", type: "Поставщик", phone: "", contact: "", note: "топливная карта №4471", month: "−156 300,00 ₽" },
+      { name: "Шиномонтаж на Каширке", type: "Поставщик", phone: "+7 903 555-80-80", contact: "Армен", note: "", month: "−18 000,00 ₽" },
+      { name: "Арендодатель склада", type: "Прочее", phone: "+7 916 200-40-40", contact: "Пётр Иванович", note: "субаренда — приход", month: "+60 000,00 ₽" },
+      { name: "ООО «Верста»", type: "Перевозчик", phone: "+7 812 300-00-01", contact: "", note: "закрылись", month: "0,00 ₽", archived: true },
+    ].map(arch).map((p) => Object.assign(p, { amtColor: p.month.startsWith("+") ? "#166534" : p.month.startsWith("−") ? "#991b1b" : "#64748b" })));
+    const op = (when, who, what, amount, usd, comment, o = {}) => ({ when, who, what, amount, usd, comment, cls: amount.startsWith("+") ? "in" : "out", edited: !!o.edited, linkLabel: o.link ?? "", linkHref: o.href ?? "#", details: o.details ?? "" });
+    const clientOps = [
+      op("12.10.2026 14:05", "Мухаммад Али", "Оплата от клиента", "+150 000,00 ₽", "≈ 1 875,00 $ · курс 80,00", "рейс 194"),
+      op("08.10.2026 11:20", "Хожиакбар", "Оплата от клиента", "+300,00 $", "", ""),
+      op("06.10.2026 16:48", "Мухаммад Али", "Оплата от клиента", "+200 000,00 ₽", "≈ 2 500,00 $ · курс 80,00", "рейс 191", { edited: true }),
+      op("03.10.2026 10:02", "Яхё", "Возврат клиенту", "−12 000,00 ₽", "≈ 150,00 $ · средний курс дня", "переплата по рейсу 188"),
+      op("01.10.2026 09:31", "Мухаммад Али", "Оплата от клиента", "+100 000,00 ₽", "≈ 1 250,00 $ · курс 80,00", "рейс 188"),
+    ];
+    const employeeOps = [
+      op("10.10.2026 18:10", "Мухаммад Али", "Зарплаты и выплаты", "−45 000,00 ₽", "≈ 562,50 $ · средний курс дня", "за сентябрь"),
+      op("05.10.2026 12:40", "Хожиакбар", "Выдали в долг", "−20 000,00 ₽", "≈ 250,00 $ · средний курс дня", "до 20 октября"),
+      op("02.10.2026 09:15", "Мухаммад Али", "Сотрудник вернул долг", "+10 000,00 ₽", "≈ 125,00 $ · курс 80,00", ""),
+    ];
+    const journalOps = [
+      op("14:05", "Мухаммад Али", "Оплата от клиента", "+150 000,00 ₽", "≈ 1 875,00 $ · курс 80,00", "рейс 194", { link: "А245 Азизов Тимур", href: "#1d" }),
+      op("13:40", "Хожиакбар", "Топливо и дорога", "−8 400,00 ₽", "≈ 105,00 $ · средний курс дня", "Казань–Москва", { link: "Рустам Каримов", href: "#1e", details: "· Кому: Рустам" }),
+      op("12:12", "Яхё", "Зарплаты и выплаты", "−32 000,00 ₽", "≈ 400,00 $ · средний курс дня", "аванс", { link: "Олег Петров", href: "#1e", edited: true }),
+      op("11:05", "Мухаммад Али", "Оплата от поставщика", "+60 000,00 ₽", "≈ 750,00 $ · курс 80,00", "субаренда, октябрь", { link: "Арендодатель склада", href: "#1c" }),
+      op("10:30", "Хожиакбар", "Оплата от клиента", "+300,00 $", "", "", { link: "Б102 Бекзод (Самарканд)", href: "#1d" }),
+      op("09:48", "Мухаммад Али", "Оплата фуры", "−210 000,00 ₽", "≈ 2 625,00 $ · средний курс дня", "рейс 192", { link: "ИП Хасанов", href: "#1c" }),
+    ];
+    const pickerHits = [
+      { code: "А245", name: "Азизов Тимур", hint: "вчера", bg: "#f0fdfa" },
+      { code: "А246", name: "ООО «Альфа-Трейд»", hint: "11.10", bg: "transparent" },
+      { code: "А247", name: "Акбаров Р.", hint: "в сентябре", bg: "transparent" },
+    ];
+    const list = (title, rows) => ({ title, items: rows.map(([label, ...tags], i) => ({ label, tags, border: i === rows.length - 1 ? "transparent" : "#e2e8f0", upOpacity: i === 0 ? 0.6 : 1, downOpacity: i === rows.length - 1 ? 0.6 : 1 })) });
+    const groups = [
+      list("Приход", [["Взяли долг", "контрагент", "в группу Telegram"], ["Оплата от поставщика", "контрагент", "в группу Telegram"], ["Приход от субаренды", "в группу Telegram"], ["Оплата от клиента", "клиент", "в группу Telegram"], ["Сотрудник вернул долг", "сотрудник", "в группу Telegram"], ["Прочее", "в группу Telegram"]]),
+      list("Расход", [["Топливо и дорога", "в группу Telegram"], ["Зарплаты и выплаты", "сотрудник", "в группу Telegram"], ["Возврат долга", "контрагент", "в группу Telegram"], ["Оплата фуры", "контрагент", "рейс"], ["Выдали в долг", "сотрудник"]]),
+    ];
+    return {
+      rowPad, clients, employees, parties, clientOps, employeeOps, journalOps, pickerHits, groups,
+      clientsShown: clients.length, employeesShown: employees.length, partiesShown: parties.length,
+      navClients: nav("clients"), navEmployees: nav("employees"), navParties: nav("parties"), navJournal: nav("journal"), navCategories: nav("categories"),
+    };
+  }
+}
+</script>
+</body>
+</html>
