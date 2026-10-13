@@ -44,6 +44,8 @@ function snapshotOfRow(row: OperationRow): Snapshot {
     category: row.category,
     recipient: row.recipient,
     clientCode: row.client_code,
+    tripNumber: row.trip_number,
+    counterparty: row.counterparty,
     comment: row.comment,
   };
 }
@@ -60,7 +62,12 @@ function headline(kind: "income" | "expense", entry: Snapshot, categories: reado
 
 /** The lines that say what the entry is, apart from its amount: who it went to, what was said. */
 function details(entry: Snapshot): string[] {
-  return [entry.recipient ? `Кому: ${entry.recipient}` : "", entry.comment ? `Комментарий: ${entry.comment}` : ""].filter(Boolean);
+  return [
+    entry.tripNumber !== null ? `Рейс: ${entry.tripNumber}` : "",
+    entry.counterparty ? `Контрагент: ${entry.counterparty}` : "",
+    entry.recipient ? `Кому: ${entry.recipient}` : "",
+    entry.comment ? `Комментарий: ${entry.comment}` : "",
+  ].filter(Boolean);
 }
 
 function createdText(row: OperationRow, categories: readonly Category[]): string {
@@ -80,6 +87,8 @@ function differences(before: Snapshot, after: Snapshot, categories: readonly Cat
   const lines: string[] = [];
   if (before.category !== after.category) lines.push(`Категория: было «${label(before.category)}», стало «${label(after.category)}»`);
   if (before.clientCode !== after.clientCode) lines.push(`Клиент: было ${before.clientCode ?? "без кода"}, стало ${after.clientCode ?? "без кода"}`);
+  if (before.tripNumber !== after.tripNumber) lines.push(`Рейс: было ${before.tripNumber ?? "без рейса"}, стало ${after.tripNumber ?? "без рейса"}`);
+  if (before.counterparty !== after.counterparty) lines.push(`Контрагент: было «${before.counterparty ?? ""}», стало «${after.counterparty ?? ""}»`);
   if (before.recipient !== after.recipient) lines.push(`Кому: было «${before.recipient ?? ""}», стало «${after.recipient ?? ""}»`);
   if (before.comment !== after.comment) lines.push(`Комментарий: было «${before.comment ?? ""}», стало «${after.comment ?? ""}»`);
   return lines;

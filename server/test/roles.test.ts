@@ -164,7 +164,7 @@ describe("the shifts that were closed before they were taken away", () => {
       // A shift that was open and never counted has no count to keep.
       await pool.query("INSERT INTO shifts (cashier_id, opened_at) VALUES ($1, '2026-03-06T08:00:00Z')", [user]);
       expect(before).toContain("0012_onec_outbox.sql");
-      expect(await migrate(pool)).toEqual(["0013_reconciliations.sql"]);
+      expect((await migrate(pool))[0]).toBe("0013_reconciliations.sql");
 
       const kept = await pool.query(
         `SELECT r.id, r.made_by, r.made_at, b.currency, b.calculated_minor::int AS calculated, b.actual_minor::int AS actual, b.difference_minor::int AS difference

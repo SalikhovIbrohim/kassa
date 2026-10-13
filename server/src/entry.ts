@@ -18,6 +18,9 @@ export type IncomeEntry = {
   category?: string;
   /** Required when the category names a client, and not allowed otherwise. */
   clientCode?: string;
+  /** Required when the category asks for the trip, and not allowed otherwise; the same for the counterparty. */
+  tripNumber?: number;
+  counterparty?: string;
   comment?: string;
 };
 
@@ -30,12 +33,17 @@ export type ExpenseEntry = {
   category: string;
   recipient?: string;
   clientCode?: string;
+  /** Required when the category asks for the trip, and not allowed otherwise; the same for the counterparty. */
+  tripNumber?: number;
+  counterparty?: string;
   comment?: string;
 };
 
 export type Entry = IncomeEntry | ExpenseEntry;
 
 const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
+const tripNumberProperty = { type: "integer", minimum: 1, maximum: 999_999_999 } as const;
+const counterpartyProperty = { type: "string", minLength: 1, maxLength: 100, pattern: NO_NUL } as const;
 /** A code of a category; whether there is such a category is checked against the table (see `normalizeEntry`). */
 const categoryProperty = { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" } as const;
 
@@ -63,6 +71,8 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           type: { type: "string", const: "income" },
           category: categoryProperty,
           clientCode: clientCodeProperty,
+          tripNumber: tripNumberProperty,
+          counterparty: counterpartyProperty,
         },
       },
       {
@@ -76,6 +86,8 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           category: categoryProperty,
           recipient: { type: "string", maxLength: 100, pattern: NO_NUL },
           clientCode: clientCodeProperty,
+          tripNumber: tripNumberProperty,
+          counterparty: counterpartyProperty,
         },
       },
     ],
@@ -107,6 +119,21 @@ export function normalizeEntry(body: Entry, categories: readonly Category[], kee
     return { error: `body/clientCode is not allowed for the category ${category.label}` };
   }
 
+  let tripNumber: number | null = null;
+  if (category.requiresTrip) {
+    if (body.tripNumber === undefined) return { error: `body/tripNumber is required for the category ${category.label}` };
+    tripNumber = body.tripNumber;
+  } else if (body.tripNumber !== undefined) {
+    return { error: `body/tripNumber is not allowed for the category ${category.label}` };
+  }
+  let counterparty: string | null = null;
+  if (category.requiresCounterparty) {
+    counterparty = cleanText(body.counterparty ?? "");
+    if (counterparty === "") return { error: `body/counterparty is required for the category ${category.label}` };
+  } else if (body.counterparty !== undefined) {
+    return { error: `body/counterparty is not allowed for the category ${category.label}` };
+  }
+
   if (body.currency === "USD" && body.rateE4 !== undefined) {
     return { error: "body/rateE4 is only for rubles" };
   }
@@ -123,6 +150,8 @@ export function normalizeEntry(body: Entry, categories: readonly Category[], kee
       category: category.code,
       recipient,
       clientCode,
+      tripNumber,
+      counterparty,
       comment,
     },
   };

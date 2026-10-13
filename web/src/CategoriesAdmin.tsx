@@ -7,6 +7,7 @@ import {
   SessionExpiredError,
   type Category,
   type CategoryChangeResult,
+  type CategoryFlags,
   type CategoryKind,
 } from "./api";
 import { Button } from "@/components/ui/button";
@@ -118,7 +119,7 @@ export function CategoriesAdmin({ onSessionExpired, active = true }: Props) {
             editing={editing}
             onEdit={setEditing}
             onChange={(code, change) => apply(() => changeCategory(code, change))}
-            onCreate={(label, requiresClient, notifyGroup) => apply(() => createCategory(kind, label, requiresClient, notifyGroup))}
+            onCreate={(label, flags) => apply(() => createCategory(kind, label, flags))}
           />
         ))}
     </section>
@@ -133,14 +134,16 @@ type ListProps = {
   onEdit: (code: string | null) => void;
   onChange: (
     code: string,
-    change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
+    change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
   ) => Promise<boolean>;
-  onCreate: (label: string, requiresClient: boolean, notifyGroup: boolean) => Promise<boolean>;
+  onCreate: (label: string, flags: CategoryFlags) => Promise<boolean>;
 };
 
 function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }: ListProps) {
   const [label, setLabel] = useState("");
   const [requiresClient, setRequiresClient] = useState(false);
+  const [requiresTrip, setRequiresTrip] = useState(false);
+  const [requiresCounterparty, setRequiresCounterparty] = useState(false);
   const [notifyGroup, setNotifyGroup] = useState(true);
   // Dragging with the mouse: which row is held, and where it would land (before the row of that index; the length is the end).
   const [dragged, setDragged] = useState<number | null>(null);
@@ -159,9 +162,11 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
   async function add(event: FormEvent) {
     event.preventDefault();
     if (label.trim() === "") return;
-    if (await onCreate(label.trim(), requiresClient, notifyGroup)) {
+    if (await onCreate(label.trim(), { requiresClient, requiresTrip, requiresCounterparty, notifyGroup })) {
       setLabel("");
       setRequiresClient(false);
+      setRequiresTrip(false);
+      setRequiresCounterparty(false);
       setNotifyGroup(true);
     }
   }
@@ -218,6 +223,8 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                 <span className="category-name flex min-w-0 flex-1 flex-wrap items-center gap-1.5 font-semibold">
                   {item.label}
                   {item.requiresClient && <Badge variant="secondary" className="text-xs font-medium">нужен код клиента</Badge>}
+                  {item.requiresTrip && <Badge variant="secondary" className="text-xs font-medium">нужен рейс</Badge>}
+                  {item.requiresCounterparty && <Badge variant="secondary" className="text-xs font-medium">нужен контрагент</Badge>}
                   {item.notifyGroup && <Badge variant="secondary" className="text-xs font-medium">в группу Telegram</Badge>}
                   {item.archived && <Badge variant="destructive" className="text-xs font-medium">в архиве</Badge>}
                 </span>
@@ -256,6 +263,14 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
           Нужен код клиента
         </Label>
         <Label className="flex items-center gap-2.5 font-normal">
+          <Checkbox name="requiresTrip" checked={requiresTrip} onChange={(event) => setRequiresTrip(event.target.checked)} />
+          Нужен номер рейса
+        </Label>
+        <Label className="flex items-center gap-2.5 font-normal">
+          <Checkbox name="requiresCounterparty" checked={requiresCounterparty} onChange={(event) => setRequiresCounterparty(event.target.checked)} />
+          Нужен контрагент
+        </Label>
+        <Label className="flex items-center gap-2.5 font-normal">
           <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
           Сообщать в группу Telegram
         </Label>
@@ -276,10 +291,12 @@ function EditCategory({
   item: Category;
   busy: boolean;
   onCancel: () => void;
-  onSave: (change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean }) => Promise<void>;
+  onSave: (change: { label?: string } & Partial<CategoryFlags>) => Promise<void>;
 }) {
   const [label, setLabel] = useState(item.label);
   const [requiresClient, setRequiresClient] = useState(item.requiresClient);
+  const [requiresTrip, setRequiresTrip] = useState(item.requiresTrip);
+  const [requiresCounterparty, setRequiresCounterparty] = useState(item.requiresCounterparty);
   const [notifyGroup, setNotifyGroup] = useState(item.notifyGroup);
 
   function save(event: FormEvent) {
@@ -289,6 +306,8 @@ function EditCategory({
     void onSave({
       ...(name === item.label ? {} : { label: name }),
       ...(requiresClient === item.requiresClient ? {} : { requiresClient }),
+      ...(requiresTrip === item.requiresTrip ? {} : { requiresTrip }),
+      ...(requiresCounterparty === item.requiresCounterparty ? {} : { requiresCounterparty }),
       ...(notifyGroup === item.notifyGroup ? {} : { notifyGroup }),
     });
   }
@@ -302,6 +321,14 @@ function EditCategory({
       <Label className="flex items-center gap-2.5 font-normal">
         <Checkbox name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
         Нужен код клиента
+      </Label>
+      <Label className="flex items-center gap-2.5 font-normal">
+        <Checkbox name="requiresTrip" checked={requiresTrip} onChange={(event) => setRequiresTrip(event.target.checked)} />
+        Нужен номер рейса
+      </Label>
+      <Label className="flex items-center gap-2.5 font-normal">
+        <Checkbox name="requiresCounterparty" checked={requiresCounterparty} onChange={(event) => setRequiresCounterparty(event.target.checked)} />
+        Нужен контрагент
       </Label>
       <Label className="flex items-center gap-2.5 font-normal">
         <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />

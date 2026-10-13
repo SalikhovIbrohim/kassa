@@ -116,4 +116,43 @@ describe("the lists of categories", () => {
     await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
     await expect.poll(async () => (await order()).slice(0, 1)).toEqual(["customs"]);
   }, 90_000);
+
+  it("ask for the number of the trip and the counterparty where the owner ticked them, and the entry is not saved without them", async () => {
+    const started = await startTestApp({ webDistDir });
+    app = started;
+    await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Иван" });
+    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+    const owner = await signedIn(started, "owner", "long enough pass");
+
+    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
+    await expenseList.getByRole("textbox", { name: "Новая категория" }).fill("Перевозчику");
+    await expenseList.getByRole("checkbox", { name: "Нужен номер рейса" }).check();
+    await expenseList.getByRole("checkbox", { name: "Нужен контрагент" }).check();
+    await expenseList.getByRole("button", { name: "Добавить" }).click();
+    await seeText(expenseList, "нужен рейс");
+    await seeText(expenseList, "нужен контрагент");
+
+    const { page } = await signedIn(started, "ivan", "correct horse");
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
+    await page.getByRole("textbox", { name: "Сумма" }).fill("500");
+    await seeGone(page.locator("input[name=tripNumber]"));
+    await page.locator("select[name=category]:visible").selectOption({ label: "Перевозчику" });
+
+    // Without the trip and the counterparty the entry stays on the phone, unsaved.
+    await page.getByRole("button", { name: "Записать расход" }).click();
+    await expect.poll(() => page.locator(".success:visible").count()).toBe(0);
+
+    // The number of a trip takes only digits.
+    await page.getByRole("textbox", { name: "Номер рейса" }).pressSequentially("19x4");
+    expect(await page.getByRole("textbox", { name: "Номер рейса" }).inputValue()).toBe("194");
+    await page.getByRole("textbox", { name: "Контрагент" }).fill("ООО Трасса");
+    await page.getByRole("button", { name: "Записать расход" }).click();
+    await seeText(page.locator(".success:visible"), "Записано: Перевозчику");
+
+    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
+    const journal = page.getByRole("table", { name: "Журнал операций" });
+    await seeText(journal, "Рейс 194");
+    await seeText(journal, "Контрагент: ООО Трасса");
+  }, 120_000);
 });

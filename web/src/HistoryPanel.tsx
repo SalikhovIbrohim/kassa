@@ -22,7 +22,7 @@ const EMPTY = "ничего";
 /** What differs between two versions of an operation, as lines a person can read. */
 export function describeChange(before: Snapshot, after: Snapshot, labels: Map<string, string>) {
   const lines: Array<{ field: string; before: string; after: string }> = [];
-  const text = (value: string | null) => value ?? EMPTY;
+  const text = (value: string | null | undefined) => value ?? EMPTY;
   const category = (code: string | null) => (code === null ? EMPTY : (labels.get(code) ?? code));
 
   if (before.amountMinor !== after.amountMinor || before.currency !== after.currency) {
@@ -44,6 +44,12 @@ export function describeChange(before: Snapshot, after: Snapshot, labels: Map<st
   }
   if (before.clientCode !== after.clientCode) {
     lines.push({ field: "Код клиента", before: text(before.clientCode), after: text(after.clientCode) });
+  }
+  if ((before.tripNumber ?? null) !== (after.tripNumber ?? null)) {
+    lines.push({ field: "Номер рейса", before: text(before.tripNumber?.toString()), after: text(after.tripNumber?.toString()) });
+  }
+  if ((before.counterparty ?? null) !== (after.counterparty ?? null)) {
+    lines.push({ field: "Контрагент", before: text(before.counterparty), after: text(after.counterparty) });
   }
   if (before.comment !== after.comment) {
     lines.push({ field: "Комментарий", before: text(before.comment), after: text(after.comment) });
@@ -111,6 +117,8 @@ function HistoryList({ history, labels }: { history: OperationHistory; labels: M
     created.state.category && (labels.get(created.state.category) ?? created.state.category),
     created.state.clientCode && `клиент ${created.state.clientCode}`,
     created.state.recipient && `кому: ${created.state.recipient}`,
+    created.state.tripNumber && `рейс ${created.state.tripNumber}`,
+    created.state.counterparty && `контрагент: ${created.state.counterparty}`,
     created.state.comment && `«${created.state.comment}»`,
   ]
     .filter(Boolean)

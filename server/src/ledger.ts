@@ -15,6 +15,9 @@ export type OperationRow = {
   category: string | null;
   recipient: string | null;
   client_code: string | null;
+  /** The number of the trip, when the category asks for one. */
+  trip_number: number | null;
+  counterparty: string | null;
   comment: string | null;
   created_at: Date;
   author_id: string;
@@ -81,6 +84,8 @@ export function toOperation(row: OperationRow) {
     category: row.category,
     recipient: row.recipient,
     clientCode: row.client_code,
+    tripNumber: row.trip_number,
+    counterparty: row.counterparty,
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
     createdAt: row.created_at.toISOString(),
@@ -102,6 +107,9 @@ export type Snapshot = {
   category: string | null;
   recipient: string | null;
   clientCode: string | null;
+  /** The number of the trip and the counterparty: only where the category asks for them. */
+  tripNumber: number | null;
+  counterparty: string | null;
   comment: string | null;
 };
 
@@ -113,13 +121,17 @@ export function snapshotOf(row: OperationRow): Snapshot {
     category: row.category,
     recipient: row.recipient,
     clientCode: row.client_code,
+    tripNumber: row.trip_number,
+    counterparty: row.counterparty,
     comment: row.comment,
   };
 }
 
-/** A line of history as it was kept: older lines were written before there was a rate, and have none. */
-export function readSnapshot(kept: Omit<Snapshot, "rateE4"> & { rateE4?: number | null }): Snapshot {
-  return { ...kept, rateE4: kept.rateE4 ?? null };
+/** A line of history as it was kept: older lines were written before there was a rate, a trip or a counterparty, and have none. */
+export function readSnapshot(
+  kept: Omit<Snapshot, "rateE4" | "tripNumber" | "counterparty"> & { rateE4?: number | null; tripNumber?: number | null; counterparty?: string | null },
+): Snapshot {
+  return { ...kept, rateE4: kept.rateE4 ?? null, tripNumber: kept.tripNumber ?? null, counterparty: kept.counterparty ?? null };
 }
 
 export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
@@ -130,6 +142,8 @@ export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
     a.category === b.category &&
     a.recipient === b.recipient &&
     a.clientCode === b.clientCode &&
+    a.tripNumber === b.tripNumber &&
+    a.counterparty === b.counterparty &&
     a.comment === b.comment
   );
 }
@@ -273,8 +287,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const inserted = await client.query(
       `INSERT INTO operations
          (id, kind, amount_minor, currency, rate_e4, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          client_code_key, comment, author_id, created_at, trip_number, counterparty)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
@@ -289,6 +303,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
         wanted.comment,
         wanted.authorId,
         wanted.createdAt,
+        wanted.tripNumber,
+        wanted.counterparty,
       ],
     );
     // Zero rows: another request with this id got in between our look and our insert. The
@@ -392,7 +408,8 @@ export async function changeOperation(
       await client.query(
         `UPDATE operations
             SET amount_minor = $2, currency = $3, rate_e4 = $9, category = $4, recipient = $5,
-                client_code = $6, client_code_key = $7, comment = $8, revision = revision + 1
+                client_code = $6, client_code_key = $7, comment = $8, trip_number = $10, counterparty = $11,
+                revision = revision + 1
           WHERE id = $1`,
         [
           id,
@@ -404,6 +421,8 @@ export async function changeOperation(
           after.clientCode?.toLowerCase() ?? null,
           after.comment,
           after.rateE4,
+          after.tripNumber,
+          after.counterparty,
         ],
       );
     }

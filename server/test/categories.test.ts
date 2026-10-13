@@ -94,6 +94,54 @@ describe("categories", () => {
     });
   });
 
+  describe("the trip and the counterparty", () => {
+    it("are asked of an entry when the owner ticks them on its category, and refused when he did not", async () => {
+      const { started, ivan, owner } = await desk();
+
+      expect((await post(started, ivan, expense({ category: "freight_payment", tripNumber: 194 }))).status).toBe(400);
+      expect((await patchJson(started, "/api/admin/categories/freight_payment", { requiresTrip: true, requiresCounterparty: true }, owner)).status).toBe(200);
+      const freight = (overrides: Entry = {}) => expense({ category: "freight_payment", tripNumber: 194, counterparty: " Азамат Транс ", ...overrides });
+
+      for (const missing of [{ tripNumber: undefined }, { counterparty: undefined }, { counterparty: "  " }, { tripNumber: 0 }, { tripNumber: 19.4 }, { tripNumber: "194" }]) {
+        expect((await post(started, ivan, freight(missing))).status, JSON.stringify(missing)).toBe(400);
+      }
+      const saved = await post(started, ivan, freight());
+      expect(saved.status).toBe(201);
+      expect(saved.body.operation).toMatchObject({ category: "freight_payment", tripNumber: 194, counterparty: "Азамат Транс" });
+      expect((await post(started, ivan, expense({ tripNumber: 1 }))).status).toBe(400);
+      expect((await post(started, ivan, expense({ counterparty: "X" }))).status).toBe(400);
+
+      const all = (await lists(started, ivan)).all as Array<Category & { requiresTrip: boolean; requiresCounterparty: boolean }>;
+      expect(all.find((item) => item.code === "freight_payment")).toMatchObject({ requiresTrip: true, requiresCounterparty: true });
+    });
+
+    it("are corrected like the rest, and the history keeps what they were", async () => {
+      const { started, ivan, owner } = await desk();
+      await patchJson(started, "/api/admin/categories/customs", { requiresTrip: true }, owner);
+      const body = expense({ category: "customs", tripNumber: 194 });
+      await post(started, ivan, body);
+
+      const edit = await putJson(started, `/api/operations/${body.id}`, { type: "expense", amountMinor: 10_000, currency: "RUB", category: "customs", tripNumber: 195, reason: "не тот рейс" }, ivan);
+
+      expect(edit.status).toBe(200);
+      expect((await edit.json()).operation).toMatchObject({ tripNumber: 195, revision: 1 });
+      const history = await (await get(started, `/api/operations/${body.id}/history`, owner)).json();
+      expect(history.changes[0].before).toMatchObject({ tripNumber: 194, counterparty: null });
+      expect(history.changes[0].after).toMatchObject({ tripNumber: 195 });
+    });
+
+    it("are ticked on a new category too", async () => {
+      const { started, ivan, owner } = await desk();
+
+      const made = await make(started, owner, { kind: "expense", label: "Оплата водителю", requiresTrip: true });
+
+      expect(made.status).toBe(201);
+      const code = (await made.json()).category.code;
+      expect((await post(started, ivan, expense({ category: code }))).status).toBe(400);
+      expect((await post(started, ivan, expense({ category: code, tripNumber: 7 }))).status).toBe(201);
+    });
+  });
+
   describe("the owner's lists", () => {
     it("are changed by the owner only", async () => {
       const { started, ivan, owner } = await desk();

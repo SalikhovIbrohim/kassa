@@ -15,6 +15,7 @@ import { CurrencyPicker } from "./CurrencyPicker";
 import { AmountInput } from "./AmountInput";
 import { formatAmountInput, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
+import { TripFields, parseTripNumber } from "./TripFields";
 import { usePanelEntrance } from "./usePanelEntrance";
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
@@ -55,6 +56,8 @@ export function OperationEditor({
   const [category, setCategory] = useState<string | null>(operation.category ?? (isIncome ? DEFAULT_INCOME_CATEGORY : null));
   const [clientCode, setClientCode] = useState(operation.clientCode ?? "");
   const [recipient, setRecipient] = useState(operation.recipient ?? "");
+  const [trip, setTrip] = useState(operation.tripNumber ? String(operation.tripNumber) : "");
+  const [counterparty, setCounterparty] = useState(operation.counterparty ?? "");
   const [comment, setComment] = useState(operation.comment ?? "");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,6 +67,8 @@ export function OperationEditor({
 
   const chosen = categories.find((item) => item.code === category && item.kind === operation.type);
   const needsClient = chosen?.requiresClient ?? false;
+  const needsTrip = chosen?.requiresTrip ?? false;
+  const needsCounterparty = chosen?.requiresCounterparty ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -95,11 +100,23 @@ export function OperationEditor({
       setError(`Для категории «${chosen.label}» введите код клиента.`);
       return;
     }
+    const tripNumber = parseTripNumber(trip);
+    const party = counterparty.trim();
+    if (needsTrip && tripNumber === null) {
+      setError("Введите номер рейса: число, например 194.");
+      return;
+    }
+    if (needsCounterparty && party === "") {
+      setError("Введите контрагента.");
+      return;
+    }
 
     const common = {
       amountMinor,
       currency,
       ...(rateE4 === null ? {} : { rateE4 }),
+      ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
+      ...(needsCounterparty ? { counterparty: party } : {}),
       comment: comment.trim() || undefined,
       reason: reason.trim() || undefined,
     };
@@ -169,6 +186,15 @@ export function OperationEditor({
       />
 
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+
+      <TripFields
+        needsTrip={needsTrip}
+        needsCounterparty={needsCounterparty}
+        trip={trip}
+        onTripChange={setTrip}
+        counterparty={counterparty}
+        onCounterpartyChange={setCounterparty}
+      />
 
       {!isIncome && (
         <Label>

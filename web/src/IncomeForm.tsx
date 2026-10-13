@@ -8,6 +8,7 @@ import { AmountInput } from "./AmountInput";
 import { formatMoney, formatMoscowTime, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
 import { rememberedRate } from "./remembered-rate";
+import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,8 @@ const FALLBACK_CATEGORIES: Category[] = [
     sortOrder: 1,
     archived: false,
     requiresClient: true,
+    requiresTrip: false,
+    requiresCounterparty: false,
     countsAsCost: true,
     notifyGroup: true,
   },
@@ -66,6 +69,8 @@ export function IncomeForm({
   });
   const [category, setCategory] = useState<string | null>(null);
   const [clientCode, setClientCode] = useState("");
+  const [trip, setTrip] = useState("");
+  const [counterparty, setCounterparty] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
@@ -85,6 +90,8 @@ export function IncomeForm({
   const savedCategory =
     savedCode !== null && savedCode !== DEFAULT_INCOME_CATEGORY ? lists?.find((item) => item.code === savedCode)?.label : undefined;
   const needsClient = chosen?.requiresClient ?? false;
+  const needsTrip = chosen?.requiresTrip ?? false;
+  const needsCounterparty = chosen?.requiresCounterparty ?? false;
 
   // The cursor is in the amount whenever this form comes to the front (it is kept alive when it is hidden).
   useEffect(() => {
@@ -113,6 +120,16 @@ export function IncomeForm({
       entry.setError("Введите код клиента.");
       return;
     }
+    const tripNumber = parseTripNumber(trip);
+    const party = counterparty.trim();
+    if (needsTrip && tripNumber === null) {
+      entry.setError("Введите номер рейса: число, например 194.");
+      return;
+    }
+    if (needsCounterparty && party === "") {
+      entry.setError("Введите контрагента.");
+      return;
+    }
 
     const saved = await entry.send((id) => ({
       type: "income",
@@ -122,11 +139,15 @@ export function IncomeForm({
       ...(rateE4 === null ? {} : { rateE4 }),
       category,
       ...(needsClient ? { clientCode: code } : {}),
+      ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
+      ...(needsCounterparty ? { counterparty: party } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
       setAmount("");
       setClientCode("");
+      setTrip("");
+      setCounterparty("");
       setComment("");
       amountInput.current?.focus();
     }
@@ -169,6 +190,15 @@ export function IncomeForm({
       <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
 
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+
+      <TripFields
+        needsTrip={needsTrip}
+        needsCounterparty={needsCounterparty}
+        trip={trip}
+        onTripChange={setTrip}
+        counterparty={counterparty}
+        onCounterpartyChange={setCounterparty}
+      />
 
       <Label>
         <span>

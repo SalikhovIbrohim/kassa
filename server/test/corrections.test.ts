@@ -124,6 +124,8 @@ describe("correcting and deleting operations", () => {
           category: "client_payment",
           recipient: null,
           clientCode: "K17",
+          tripNumber: null,
+          counterparty: null,
           comment: "за рейс",
           author: { login: "ivan", displayName: "Иван" },
           createdAt: NOW.toISOString(),
@@ -310,6 +312,8 @@ describe("correcting and deleting operations", () => {
           category: "client_payment",
           recipient: null,
           clientCode: "K99",
+          tripNumber: null,
+          counterparty: null,
           comment: "стало",
           // Who wrote it and when never change.
           author: { login: "ivan", displayName: "Иван" },
@@ -659,6 +663,8 @@ describe("correcting and deleting operations", () => {
             category: "client_payment",
             recipient: null,
             clientCode: "K17",
+            tripNumber: null,
+            counterparty: null,
             comment: "за рейс",
           },
         },
@@ -681,9 +687,9 @@ describe("correcting and deleting operations", () => {
 
       const answer = await (await historyOf(started, owner, id)).json();
 
-      const original = { amountMinor: 10_000, currency: "RUB", rateE4: null, category: "fuel_road", recipient: "Азамат", clientCode: null, comment: "заправка" };
+      const original = { amountMinor: 10_000, currency: "RUB", rateE4: null, category: "fuel_road", recipient: "Азамат", clientCode: null, tripNumber: null, counterparty: null, comment: "заправка" };
       const afterFirst = { ...original, amountMinor: 12_000 };
-      const afterSecond = { amountMinor: 12_000, currency: "RUB", rateE4: null, category: "salaries", recipient: "Бахтиёр", clientCode: null, comment: null };
+      const afterSecond = { amountMinor: 12_000, currency: "RUB", rateE4: null, category: "salaries", recipient: "Бахтиёр", clientCode: null, tripNumber: null, counterparty: null, comment: null };
       expect(answer.created).toEqual({ at: NOW.toISOString(), by: { login: "ivan", displayName: "Иван" }, state: original });
       expect(answer.changes).toEqual([
         { revision: 1, action: "edit", at: at(10).toISOString(), by: { login: "ivan", displayName: "Иван" }, reason: "опечатка в сумме", before: original, after: afterFirst },
@@ -967,7 +973,7 @@ describe("correcting and deleting operations", () => {
         INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, state_before)
           SELECT id, 1, 'edit', now(), author_id,
                  jsonb_build_object('amountMinor', amount_minor, 'currency', currency, 'rateE4', rate_e4, 'category', category,
-                                    'recipient', recipient, 'clientCode', client_code, 'comment', comment)
+                                    'recipient', recipient, 'clientCode', client_code, 'tripNumber', trip_number, 'counterparty', counterparty, 'comment', comment)
             FROM operations WHERE id = '${id}';
         UPDATE operations SET amount_minor = 60000, revision = 1 WHERE id = '${id}';
         COMMIT;

@@ -136,6 +136,9 @@ export type Operation = {
   category: string | null;
   recipient: string | null;
   clientCode: string | null;
+  /** The number of the trip and the counterparty, where the category asks for them. */
+  tripNumber?: number | null;
+  counterparty?: string | null;
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
@@ -159,6 +162,9 @@ export type Category = {
   archived: boolean;
   /** An entry of this category names a client (its code), and an entry of any other does not. */
   requiresClient: boolean;
+  /** An entry of this category must say the number of the trip, and the counterparty. */
+  requiresTrip: boolean;
+  requiresCounterparty: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
   countsAsCost: boolean;
   /** The Telegram group is told of the entries of this category. */
@@ -218,6 +224,8 @@ function keptCategories(): Category[] | null {
       sortOrder: item.sortOrder ?? index + 1,
       archived: item.archived ?? false,
       requiresClient: item.requiresClient ?? item.code === "client_refund",
+      requiresTrip: item.requiresTrip ?? false,
+      requiresCounterparty: item.requiresCounterparty ?? false,
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
       notifyGroup: item.notifyGroup ?? true,
     }));
@@ -272,6 +280,9 @@ export type OperationInput =
       category?: string;
       /** Only for a category that names a client. */
       clientCode?: string;
+      /** Only for a category that asks for them. */
+      tripNumber?: number;
+      counterparty?: string;
     })
   | (EntryBase & {
       type: "expense";
@@ -279,6 +290,8 @@ export type OperationInput =
       recipient?: string;
       /** Only for a category that names a client (a refund to a client, say). */
       clientCode?: string;
+      tripNumber?: number;
+      counterparty?: string;
     });
 
 export type OperationResult =
@@ -429,6 +442,9 @@ export type Snapshot = {
   category: string | null;
   recipient: string | null;
   clientCode: string | null;
+  /** Missing in the history of before there were trips and counterparties. */
+  tripNumber?: number | null;
+  counterparty?: string | null;
   comment: string | null;
 };
 
@@ -436,6 +452,8 @@ type EditBase = {
   amountMinor: number;
   currency: Currency;
   rateE4?: number;
+  tripNumber?: number;
+  counterparty?: string;
   comment?: string;
   /** Why, in the person's words. Optional. */
   reason?: string;
@@ -600,11 +618,13 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-export async function createCategory(kind: CategoryKind, label: string, requiresClient: boolean, notifyGroup: boolean): Promise<CategoryChangeResult> {
+export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; notifyGroup: boolean };
+
+export async function createCategory(kind: CategoryKind, label: string, flags: CategoryFlags): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ kind, label, requiresClient, notifyGroup }),
+    body: JSON.stringify({ kind, label, ...flags }),
   });
   return categoryChangeResult(response);
 }
@@ -612,7 +632,7 @@ export async function createCategory(kind: CategoryKind, label: string, requires
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",

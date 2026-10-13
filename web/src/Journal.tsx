@@ -615,6 +615,8 @@ function OperationRow({
   const details = [
     operation.clientCode && `Клиент ${operation.clientCode}`,
     operation.recipient && `Кому: ${operation.recipient}`,
+    operation.tripNumber && `Рейс ${operation.tripNumber}`,
+    operation.counterparty && `Контрагент: ${operation.counterparty}`,
   ]
     .filter(Boolean)
     .join(" · ");

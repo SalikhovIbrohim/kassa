@@ -78,6 +78,8 @@ describe("expenses", () => {
         category: "fuel_road",
         recipient: "Азамат",
         clientCode: null,
+        tripNumber: null,
+        counterparty: null,
         comment: "заправка, рейс 17",
         author: { login: "ivan", displayName: "Иван" },
         createdAt: "2026-03-05T08:30:00.000Z",
@@ -259,7 +261,7 @@ describe("expenses", () => {
         label: "Топливо и дорога",
         sortOrder: 1,
         archived: false,
-        requiresClient: false,
+        requiresClient: false, requiresTrip: false, requiresCounterparty: false,
         countsAsCost: true,
         notifyGroup: true,
       });

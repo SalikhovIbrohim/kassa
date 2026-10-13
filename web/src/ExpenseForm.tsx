@@ -7,6 +7,7 @@ import { EntryStatus } from "./EntryStatus";
 import { AmountInput } from "./AmountInput";
 import { formatMoney, formatMoscowTime, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
+import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ export function ExpenseForm({
   const [rate, setRate] = useState("");
   const [clientCode, setClientCode] = useState("");
   const [recipient, setRecipient] = useState("");
+  const [trip, setTrip] = useState("");
+  const [counterparty, setCounterparty] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
@@ -60,6 +63,8 @@ export function ExpenseForm({
   }, [active]);
 
   const needsClient = chosen?.requiresClient ?? false;
+  const needsTrip = chosen?.requiresTrip ?? false;
+  const needsCounterparty = chosen?.requiresCounterparty ?? false;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -84,6 +89,16 @@ export function ExpenseForm({
       entry.setError(`Для категории «${chosen!.label}» введите код клиента.`);
       return;
     }
+    const tripNumber = parseTripNumber(trip);
+    const party = counterparty.trim();
+    if (needsTrip && tripNumber === null) {
+      entry.setError("Введите номер рейса: число, например 194.");
+      return;
+    }
+    if (needsCounterparty && party === "") {
+      entry.setError("Введите контрагента.");
+      return;
+    }
 
     const saved = await entry.send((id) => ({
       type: "expense",
@@ -94,6 +109,8 @@ export function ExpenseForm({
       category,
       recipient: recipient.trim() || undefined,
       clientCode: needsClient ? code : undefined,
+      ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
+      ...(needsCounterparty ? { counterparty: party } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
@@ -101,6 +118,8 @@ export function ExpenseForm({
       setRate("");
       setClientCode("");
       setRecipient("");
+      setTrip("");
+      setCounterparty("");
       setComment("");
       setCategory(null);
       amountInput.current?.focus();
@@ -149,6 +168,15 @@ export function ExpenseForm({
       />
 
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+
+      <TripFields
+        needsTrip={needsTrip}
+        needsCounterparty={needsCounterparty}
+        trip={trip}
+        onTripChange={setTrip}
+        counterparty={counterparty}
+        onCounterpartyChange={setCounterparty}
+      />
 
       <Label>
         <span>
