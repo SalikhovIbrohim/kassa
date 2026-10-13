@@ -4,6 +4,7 @@ import type { Balance } from "./api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { alertVariants } from "@/components/ui/alert";
 
 /** Null while loading, undefined when loading failed, "offline" when the server could not be reached. */
 export type BalancesState = Balance[] | null | undefined | "offline";
@@ -19,7 +20,7 @@ export function Balances({ balances, onRetry, unsent = 0 }: Props) {
   if (balances === undefined) {
     return (
       <Card role="region" aria-label="Остатки" className="gap-3 p-4">
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           Не удалось загрузить остатки.
         </p>
         <Button type="button" variant="outline" onClick={onRetry}>
@@ -38,7 +39,7 @@ export function Balances({ balances, onRetry, unsent = 0 }: Props) {
   const longest = Math.max(...CURRENCIES.map((currency) => shownFor(currency).length));
 
   return (
-    // The class "balances" is also what the journal's wide page narrows to the width of a phone (legacy.css).
+    // The class "balances" is also what the journal's wide page narrows to the width of a phone (screens.css).
     <section className="balances grid grid-cols-2 gap-3" aria-label="Остатки" style={{ "--chars": longest } as CSSProperties}>
       {CURRENCIES.map((currency) => {
         const balance = known?.find((item) => item.currency === currency);
@@ -64,9 +65,9 @@ export function Balances({ balances, onRetry, unsent = 0 }: Props) {
       {balances === "offline" && (
         <p className="hint balances-offline col-span-2">
           Нет связи: остатков не видно. Они появятся, когда связь вернётся.{" "}
-          <button type="button" className="link" onClick={onRetry}>
+          <Button type="button" variant="link" className="h-auto p-0 align-baseline" onClick={onRetry}>
             Проверить
-          </button>
+          </Button>
         </p>
       )}
     </section>

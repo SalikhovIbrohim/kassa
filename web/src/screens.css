@@ -46,53 +46,6 @@ h1 {
   color: #475569;
 }
 
-label:where(:not([data-slot])) {
-  display: grid;
-  gap: 6px;
-  font-weight: 600;
-}
-
-input:where(:not([data-slot])) {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 14px;
-  /* 16px or more stops iOS Safari from zooming the page on focus. */
-  font-size: 1rem;
-  font-family: inherit;
-  border: 1px solid #94a3b8;
-  border-radius: 10px;
-  background: #ffffff;
-  color: inherit;
-}
-
-input:where(:not([data-slot])):focus-visible,
-button:where(:not([data-slot])):focus-visible {
-  outline: 3px solid #5eead4;
-  outline-offset: 2px;
-}
-
-button:where(:not([data-slot])) {
-  min-height: 52px;
-  padding: 0 16px;
-  font-size: 1.05rem;
-  font-weight: 600;
-  font-family: inherit;
-  color: #ffffff;
-  background: #0f766e;
-  border: 0;
-  border-radius: 12px;
-}
-
-button:where(:not([data-slot])):disabled {
-  opacity: 0.6;
-}
-
-button.secondary {
-  color: #0f766e;
-  background: #ffffff;
-  border: 1px solid #0f766e;
-}
-
 .error {
   margin: 0;
   padding: 12px 14px;
@@ -113,61 +66,9 @@ button.secondary {
     max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
-button.small {
-  min-height: 44px;
-  padding: 0 14px;
-  font-size: 0.95rem;
-}
-
 h2 {
   margin: 0;
   font-size: 1.25rem;
-}
-
-fieldset.choices {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-fieldset.choices legend {
-  padding: 0;
-  margin-bottom: 6px;
-  font-weight: 600;
-}
-
-.choice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 52px;
-  padding: 0 12px;
-  font-weight: 600;
-  border: 1px solid #94a3b8;
-  border-radius: 12px;
-  background: #ffffff;
-  cursor: pointer;
-}
-
-.choice input {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-}
-
-.choice.chosen {
-  color: #ffffff;
-  background: #0f766e;
-  border-color: #0f766e;
-}
-
-.choice:has(input:focus-visible) {
-  outline: 3px solid #5eead4;
-  outline-offset: 2px;
 }
 
 .optional {
@@ -187,20 +88,6 @@ fieldset.choices legend {
 .success .when {
   color: #475569;
   white-space: nowrap;
-}
-
-fieldset.categories {
-  grid-template-columns: 1fr 1fr;
-}
-
-fieldset.categories legend {
-  grid-column: 1 / -1;
-}
-
-fieldset.categories .choice {
-  text-align: center;
-  line-height: 1.2;
-  min-height: 56px;
 }
 
 /* ---- Journal ---- */
@@ -266,36 +153,6 @@ fieldset.categories .choice {
   gap: 10px;
 }
 
-label.check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-weight: 400;
-}
-
-label.check input {
-  width: 22px;
-  min-height: 22px;
-  flex: none;
-}
-
-select:where(:not([data-slot])) {
-  width: 100%;
-  min-height: 48px;
-  padding: 0 14px;
-  font-size: 1rem;
-  font-family: inherit;
-  border: 1px solid #94a3b8;
-  border-radius: 10px;
-  background: #ffffff;
-  color: inherit;
-}
-
-select:where(:not([data-slot])):focus-visible {
-  outline: 3px solid #5eead4;
-  outline-offset: 2px;
-}
-
 /* A journal wants room on a laptop; the entry forms stay a phone-sized column. */
 .page:has(.journal) {
   max-width: 1040px;
@@ -355,19 +212,6 @@ select:where(:not([data-slot])):focus-visible {
   margin: 0;
   font-weight: 600;
   color: #334155;
-}
-
-button.link {
-  /* A finger needs 44px even for a link. */
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 0 4px;
-  font-size: inherit;
-  font-weight: 600;
-  color: inherit;
-  text-decoration: underline;
-  background: none;
 }
 
 /* Two date fields side by side do not fit a narrow phone: one under the other. */
@@ -564,10 +408,6 @@ button.link {
   font-size: 0.8rem;
   font-weight: 400;
   color: #991b1b;
-}
-
-button.danger {
-  background: #b91c1c;
 }
 
 .journal-table tr.panel {

@@ -5,6 +5,7 @@ import type { QueuedEntry } from "./queue";
 import { queue, useQueueState } from "./queue-instance";
 import { entryText, phoneTime, problemText } from "./queue-text";
 import { focusWhenShown } from "./focus-when-shown";
+import { Button } from "@/components/ui/button";
 
 type Props = {
   /** The cashier signed in now. */
@@ -58,7 +59,7 @@ export function QueueBanner({ login, onSignIn }: Props) {
   }
 
   return (
-    <section id="queue" className="queue" aria-label="Записи, которые ещё не дошли до сервера">
+    <section id="queue" className="queue rounded-xl border-amber-200 bg-amber-50 text-amber-800" aria-label="Записи, которые ещё не дошли до сервера">
       {mine.length > 0 && (
         <>
           <p className="queue-title">
@@ -77,19 +78,19 @@ export function QueueBanner({ login, onSignIn }: Props) {
           )}
           <div className="queue-actions">
             {state.needsLogin && (
-              <button type="button" className="small" onClick={onSignIn}>
+              <Button type="button" size="sm" onClick={onSignIn}>
                 Войти
-              </button>
+              </Button>
             )}
             {!state.needsLogin && waiting.length > 0 && (
-              <button type="button" className="secondary small" disabled={state.sending} onClick={() => void queue.nudge()}>
+              <Button type="button" variant="outline" size="sm" disabled={state.sending} onClick={() => void queue.nudge()}>
                 Отправить сейчас
-              </button>
+              </Button>
             )}
             {blocked.length === 0 && (
-              <button type="button" className="secondary small" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
                 {open ? "Скрыть список" : "Показать список"}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -113,9 +114,9 @@ export function QueueBanner({ login, onSignIn }: Props) {
             Они уйдут после {otherLogins.length === 1 ? "его" : "их"} входа.
           </p>
           <div className="queue-actions">
-            <button type="button" className="secondary small" aria-expanded={openOthers} onClick={() => setOpenOthers(!openOthers)}>
+            <Button type="button" variant="outline" size="sm" aria-expanded={openOthers} onClick={() => setOpenOthers(!openOthers)}>
               {openOthers ? "Скрыть записи" : "Показать записи"}
-            </button>
+            </Button>
           </div>
           {openOthers && (
             <>
@@ -171,31 +172,31 @@ function Row({ entry, categories, removing, onRemoving, theirs = false }: RowPro
                 Удалить эту запись с телефона? Если сервер её не принимал, в журнал и остаток она не попадёт, владелец её не
                 увидит. Если деньги выданы или получены, сначала посмотрите журнал, а потом при необходимости внесите запись заново.
               </span>
-              <button
+              <Button
                 key="really"
                 type="button"
-                className="danger small"
+                variant="destructive" size="sm"
                 onClick={() => {
                   onRemoving(null);
                   void queue.discard(entry.id);
                 }}
               >
                 Да, удалить
-              </button>
-              <button key="no" type="button" className="secondary small" onClick={() => onRemoving(null)}>
+              </Button>
+              <Button key="no" type="button" variant="outline" size="sm" onClick={() => onRemoving(null)}>
                 Отмена
-              </button>
+              </Button>
             </>
           ) : (
             <>
               {blocked && !theirs && (
-                <button key="again" type="button" className="small" onClick={() => void queue.retry(entry.id)}>
+                <Button key="again" type="button" size="sm" onClick={() => void queue.retry(entry.id)}>
                   Отправить снова
-                </button>
+                </Button>
               )}
-              <button key="ask" type="button" className="secondary small" onClick={() => onRemoving(entry.id)}>
+              <Button key="ask" type="button" variant="outline" size="sm" onClick={() => onRemoving(entry.id)}>
                 Удалить с телефона
-              </button>
+              </Button>
             </>
           )}
         </span>

@@ -25,6 +25,8 @@ import { ViewerScreen } from "./ViewerScreen";
 import { TelegramLink } from "./TelegramLink";
 import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type State =
   | { kind: "loading" }
@@ -125,7 +127,7 @@ export function App() {
       <main className="screen">
         <div className="card">
           <h1>Касса</h1>
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Нет связи с сервером.
           </p>
           {unsent > 0 && (
@@ -134,9 +136,9 @@ export function App() {
               Не потеряно: {plural(unsent, "она уйдёт", "они уйдут", "они уйдут")}, когда связь появится и войдёт кассир, который {plural(unsent, "её внёс", "их внёс", "их внёс")}.
             </p>
           )}
-          <button type="button" onClick={load}>
+          <Button type="button" onClick={load}>
             Повторить
-          </button>
+          </Button>
         </div>
       </main>
     );
@@ -275,7 +277,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
       {confirmingLeave && (
         <div
-          className="queue"
+          className="queue rounded-xl border-amber-200 bg-amber-50 text-amber-800"
           role="alertdialog"
           aria-labelledby="leave-title"
           aria-describedby="leave-text"
@@ -300,18 +302,18 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
             )}
           </div>
           <div className="queue-actions">
-            <button type="button" className="small" onClick={stay}>
+            <Button type="button" size="sm" onClick={stay}>
               Остаться
-            </button>
-            <button type="button" className="secondary small" onClick={() => void leave(true)}>
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => void leave(true)}>
               Всё равно выйти
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {error}
         </p>
       )}

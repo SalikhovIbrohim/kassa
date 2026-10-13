@@ -9,6 +9,12 @@ import {
   type CategoryChangeResult,
   type CategoryKind,
 } from "./api";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type Props = {
   onSessionExpired: () => void;
@@ -75,28 +81,28 @@ export function CategoriesAdmin({ onSessionExpired, active = true }: Props) {
     <section className="categories-admin" aria-label="Категории" aria-busy={busy}>
       <div className="journal-head">
         <h2>Категории</h2>
-        <button type="button" className="secondary small" onClick={load}>
+        <Button type="button" variant="outline" size="sm" onClick={load}>
           Обновить
-        </button>
+        </Button>
       </div>
       <p className="hint">
         Эти списки видят кассиры в формах. Убранная категория уходит в архив: старые записи её помнят, а в новых её уже не выбрать.
       </p>
 
       {error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {error}
         </p>
       )}
       {all === null && <p className="hint">Загружаем…</p>}
       {all === undefined && (
         <>
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Не удалось загрузить списки. Проверьте связь и попробуйте ещё раз.
           </p>
-          <button type="button" className="secondary" onClick={load}>
+          <Button type="button" variant="outline" onClick={load}>
             Повторить
-          </button>
+          </Button>
         </>
       )}
 
@@ -146,7 +152,7 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
   }
 
   return (
-    <section className="category-list" aria-label={`Категории: ${TITLE[kind].toLowerCase()}`} data-kind={kind}>
+    <section className="category-list rounded-xl border bg-card shadow-sm" aria-label={`Категории: ${TITLE[kind].toLowerCase()}`} data-kind={kind}>
       <h3>{TITLE[kind]}</h3>
       <ul>
         {items.map((item, index) => (
@@ -169,24 +175,24 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
                   {item.archived && <span className="badge deleted">в архиве</span>}
                 </span>
                 <span className="category-actions">
-                  <button type="button" className="secondary small" disabled={busy || index === 0} aria-label={`Выше: ${item.label}`} onClick={() => onChange(item.code, { move: "up" })}>
+                  <Button type="button" variant="outline" size="sm" disabled={busy || index === 0} aria-label={`Выше: ${item.label}`} onClick={() => onChange(item.code, { move: "up" })}>
                     ↑
-                  </button>
-                  <button type="button" className="secondary small" disabled={busy || index === items.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy || index === items.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
                     ↓
-                  </button>
-                  <button type="button" className="secondary small" disabled={busy} aria-label={`Изменить: ${item.label}`} onClick={() => onEdit(item.code)}>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} aria-label={`Изменить: ${item.label}`} onClick={() => onEdit(item.code)}>
                     Изменить
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
-                    className="secondary small"
+                    variant="outline" size="sm"
                     disabled={busy}
                     aria-label={`${item.archived ? "Вернуть" : "В архив"}: ${item.label}`}
                     onClick={() => onChange(item.code, { archived: !item.archived })}
                   >
                     {item.archived ? "Вернуть" : "В архив"}
-                  </button>
+                  </Button>
                 </span>
               </>
             )}
@@ -195,21 +201,21 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
       </ul>
 
       <form className="category-add" onSubmit={add} aria-label={`Новая категория: ${TITLE[kind].toLowerCase()}`}>
-        <label>
+        <Label>
           Новая категория
-          <input name="label" type="text" autoComplete="off" maxLength={60} value={label} onChange={(event) => setLabel(event.target.value)} />
-        </label>
-        <label className="check">
-          <input type="checkbox" name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
+          <Input name="label" type="text" autoComplete="off" maxLength={60} value={label} onChange={(event) => setLabel(event.target.value)} />
+        </Label>
+        <Label className="flex items-center gap-2.5 font-normal">
+          <Checkbox name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
           Нужен код клиента
-        </label>
-        <label className="check">
-          <input type="checkbox" name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
+        </Label>
+        <Label className="flex items-center gap-2.5 font-normal">
+          <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
           Сообщать в группу Telegram
-        </label>
-        <button type="submit" disabled={busy || label.trim() === ""}>
+        </Label>
+        <Button type="submit" disabled={busy || label.trim() === ""}>
           Добавить
-        </button>
+        </Button>
       </form>
     </section>
   );
@@ -243,25 +249,25 @@ function EditCategory({
 
   return (
     <form className="category-edit" onSubmit={save} aria-label={`Изменить категорию ${item.label}`}>
-      <label>
+      <Label>
         Название
-        <input name="label" type="text" autoComplete="off" maxLength={60} autoFocus value={label} onChange={(event) => setLabel(event.target.value)} />
-      </label>
-      <label className="check">
-        <input type="checkbox" name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
+        <Input name="label" type="text" autoComplete="off" maxLength={60} autoFocus value={label} onChange={(event) => setLabel(event.target.value)} />
+      </Label>
+      <Label className="flex items-center gap-2.5 font-normal">
+        <Checkbox name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />
         Нужен код клиента
-      </label>
-      <label className="check">
-        <input type="checkbox" name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
+      </Label>
+      <Label className="flex items-center gap-2.5 font-normal">
+        <Checkbox name="notifyGroup" checked={notifyGroup} onChange={(event) => setNotifyGroup(event.target.checked)} />
         Сообщать в группу Telegram
-      </label>
+      </Label>
       <div className="queue-actions">
-        <button type="submit" disabled={busy || label.trim() === ""}>
+        <Button type="submit" disabled={busy || label.trim() === ""}>
           Сохранить
-        </button>
-        <button type="button" className="secondary" onClick={onCancel}>
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Отмена
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -1,9 +1,13 @@
 import { useRef, useState, type FormEvent } from "react";
 import { AmountInput } from "./AmountInput";
+import { Label } from "@/components/ui/label";
 import { reconcileCash, SessionExpiredError, type Balance, type Reconciliation } from "./api";
 import { formatMoscowShort } from "./days";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, parseCountInput, type Currency } from "./money";
 import { useQueueState } from "./queue-instance";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type Props = {
   /** The admin who is signed in: what waits on this phone under their login is not in the book yet. */
@@ -66,16 +70,16 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   }
 
   return (
-    <section className="reconcile-bar" aria-label="Сверка кассы">
+    <section className="reconcile-bar rounded-xl border bg-card shadow-sm" aria-label="Сверка кассы">
       {result && <ReconcileResult report={result} onHide={() => setResult(null)} />}
       {!asking ? (
         <div className="reconcile-line">
           <span>
             <strong>Сверка кассы</strong>: пересчитать наличные и свести с книгой
           </span>
-          <button type="button" className="small" onClick={() => setAsking(true)}>
+          <Button type="button" size="sm" onClick={() => setAsking(true)}>
             Сверить кассу
-          </button>
+          </Button>
         </div>
       ) : (
         <form className="reconcile-form" onSubmit={submit} noValidate>
@@ -83,12 +87,12 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
             <strong>Сверка кассы.</strong> Пересчитайте наличные и введите, сколько денег лежит в кассе, по каждой валюте. Разница с книгой запишется на вас.
           </p>
           {unsent > 0 && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               На телефоне ещё {unsent === 1 ? "ждёт 1 запись" : `ждут ${unsent} записей`}: их нет в остатке. Дождитесь отправки или решите, что с ними делать, и только потом сверяйте кассу.
             </p>
           )}
           {CURRENCIES.map((currency) => (
-            <label key={currency}>
+            <Label key={currency}>
               В кассе, {CURRENCY_NAME[currency].toLowerCase()}
               <AmountInput
                 name={`count-${currency}`}
@@ -96,20 +100,20 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
                 value={counts[currency]}
                 onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
               />
-            </label>
+            </Label>
           ))}
           {error && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               {error}
             </p>
           )}
           <div className="queue-actions">
-            <button type="submit" disabled={busy || unsent > 0}>
+            <Button type="submit" disabled={busy || unsent > 0}>
               {busy ? "Сверяем…" : "Сверить кассу"}
-            </button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => setAsking(false)}>
+            </Button>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setAsking(false)}>
               Отмена
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -133,7 +137,7 @@ function problemText(reason: "forbidden" | "id-conflict" | "rejected" | "server-
 /** How a count came out, per currency: what the book said, what was counted, the difference. */
 function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: () => void }) {
   return (
-    <div className="reconcile-result" role="status">
+    <div className="reconcile-result rounded-lg bg-secondary" role="status">
       <p>
         <strong>Касса сверена</strong> в {formatMoscowShort(report.madeAt)} (МСК):
       </p>
@@ -147,9 +151,9 @@ function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: (
           </li>
         ))}
       </ul>
-      <button type="button" className="secondary small" onClick={onHide}>
+      <Button type="button" variant="outline" size="sm" onClick={onHide}>
         Скрыть
-      </button>
+      </Button>
     </div>
   );
 }

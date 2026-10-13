@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { linkTelegram, NetworkError } from "./api";
 import { telegramLaunchData } from "./telegram";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 /**
  * Inside Telegram, for a login whose Telegram is not linked yet: one button that links it, after which the Mini App
@@ -45,11 +48,11 @@ export function TelegramLink() {
   return (
     <section className="telegram-link" aria-label="Telegram">
       <span>Этот Telegram не привязан к вашему входу. Привяжите, и пароль больше не понадобится.</span>
-      <button type="button" className="small" disabled={state === "busy"} onClick={() => void link()}>
+      <Button type="button" size="sm" disabled={state === "busy"} onClick={() => void link()}>
         {state === "busy" ? "Привязываем…" : "Привязать Telegram"}
-      </button>
+      </Button>
       {problem && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {problem}
         </p>
       )}

@@ -1,14 +1,14 @@
 /*
- * The look of the app: Tailwind CSS 4 and components in the style of shadcn/ui (src/components/ui), in the colors the app
- * has always had, teal on slate. The screens are being moved to them one by one. What is not moved yet is still styled by
- * legacy.css, which sits in its own layer between Tailwind's base and its utilities: a new component is never
- * overridden by an old rule, and an old screen looks as it did. Tailwind's reset (preflight) is left out until the last
- * screen is moved, as it would change the spacing of the old ones.
+ * The look of the app: Tailwind CSS 4 with its reset, and components in the style of shadcn/ui (src/components/ui), in the
+ * colors the app has always had, teal on slate. screens.css holds what is particular to the screens (the journal that is
+ * cards on a phone and a table on a laptop, the totals, the list of entries that wait on the phone): it sits in its own
+ * layer between the reset and the utilities, so a utility given to an element always wins over it.
  */
-@layer theme, base, legacy, components, utilities;
+@layer theme, base, screens, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css" layer(utilities);
-@import "./legacy.css" layer(legacy);
+@import "./screens.css" layer(screens);
 
 :root {
   --radius: 0.75rem;
@@ -58,23 +58,18 @@
 }
 
 @layer base {
-  /* What a border is, when a component says "border" and nothing else (the reset that would have said it is left out). */
+  /* Headings stay bold: the reset makes them look like plain text. */
+  h1,
+  h2,
+  h3 {
+    font-weight: 700;
+  }
+
+  /* The border a component draws when it says "border" and nothing else. */
   *,
   ::before,
   ::after {
     border-color: var(--border);
-  }
-
-  /* The part of that reset which a button of the components needs: no frame, no grey face, the font of the page. */
-  button[data-slot] {
-    margin: 0;
-    padding: 0;
-    border: 0 solid;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: none;
   }
 }
 

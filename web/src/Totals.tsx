@@ -199,7 +199,7 @@ function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code:
   const { currency } = totals;
   const rows = totals.expenseByCategory.filter((row) => row.amountMinor > 0);
   return (
-    <section className="total-card" aria-label={CURRENCY_NAME[currency]}>
+    <section className="total-card rounded-xl border bg-card shadow-sm" aria-label={CURRENCY_NAME[currency]}>
       <h3>{CURRENCY_NAME[currency]}</h3>
       <dl>
         <div className="total-row">
@@ -253,7 +253,7 @@ function DollarCard({ usd }: { usd: DollarTotals }) {
       </p>
     );
   return (
-    <section className="total-card dollars" aria-label="В долларах">
+    <section className="total-card dollars rounded-xl border bg-card shadow-sm" aria-label="В долларах">
       <h3>В долларах</h3>
       <dl>
         <div className={usd.incomeMinor === 0 ? "total-row income zero" : "total-row income"}>

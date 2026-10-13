@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchReconciliations, SessionExpiredError, type Reconciliation } from "./api";
 import { formatMoscowShort } from "./days";
 import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type Props = {
   onSessionExpired: () => void;
@@ -67,26 +70,26 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
     <section className="reconciliations" aria-label="Сверки">
       <div className="journal-head">
         <h2>Сверки</h2>
-        <button type="button" className="secondary small" onClick={refresh}>
+        <Button type="button" variant="outline" size="sm" onClick={refresh}>
           Обновить
-        </button>
+        </Button>
       </div>
 
       {load.kind === "loading" && <p className="hint">Загружаем…</p>}
       {load.kind === "failed" && (
         <>
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Не удалось загрузить сверки. Проверьте связь и попробуйте ещё раз.
           </p>
-          <button type="button" className="secondary" onClick={refresh}>
+          <Button type="button" variant="outline" onClick={refresh}>
             Повторить
-          </button>
+          </Button>
         </>
       )}
       {load.kind === "ready" && (
         <>
           {load.refreshFailed && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               Не удалось обновить список: показан прежний. Проверьте связь и нажмите «Обновить».
             </p>
           )}
@@ -100,12 +103,12 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
             </ul>
           )}
           {load.nextBefore && (
-            <button type="button" className="secondary" disabled={load.loadingMore} onClick={() => void loadMore()}>
+            <Button type="button" variant="outline" disabled={load.loadingMore} onClick={() => void loadMore()}>
               {load.loadingMore ? "Загружаем…" : "Показать ещё"}
-            </button>
+            </Button>
           )}
           {load.moreFailed && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               Не удалось загрузить следующие сверки.
             </p>
           )}
@@ -117,7 +120,7 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
 
 function ReconciliationCard({ reconciliation }: { reconciliation: Reconciliation }) {
   return (
-    <li className="reconciliation-card" data-reconciliation={reconciliation.id}>
+    <li className="reconciliation-card rounded-xl border bg-card shadow-sm" data-reconciliation={reconciliation.id}>
       <p className="reconciliation-card-head">
         <strong>{reconciliation.madeBy.displayName}</strong>
       </p>
