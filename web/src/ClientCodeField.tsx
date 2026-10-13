@@ -1,5 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { fetchClientCodes } from "./api";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type Props = {
   value: string;
@@ -21,9 +23,9 @@ export function ClientCodeField({ value, onChange, required = true }: Props) {
   }, [value]);
 
   return (
-    <label>
+    <Label>
       Код клиента
-      <input
+      <Input
         name="clientCode"
         type="text"
         list={listId}
@@ -42,6 +44,6 @@ export function ClientCodeField({ value, onChange, required = true }: Props) {
           <option key={code} value={code} />
         ))}
       </datalist>
-    </label>
+    </Label>
   );
 }

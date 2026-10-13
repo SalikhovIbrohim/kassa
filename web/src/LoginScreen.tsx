@@ -2,6 +2,12 @@ import { useState, type FormEvent } from "react";
 import { logIn, NetworkError, type User } from "./api";
 import { plural } from "./plural";
 import { useQueueState } from "./queue-instance";
+import { alertVariants } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   onLoggedIn: (user: User) => void;
@@ -60,31 +66,34 @@ export function LoginScreen({ onLoggedIn, note }: Props) {
 
   return (
     <main className="screen">
-      <form className="card" onSubmit={submit}>
-        <h1>Касса</h1>
-        <p className="hint">Войдите, чтобы продолжить</p>
+      <Card asChild className="w-full max-w-[420px] gap-4 p-6">
+      <form onSubmit={submit}>
+        <div className="grid gap-1">
+          <h1 className="text-[2rem] leading-tight font-bold text-primary">Касса</h1>
+          <p className="m-0 text-muted-foreground">Войдите, чтобы продолжить</p>
+        </div>
         {note && (
-          <p className="hint" role="status">
+          <p className="m-0 text-muted-foreground" role="status">
             {note}
           </p>
         )}
 
         {waiting > 0 && (
-          <p className="queued" role="status">
+          <p className={cn(alertVariants({ variant: "warning" }), "queued")} role="status">
             На телефоне {plural(waiting, "ждёт", "ждут", "ждут")} отправки: {waiting} {plural(waiting, "запись", "записи", "записей")}.{" "}
             {waiting === 1 ? "Она уйдёт" : "Они уйдут"} сразу после входа кассира, который {waiting === 1 ? "её" : "их"} внёс.
           </p>
         )}
         {blocked > 0 && (
-          <p className="queued blocked" role="status">
+          <p className={cn(alertVariants({ variant: "destructive" }), "queued blocked")} role="status">
             Ещё {blocked} {plural(blocked, "запись", "записи", "записей")} сервер не принял: после входа нужно решить, что с{" "}
             {blocked === 1 ? "ней" : "ними"} делать.
           </p>
         )}
 
-        <label>
+        <Label>
           Логин
-          <input
+          <Input
             name="login"
             type="text"
             autoComplete="username"
@@ -96,11 +105,11 @@ export function LoginScreen({ onLoggedIn, note }: Props) {
             value={login}
             onChange={(event) => setLogin(event.target.value)}
           />
-        </label>
+        </Label>
 
-        <label>
+        <Label>
           Пароль
-          <input
+          <Input
             name="password"
             type="password"
             autoComplete="current-password"
@@ -109,18 +118,19 @@ export function LoginScreen({ onLoggedIn, note }: Props) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
-        </label>
+        </Label>
 
         {error && (
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             {error}
           </p>
         )}
 
-        <button type="submit" disabled={busy}>
+        <Button type="submit" size="lg" disabled={busy}>
           {busy ? "Входим…" : "Войти"}
-        </button>
+        </Button>
       </form>
+      </Card>
     </main>
   );
 }

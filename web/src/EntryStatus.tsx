@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { EntryNote } from "./useEntry";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 /**
  * Where a form says what became of its last entry. The place is always there, and empty when there is
@@ -9,7 +11,11 @@ import type { EntryNote } from "./useEntry";
 export function EntryStatus({ note, children }: { note: EntryNote | null; children?: ReactNode }) {
   return (
     <div className="entry-status" role="status" aria-live="polite">
-      {note && <p className={note.kind === "blocked" ? "queued blocked" : "queued"}>{note.text}</p>}
+      {note && (
+        <p className={cn(alertVariants({ variant: note.kind === "blocked" ? "destructive" : "warning" }), note.kind === "blocked" ? "queued blocked" : "queued")}>
+          {note.text}
+        </p>
+      )}
       {children}
     </div>
   );

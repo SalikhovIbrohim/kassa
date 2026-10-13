@@ -8,6 +8,12 @@ import { AmountInput } from "./AmountInput";
 import { formatMoney, formatMoscowTime, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
 import { useEntry } from "./useEntry";
+import { alertVariants } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label, LabelNote } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   entryId: MutableRefObject<string>;
@@ -104,21 +110,22 @@ export function ExpenseForm({
   const savedLabel = categories?.find((item) => item.code === entry.saved?.category)?.label;
 
   return (
-    <form className="card" onSubmit={submit}>
+    <Card asChild className="gap-4 p-5">
+    <form onSubmit={submit}>
       <h2 className="sr-only">Расход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "expense" && (
-          <p className="success">
+          <p className={cn(alertVariants({ variant: "success" }), "success")}>
             Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.{" "}
-            <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+            <span className="when text-muted-foreground">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
           </p>
         )}
       </EntryStatus>
 
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
-      <label>
+      <Label>
         Сумма
         <AmountInput
           ref={amountInput}
@@ -130,7 +137,7 @@ export function ExpenseForm({
           value={amount}
           onChange={setAmount}
         />
-      </label>
+      </Label>
 
       <CategoryField
         list={categories}
@@ -143,11 +150,11 @@ export function ExpenseForm({
 
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
-      <label>
+      <Label>
         <span>
-          Кому выдали <span className="optional">(необязательно)</span>
+          Кому выдали <LabelNote>(необязательно)</LabelNote>
         </span>
-        <input
+        <Input
           name="recipient"
           type="text"
           autoComplete="off"
@@ -156,15 +163,15 @@ export function ExpenseForm({
           value={recipient}
           onChange={(event) => setRecipient(event.target.value)}
         />
-      </label>
+      </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} />}
 
-      <label>
+      <Label>
         <span>
-          Комментарий <span className="optional">(необязательно)</span>
+          Комментарий <LabelNote>(необязательно)</LabelNote>
         </span>
-        <input
+        <Input
           name="comment"
           type="text"
           autoComplete="off"
@@ -173,17 +180,18 @@ export function ExpenseForm({
           value={comment}
           onChange={(event) => setComment(event.target.value)}
         />
-      </label>
+      </Label>
 
       {entry.error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {entry.error}
         </p>
       )}
 
-      <button type="submit" disabled={entry.busy}>
+      <Button type="submit" size="lg" disabled={entry.busy}>
         {entry.busy ? "Записываем…" : "Записать расход"}
-      </button>
+      </Button>
     </form>
+    </Card>
   );
 }

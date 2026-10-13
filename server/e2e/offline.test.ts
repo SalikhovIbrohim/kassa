@@ -321,7 +321,7 @@ describe("making entries without a connection", () => {
 
     // The first tab does not go on as ivan: it asks for a sign-in, and says what waits on the phone.
     await seeVisible(page.getByRole("button", { name: "Войти" }));
-    await seeText(page.locator("form.card"), "На телефоне ждёт отправки: 1 запись");
+    await seeText(page.locator("form"), "На телефоне ждёт отправки: 1 запись");
     await context.unroute("**/api/operations", noEntries);
     await page.waitForTimeout(1500);
     expect(await onServer("TAB-1")).toBe(0);

@@ -1,4 +1,5 @@
 import { AmountInput } from "./AmountInput";
+import { Label, LabelNote } from "@/components/ui/label";
 
 type Props = {
   value: string;
@@ -11,9 +12,9 @@ type Props = {
 export function RateField({ value, onChange, required }: Props) {
   return (
     <>
-      <label>
+      <Label>
         <span>
-          Курс <span className="optional">{required ? "(рублей за 1 $)" : "(рублей за 1 $, необязательно)"}</span>
+          Курс <LabelNote>{required ? "(рублей за 1 $)" : "(рублей за 1 $, необязательно)"}</LabelNote>
         </span>
         <AmountInput
           name="rate"
@@ -26,9 +27,9 @@ export function RateField({ value, onChange, required }: Props) {
           value={value}
           onChange={onChange}
         />
-      </label>
+      </Label>
       {!required && (
-        <p className="hint">Не знаете курс? Оставьте пустым: возьмём средний курс приходов за этот день.</p>
+        <p className="-mt-2 mb-0 text-sm text-muted-foreground">Не знаете курс? Оставьте пустым: возьмём средний курс приходов за этот день.</p>
       )}
     </>
   );

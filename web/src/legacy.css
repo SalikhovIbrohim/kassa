@@ -46,13 +46,13 @@ h1 {
   color: #475569;
 }
 
-label {
+label:where(:not([data-slot])) {
   display: grid;
   gap: 6px;
   font-weight: 600;
 }
 
-input {
+input:where(:not([data-slot])) {
   width: 100%;
   min-height: 48px;
   padding: 0 14px;
@@ -65,7 +65,7 @@ input {
   color: inherit;
 }
 
-input:focus-visible,
+input:where(:not([data-slot])):focus-visible,
 button:where(:not([data-slot])):focus-visible {
   outline: 3px solid #5eead4;
   outline-offset: 2px;
@@ -279,7 +279,7 @@ label.check input {
   flex: none;
 }
 
-select {
+select:where(:not([data-slot])) {
   width: 100%;
   min-height: 48px;
   padding: 0 14px;
@@ -291,7 +291,7 @@ select {
   color: inherit;
 }
 
-select:focus-visible {
+select:where(:not([data-slot])):focus-visible {
   outline: 3px solid #5eead4;
   outline-offset: 2px;
 }

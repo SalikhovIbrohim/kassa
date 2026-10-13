@@ -1,4 +1,9 @@
 import type { Category, CategoryKind } from "./api";
+import { alertVariants } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 
 type Props = {
   /** Every category (see `fetchCategories`): null while it loads, undefined when it did not load. */
@@ -16,24 +21,24 @@ type Props = {
 
 /** The categories of one kind as a drop-down list, in the order of the owner's list. */
 export function CategoryField({ list, kind, label, value, onChange, onReload, keep = null }: Props) {
-  if (list === null) return <p className="hint">Загружаем категории…</p>;
+  if (list === null) return <p className="m-0 text-muted-foreground">Загружаем категории…</p>;
   if (list === undefined) {
     return (
-      <div className="categories-missing">
-        <p className="error" role="alert">
+      <div className="categories-missing grid gap-2.5">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           Список категорий не загрузился.
         </p>
-        <button type="button" className="secondary" onClick={onReload}>
+        <Button type="button" variant="outline" onClick={onReload}>
           Повторить
-        </button>
+        </Button>
       </div>
     );
   }
   const options = list.filter((item) => item.kind === kind && (!item.archived || item.code === keep));
   return (
-    <label>
+    <Label>
       {label}
-      <select name="category" required value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
+      <NativeSelect name="category" required value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
         {value === null && (
           <option value="" disabled>
             Выберите…
@@ -45,7 +50,7 @@ export function CategoryField({ list, kind, label, value, onChange, onReload, ke
             {item.archived ? " (в архиве)" : ""}
           </option>
         ))}
-      </select>
-    </label>
+      </NativeSelect>
+    </Label>
   );
 }

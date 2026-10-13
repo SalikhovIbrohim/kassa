@@ -9,6 +9,12 @@ import { formatMoney, formatMoscowTime, formatRateInput, parseAmountInput, parse
 import { RateField } from "./RateField";
 import { rememberedRate } from "./remembered-rate";
 import { useEntry } from "./useEntry";
+import { alertVariants } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label, LabelNote } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   entryId: MutableRefObject<string>;
@@ -127,23 +133,24 @@ export function IncomeForm({
   }
 
   return (
-    <form className="card" onSubmit={submit}>
+    <Card asChild className="gap-4 p-5">
+    <form onSubmit={submit}>
       <h2 className="sr-only">Приход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "income" && (
-          <p className="success">
+          <p className={cn(alertVariants({ variant: "success" }), "success")}>
             Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}
             {savedCategory ? ` (${savedCategory})` : ""}
             {entry.saved.clientCode ? `, клиент ${entry.saved.clientCode}` : ""}.{" "}
-            <span className="when">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+            <span className="when text-muted-foreground">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
           </p>
         )}
       </EntryStatus>
 
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
-      <label>
+      <Label>
         Сумма
         <AmountInput
           ref={amountInput}
@@ -155,7 +162,7 @@ export function IncomeForm({
           value={amount}
           onChange={setAmount}
         />
-      </label>
+      </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required />}
 
@@ -163,11 +170,11 @@ export function IncomeForm({
 
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
-      <label>
+      <Label>
         <span>
-          Комментарий <span className="optional">(необязательно)</span>
+          Комментарий <LabelNote>(необязательно)</LabelNote>
         </span>
-        <input
+        <Input
           name="comment"
           type="text"
           autoComplete="off"
@@ -176,17 +183,18 @@ export function IncomeForm({
           value={comment}
           onChange={(event) => setComment(event.target.value)}
         />
-      </label>
+      </Label>
 
       {entry.error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {entry.error}
         </p>
       )}
 
-      <button type="submit" disabled={entry.busy}>
+      <Button type="submit" size="lg" disabled={entry.busy}>
         {entry.busy ? "Записываем…" : "Записать приход"}
-      </button>
+      </Button>
     </form>
+    </Card>
   );
 }

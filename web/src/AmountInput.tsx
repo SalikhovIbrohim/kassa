@@ -1,4 +1,6 @@
 import { useImperativeHandle, useRef, type ChangeEvent, type InputHTMLAttributes, type Ref } from "react";
+import { inputClassName } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 /** Digits and the decimal separator are what counts when the caret is put back after the text is regrouped. */
 const isSignificant = (char: string) => /[\d,.]/.test(char);
@@ -54,7 +56,7 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | 
  * An amount field that separates the thousands as the cashier types, so a long sum can be read at a glance
  * ("500 000", not "500000"). The text it hands back is already grouped.
  */
-export function AmountInput({ value, onChange, decimals, wholeDigits, ref, ...rest }: Props) {
+export function AmountInput({ value, onChange, decimals, wholeDigits, ref, className, ...rest }: Props) {
   const shape = { decimals, wholeDigits };
   const input = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => input.current!);
@@ -76,6 +78,8 @@ export function AmountInput({ value, onChange, decimals, wholeDigits, ref, ...re
     <input
       {...rest}
       ref={input}
+      data-slot="input"
+      className={cn(inputClassName, "tabular-nums", className)}
       type="text"
       inputMode="decimal"
       value={formatAmountText(value, shape)}
