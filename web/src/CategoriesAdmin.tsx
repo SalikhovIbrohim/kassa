@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { PencilIcon } from "@/components/icons";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -308,16 +309,6 @@ function EditCategory({
         </Button>
       </div>
     </form>
-  );
-}
-
-/** A pencil, the sign of "change this". */
-function PencilIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21.17 6.81a2.83 2.83 0 0 0-4-4L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z" />
-      <path d="m15 5 4 4" />
-    </svg>
   );
 }
 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type Role } from "./api";
+import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label, LabelNote } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -38,16 +39,17 @@ const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> =
   "server-error": "Не получилось сохранить. Попробуйте ещё раз.",
 };
 
-type Mode = { id: string; what: "edit" | "password" | "delete" } | null;
-
-/** The admin's list of the people of the cash desk: add, give a role, change the login, the name, the password, block, delete. */
+/**
+ * The admin's list of the people of the cash desk, the same way as the categories: «+ Новый» opens a window to add one,
+ * the pencil of a row opens everything about that person (name, login, role, password, block, delete).
+ */
 export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
   // null: loading, undefined: did not load.
   const [users, setUsers] = useState<Account[] | null | undefined>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   // The admin may change his own login: he is still himself after that.
   const [myLogin, setMyLogin] = useState(me);
 
@@ -72,7 +74,7 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
       const result = await work();
       if (result.ok) {
         setDone(success);
-        setMode(null);
+        setEditing(null);
         load();
         return true;
       }
@@ -90,9 +92,12 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
     <section className="flex flex-col gap-4" aria-label="Пользователи" aria-busy={busy}>
       <div className="journal-head">
         <h2>Пользователи</h2>
-        <Button type="button" variant="outline" size="sm" onClick={load}>
-          Обновить
-        </Button>
+        <div className="flex gap-2">
+          <NewAccount busy={busy} error={error} onOpen={() => setError(null)} onCreate={(input) => apply(() => createAccount(input), `Добавлен ${input.displayName || input.login}.`)} />
+          <Button type="button" variant="outline" size="sm" onClick={load}>
+            Обновить
+          </Button>
+        </div>
       </div>
       <p className="hint">
         Кто входит в Кассу и что может. Новый пароль или отключение сразу выводят человека со всех телефонов. Того, у кого есть записи в журнале, удалить
@@ -121,95 +126,62 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
         <ul className="divide-y rounded-xl border bg-card shadow-sm">
           {users.map((user) => {
             const self = user.login.toLowerCase() === myLogin.toLowerCase();
-            const open = mode?.id === user.id ? mode.what : null;
             return (
               <li key={user.id} className="flex flex-col gap-3 p-3" data-user={user.login}>
-                <div className="flex items-center gap-2">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <span className={cn("flex flex-wrap items-center gap-1.5 font-semibold", !user.active && "text-muted-foreground line-through")}>
-                      {user.displayName}
-                      {self && <span className="text-sm font-normal text-muted-foreground">(это вы)</span>}
-                    </span>
-                    <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
-                      <span>логин: {user.login}</span>
-                      <Badge variant="secondary" className="text-xs font-medium">
-                        {ROLE_LABEL[user.role]}
-                      </Badge>
-                      {!user.active && (
-                        <Badge variant="destructive" className="text-xs font-medium">
-                          отключён
-                        </Badge>
-                      )}
-                    </span>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="outline" size="icon" className="size-9 text-lg leading-none" disabled={busy} aria-label={`Действия: ${user.displayName}`}>
-                        ⋯
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => setMode({ id: user.id, what: "edit" })}>Изменить</DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setMode({ id: user.id, what: "password" })}>Новый пароль</DropdownMenuItem>
-                      {!self && (
-                        <DropdownMenuItem
-                          variant={user.active ? "destructive" : "default"}
-                          onSelect={() =>
-                            void apply(() => changeAccount(user.id, { active: !user.active }), user.active ? `${user.displayName} отключён.` : `${user.displayName} снова может входить.`)
-                          }
-                        >
-                          {user.active ? "Отключить" : "Включить"}
-                        </DropdownMenuItem>
-                      )}
-                      {!self && !user.hasEntries && (
-                        <DropdownMenuItem variant="destructive" onSelect={() => setMode({ id: user.id, what: "delete" })}>
-                          Удалить
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                {open === "edit" && (
+                {editing === user.id ? (
                   <EditAccount
                     user={user}
                     self={self}
                     busy={busy}
-                    onCancel={() => setMode(null)}
+                    onCancel={() => setEditing(null)}
                     onSave={(change) =>
-                      apply(() => changeAccount(user.id, change), "Сохранено.").then((ok) => {
-                        if (ok && self && change.login) setMyLogin(change.login);
-                        return ok;
-                      })
-                    }
-                  />
-                )}
-                {open === "password" && (
-                  <NewPassword
-                    user={user}
-                    busy={busy}
-                    onCancel={() => setMode(null)}
-                    onSave={(password) =>
                       apply(
-                        () => changeAccount(user.id, { password }),
-                        self ? "Пароль сменён. Войдите заново с новым паролем." : `Пароль ${user.displayName} сменён: войти можно только с новым.`,
+                        () => changeAccount(user.id, change),
+                        change.password ? (self ? "Сохранено. Пароль сменён: войдите заново." : `Сохранено. Пароль ${user.displayName} сменён: войти можно только с новым.`) : "Сохранено.",
                       ).then((ok) => {
-                        if (ok && self) onSessionExpired();
+                        if (ok && self && change.login) setMyLogin(change.login);
+                        if (ok && self && change.password) onSessionExpired();
                       })
                     }
+                    onBlock={() =>
+                      void apply(() => changeAccount(user.id, { active: !user.active }), user.active ? `${user.displayName} отключён.` : `${user.displayName} снова может входить.`)
+                    }
+                    onDelete={() => void apply(() => deleteAccount(user.id), `${user.displayName} удалён.`)}
                   />
-                )}
-                {open === "delete" && (
-                  <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 p-3" role="group" aria-label={`Удалить ${user.displayName}`}>
-                    <p>Удалить {user.displayName} (логин {user.login})? Отменить это нельзя.</p>
-                    <div className="queue-actions">
-                      <Button type="button" variant="destructive" disabled={busy} onClick={() => void apply(() => deleteAccount(user.id), `${user.displayName} удалён.`)}>
-                        Удалить
-                      </Button>
-                      <Button type="button" variant="outline" onClick={() => setMode(null)}>
-                        Отмена
-                      </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className={cn("flex flex-wrap items-center gap-1.5 font-semibold", !user.active && "text-muted-foreground line-through")}>
+                        {user.displayName}
+                        {self && <span className="text-sm font-normal text-muted-foreground">(это вы)</span>}
+                      </span>
+                      <span className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                        <span>логин: {user.login}</span>
+                        <Badge variant="secondary" className="text-xs font-medium">
+                          {ROLE_LABEL[user.role]}
+                        </Badge>
+                        {!user.active && (
+                          <Badge variant="destructive" className="text-xs font-medium">
+                            отключён
+                          </Badge>
+                        )}
+                      </span>
                     </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-9"
+                      disabled={busy}
+                      aria-label={`Изменить: ${user.displayName}`}
+                      title="Изменить"
+                      onClick={() => {
+                        setError(null);
+                        setEditing(user.id);
+                      }}
+                    >
+                      <PencilIcon />
+                    </Button>
                   </div>
                 )}
               </li>
@@ -217,8 +189,6 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
           })}
         </ul>
       )}
-
-      {users && <NewAccount busy={busy} onCreate={(input) => apply(() => createAccount(input), `Добавлен ${input.displayName || input.login}.`)} />}
     </section>
   );
 }
@@ -238,29 +208,39 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
   );
 }
 
+type Change = { login?: string; displayName?: string; role?: Role; password?: string };
+
+/** Everything about one person in one place: what to change, and below, to block or delete. */
 function EditAccount({
   user,
   self,
   busy,
   onCancel,
   onSave,
+  onBlock,
+  onDelete,
 }: {
   user: Account;
   self: boolean;
   busy: boolean;
   onCancel: () => void;
-  onSave: (change: { login?: string; displayName?: string; role?: Role }) => Promise<boolean>;
+  onSave: (change: Change) => Promise<void>;
+  onBlock: () => void;
+  onDelete: () => void;
 }) {
   const [displayName, setDisplayName] = useState(user.displayName);
   const [login, setLogin] = useState(user.login);
   const [role, setRole] = useState<Role>(user.role);
+  const [password, setPassword] = useState("");
+  const [confirming, setConfirming] = useState(false);
 
   function save(event: FormEvent) {
     event.preventDefault();
-    const change = {
+    const change: Change = {
       ...(displayName.trim() === user.displayName ? {} : { displayName: displayName.trim() }),
       ...(login.trim() === user.login ? {} : { login: login.trim() }),
       ...(role === user.role ? {} : { role }),
+      ...(password === "" ? {} : { password }),
     };
     if (Object.keys(change).length === 0) onCancel();
     else void onSave(change);
@@ -270,53 +250,74 @@ function EditAccount({
     <form className="flex flex-col gap-3" onSubmit={save} aria-label={`Изменить ${user.displayName}`}>
       <Label>
         Имя
-        <Input name="displayName" autoComplete="off" maxLength={60} required value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+        <Input name="displayName" autoComplete="off" maxLength={60} required autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
       </Label>
       <Label>
         Логин
         <Input name="login" autoComplete="off" autoCapitalize="none" maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
       </Label>
       <RoleField value={role} onChange={setRole} disabled={self} />
-      <div className="queue-actions">
-        <Button type="submit" disabled={busy}>
-          Сохранить
-        </Button>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Отмена
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function NewPassword({ user, busy, onCancel, onSave }: { user: Account; busy: boolean; onCancel: () => void; onSave: (password: string) => Promise<void> }) {
-  const [password, setPassword] = useState("");
-
-  function save(event: FormEvent) {
-    event.preventDefault();
-    void onSave(password);
-  }
-
-  return (
-    <form className="flex flex-col gap-3" onSubmit={save} aria-label={`Новый пароль для ${user.displayName}`}>
       <Label>
-        Новый пароль
-        <Input name="password" type="text" autoComplete="new-password" autoCapitalize="none" minLength={8} maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} />
-        <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков. Передайте его человеку лично.</span>
+        <span>
+          Новый пароль <LabelNote>(пусто: не менять)</LabelNote>
+        </span>
+        <Input name="password" type="text" autoComplete="new-password" autoCapitalize="none" minLength={8} maxLength={256} value={password} onChange={(event) => setPassword(event.target.value)} />
+        <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков. После смены человек выходит со всех телефонов.</span>
       </Label>
-      <div className="queue-actions">
-        <Button type="submit" disabled={busy || password.length < 8}>
-          Сменить пароль
-        </Button>
-        <Button type="button" variant="outline" onClick={onCancel}>
-          Отмена
-        </Button>
-      </div>
+
+      {confirming ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 p-3" role="group" aria-label={`Удалить ${user.displayName}`}>
+          <p>
+            Удалить {user.displayName} (логин {user.login})? Отменить это нельзя.
+          </p>
+          <div className="queue-actions">
+            <Button type="button" variant="destructive" disabled={busy} onClick={onDelete}>
+              Да, удалить
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setConfirming(false)}>
+              Нет
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="queue-actions">
+          <Button type="submit" disabled={busy || (password !== "" && password.length < 8)}>
+            Сохранить
+          </Button>
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Отмена
+          </Button>
+          {!self && (
+            <div className="ml-auto flex flex-wrap gap-2">
+              <Button type="button" variant={user.active ? "outline" : "default"} disabled={busy} onClick={onBlock}>
+                {user.active ? "Отключить" : "Включить"}
+              </Button>
+              {!user.hasEntries && (
+                <Button type="button" variant="destructive" disabled={busy} onClick={() => setConfirming(true)}>
+                  Удалить
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </form>
   );
 }
 
-function NewAccount({ busy, onCreate }: { busy: boolean; onCreate: (input: { login: string; displayName: string; password: string; role: Role }) => Promise<boolean> }) {
+/** «+ Новый»: a window with the name, the login, the password and the role of a new person. */
+function NewAccount({
+  busy,
+  error,
+  onOpen,
+  onCreate,
+}: {
+  busy: boolean;
+  error: string | null;
+  onOpen: () => void;
+  onCreate: (input: { login: string; displayName: string; password: string; role: Role }) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -329,33 +330,62 @@ function NewAccount({ busy, onCreate }: { busy: boolean; onCreate: (input: { log
       setLogin("");
       setPassword("");
       setRole("cashier");
+      setOpen(false);
     }
   }
 
   return (
-    <form className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm" onSubmit={add} aria-label="Новый пользователь">
-      <h3 className="font-semibold">Новый пользователь</h3>
-      <Label>
-        <span>
-          Имя <LabelNote>(как показывать в журнале)</LabelNote>
-        </span>
-        <Input name="displayName" autoComplete="off" maxLength={60} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-      </Label>
-      <Label>
-        <span>
-          Логин <LabelNote>(латиницей, без пробелов)</LabelNote>
-        </span>
-        <Input name="login" autoComplete="off" autoCapitalize="none" maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
-      </Label>
-      <Label>
-        Пароль
-        <Input name="password" type="text" autoComplete="new-password" autoCapitalize="none" minLength={8} maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} />
-        <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков.</span>
-      </Label>
-      <RoleField value={role} onChange={setRole} />
-      <Button type="submit" disabled={busy || login.trim() === "" || password.length < 8}>
-        Добавить
-      </Button>
-    </form>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) onOpen();
+        setOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button type="button" size="sm">
+          + Новый
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Новый пользователь</DialogTitle>
+        <DialogDescription className="sr-only">Имя, логин, пароль и роль человека, который будет входить в Кассу.</DialogDescription>
+        <form className="flex flex-col gap-3" onSubmit={add} aria-label="Новый пользователь">
+          <Label>
+            <span>
+              Имя <LabelNote>(как показывать в журнале)</LabelNote>
+            </span>
+            <Input name="displayName" autoComplete="off" maxLength={60} autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </Label>
+          <Label>
+            <span>
+              Логин <LabelNote>(латиницей, без пробелов)</LabelNote>
+            </span>
+            <Input name="login" autoComplete="off" autoCapitalize="none" maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
+          </Label>
+          <Label>
+            Пароль
+            <Input name="password" type="text" autoComplete="new-password" autoCapitalize="none" minLength={8} maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} />
+            <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков.</span>
+          </Label>
+          <RoleField value={role} onChange={setRole} />
+          {error && (
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+              {error}
+            </p>
+          )}
+          <div className="queue-actions">
+            <Button type="submit" disabled={busy || login.trim() === "" || password.length < 8}>
+              Добавить
+            </Button>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Отмена
+              </Button>
+            </DialogClose>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
