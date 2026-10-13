@@ -114,7 +114,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
 
       // A deleted operation disappears for cashiers; only the owner and the admin can look at them.
       const deleted = query.deleted ?? "exclude";
-      if (user.role === "cashier" && deleted !== "exclude") {
+      if ((user.role === "cashier" || user.role === "head_cashier") && deleted !== "exclude") {
         return reply.code(403).send({ error: "forbidden" });
       }
 
@@ -174,7 +174,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
     { onRequest: [app.authenticate, app.requireRole("viewer", "admin")] },
     async () => {
       const found = await pool.query<{ login: string; display_name: string }>(
-        `SELECT login, display_name FROM users WHERE role IN ('cashier', 'admin') ORDER BY display_name, login`,
+        `SELECT login, display_name FROM users WHERE role IN ('cashier', 'head_cashier', 'admin') ORDER BY display_name, login`,
       );
       return { cashiers: found.rows.map((row) => ({ login: row.login, displayName: row.display_name })) };
     },

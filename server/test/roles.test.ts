@@ -105,20 +105,20 @@ describe("the admin role", () => {
     const count = { id: randomUUID(), counted: [{ currency: "RUB", amountMinor: 0 }, { currency: "USD", amountMinor: 0 }] };
     expect((await postJson(started, "/api/reconciliations", count, ivan)).status).toBe(403);
 
-    await started.admin.setRole("IVAN", "admin");
+    await started.admin.setRole("IVAN", "head_cashier");
     expect((await postJson(started, "/api/reconciliations", count, ivan)).status).toBe(201);
-    expect(await (await get(started, "/api/me", ivan)).json()).toMatchObject({ user: { role: "admin" } });
+    expect(await (await get(started, "/api/me", ivan)).json()).toMatchObject({ user: { role: "head_cashier" } });
 
     await started.admin.setRole("ivan", "cashier");
     expect((await postJson(started, "/api/reconciliations", { ...count, id: randomUUID() }, ivan)).status).toBe(403);
   });
 
-  it("is a role the command line knows: only the three roles, and only for a user who is there", async () => {
+  it("is a role the command line knows: only the four roles, and only for a user who is there", async () => {
     const { started } = await desk();
 
     await expect(started.admin.setRole("ivan", "boss")).rejects.toThrow(AdminError);
     await expect(started.admin.setRole("nobody", "admin")).rejects.toThrow(/No user with login "nobody"/);
-    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "admin" or "viewer/);
+    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "head_cashier", "admin" or "viewer/);
   });
 
   it("takes an entry from a phone that was offline and still names a shift: the shifts are gone, the entry is not refused", async () => {

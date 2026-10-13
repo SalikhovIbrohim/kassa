@@ -29,11 +29,11 @@ Commands:
   migrate                             apply the database migrations that have not run yet
                                       (the server does this at start too; this lets an update
                                       script see it fail before the new version is started)
-  create-user    --login <login> --role <cashier|admin|viewer> [--name <display name>]
-                                      cashier enters entries; admin is a cashier who also reconciles the cash desk
+  create-user    --login <login> --role <cashier|head_cashier|admin|viewer> [--name <display name>]
+                                      cashier enters entries; head_cashier also reconciles the cash desk; admin keeps the users
                                       ("Сверить кассу"); viewer is the owner, who only looks
   list-users
-  set-role       --login <login> --role <cashier|admin|viewer>
+  set-role       --login <login> --role <cashier|head_cashier|admin|viewer>
                                       change what a user may do (at their next request; their entries stay)
   revoke-user    --login <login>      block access and end all sessions
   restore-user   --login <login>      give access back (the user logs in again)
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
         }
         for (const user of users) {
           const status = user.active ? "active " : "REVOKED";
-          console.log(`${status}  ${user.role.padEnd(7)}  ${user.login}  (${user.displayName})`);
+          console.log(`${status}  ${user.role.padEnd(12)}  ${user.login}  (${user.displayName})`);
         }
         break;
       }

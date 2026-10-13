@@ -1,5 +1,5 @@
-/** A cashier enters entries; an admin is a cashier who also counts the cash ("Сверить кассу"); the viewer is the owner, who only looks. */
-export type Role = "cashier" | "admin" | "viewer";
+/** A cashier enters entries; the head cashier also counts the cash ("Сверить кассу"); an admin enters and keeps the users and the lists; the viewer is the owner, who only looks. */
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer";
 
 export type User = {
   login: string;

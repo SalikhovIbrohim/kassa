@@ -36,6 +36,7 @@ type State =
 
 const ROLE_LABEL: Record<Role, string> = {
   cashier: "Кассир",
+  head_cashier: "Главный кассир",
   admin: "Админ",
   viewer: "Смотрящий",
 };
@@ -325,7 +326,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       ) : cashier ? (
         <EntryScreen
           login={user.login}
-          admin={false}
+          canReconcile={user.role === "head_cashier"}
           onSaved={showSavedBalances}
           onBalancesStale={loadBalances}
           onSessionExpired={onLoggedOut}

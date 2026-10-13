@@ -14,9 +14,9 @@ type Props = {
 type Side = "cash" | "manage";
 
 /**
- * The admin's screen: he stands above the owner, so he has both. "Касса" is the cashier's screen (the forms, the journal,
- * the button that counts the cash), "Управление" the owner's (the journal with its filters and the deleted entries, the
- * totals, the counts of the cash, the lists of categories). Both stay alive, only hidden, while the other is open: what
+ * The admin's screen: he stands above the owner, so he has both. "Касса" is the cashier's screen (the forms and the journal;
+ * not the button that counts the cash, which is the head cashier's alone), "Управление" the owner's (the journal with its filters and the deleted entries, the
+ * totals, the counts of the cash, the lists of categories, the people). Both stay alive, only hidden, while the other is open: what
  * he was typing, and the filters he set, are there when he comes back.
  */
 export function AdminScreen({ login, onSaved, onBalancesStale, onSessionExpired }: Props) {
@@ -37,7 +37,7 @@ export function AdminScreen({ login, onSaved, onBalancesStale, onSessionExpired 
       </TabsList>
 
       <TabsContent value="cash" forceMount>
-        <EntryScreen login={login} admin onSaved={onSaved} onBalancesStale={onBalancesStale} onSessionExpired={onSessionExpired} />
+        <EntryScreen login={login} canReconcile={false} onSaved={onSaved} onBalancesStale={onBalancesStale} onSessionExpired={onSessionExpired} />
       </TabsContent>
       <TabsContent value="manage" forceMount>
         {manageOpened && <ViewerScreen onSessionExpired={onSessionExpired} onRefresh={onBalancesStale} admin={login} />}

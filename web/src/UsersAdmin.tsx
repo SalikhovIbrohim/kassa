@@ -16,11 +16,12 @@ type Props = {
   active?: boolean;
 };
 
-const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", viewer: "Смотрящий", admin: "Админ" };
+const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", head_cashier: "Главный кассир", viewer: "Смотрящий", admin: "Админ" };
 const ROLE_HINT: Record<Role, string> = {
   cashier: "Кассир: вносит приходы и расходы, правит свои записи.",
+  head_cashier: "Главный кассир: всё, что кассир, плюс кнопка «Сверить кассу». Сверяет кассу только он.",
   viewer: "Смотрящий (владелец): видит журнал, итоги, сверки, ведёт категории. Ничего не вносит.",
-  admin: "Админ: всё, что кассир и смотрящий, плюс сверка кассы и пользователи.",
+  admin: "Админ: вносит записи, видит всё, что смотрящий, ведёт пользователей. Кассу не сверяет.",
 };
 
 const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> = {
@@ -228,6 +229,7 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
       Роль
       <NativeSelect name="role" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as Role)}>
         <option value="cashier">{ROLE_LABEL.cashier}</option>
+        <option value="head_cashier">{ROLE_LABEL.head_cashier}</option>
         <option value="viewer">{ROLE_LABEL.viewer}</option>
         <option value="admin">{ROLE_LABEL.admin}</option>
       </NativeSelect>

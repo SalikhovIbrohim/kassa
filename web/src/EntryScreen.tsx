@@ -12,8 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 type Props = {
   /** The cashier signed in. */
   login: string;
-  /** An admin is a cashier who also counts the cash against the book. */
-  admin: boolean;
+  /** The head cashier also counts the cash against the book ("Сверить кассу"); nobody else does. */
+  canReconcile: boolean;
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
@@ -22,7 +22,7 @@ type Props = {
 type Section = "income" | "expense" | "journal";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and the journal. */
-export function EntryScreen({ login, admin, onSaved, onBalancesStale, onSessionExpired }: Props) {
+export function EntryScreen({ login, canReconcile, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
@@ -82,7 +82,7 @@ export function EntryScreen({ login, admin, onSaved, onBalancesStale, onSessionE
       <TabsContent value="journal" forceMount className="grid gap-4">
         {/* Counting the cash is not done with every entry, so it lives with the journal and takes no room on the forms.
             It stays mounted while hidden: a count typed in survives a look at another tab. */}
-        {admin && <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />}
+        {canReconcile && <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />}
         {section === "journal" && (
           <Journal
             mode="cashier"

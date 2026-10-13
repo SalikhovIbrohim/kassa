@@ -147,7 +147,7 @@ export async function registerReconciliations(app: FastifyInstance, options: Rec
   app.post<{ Body: { id: string; counted: Balance[] } }>(
     "/api/reconciliations",
     {
-      onRequest: [app.authenticate, app.requireRole("admin")],
+      onRequest: [app.authenticate, app.requireRole("head_cashier")],
       schema: {
         body: {
           type: "object",

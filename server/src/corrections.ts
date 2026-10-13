@@ -38,7 +38,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
   app.put<{ Params: { id: string }; Body: Entry & { reason?: string } }>(
     "/api/operations/:id",
     {
-      onRequest: [app.authenticate, app.requireRole("cashier", "admin")],
+      onRequest: [app.authenticate, app.requireRole("cashier", "head_cashier", "admin")],
       schema: {
         params: idParams,
         // The reason belongs in the body: one in the query string would be dropped unheard.
@@ -83,7 +83,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     "/api/operations/:id",
     {
       // Who you are comes before what you sent.
-      onRequest: [app.authenticate, app.requireRole("cashier", "admin")],
+      onRequest: [app.authenticate, app.requireRole("cashier", "head_cashier", "admin")],
       schema: {
         params: idParams,
         querystring: NO_QUERY,

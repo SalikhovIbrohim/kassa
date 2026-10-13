@@ -28,7 +28,7 @@ export function rememberedUser(): User | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<User>;
-    if (typeof value.login === "string" && typeof value.displayName === "string" && (value.role === "cashier" || value.role === "admin" || value.role === "viewer")) {
+    if (typeof value.login === "string" && typeof value.displayName === "string" && (value.role === "cashier" || value.role === "head_cashier" || value.role === "admin" || value.role === "viewer")) {
       return { login: value.login, displayName: value.displayName, role: value.role };
     }
   } catch {

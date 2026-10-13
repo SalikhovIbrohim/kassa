@@ -8,7 +8,7 @@ import { launchChromium, newPhone, seeGone, seeText, seeVisible } from "./browse
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** No shifts to open or close: one journal for everybody, and the admin's button that counts the cash. In a real browser against the real server. */
+/** No shifts to open or close: one journal for everybody, and the head cashier's button that counts the cash. In a real browser against the real server. */
 describe("the cash desk without shifts", () => {
   let browser: Browser;
   let app: TestApp | undefined;
@@ -33,7 +33,8 @@ describe("the cash desk without shifts", () => {
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Иван" });
     await started.admin.createUser({ login: "petr", password: "another good one", role: "cashier", displayName: "Пётр" });
-    await started.admin.createUser({ login: "anvar", password: "admin pass word", role: "admin", displayName: "Анвар" });
+    await started.admin.createUser({ login: "anvar", password: "admin pass word", role: "head_cashier", displayName: "Анвар" });
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Админ" });
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     await started.admin.setOpeningBalance("RUB", "1000");
     await started.admin.setOpeningBalance("USD", "50");
@@ -106,10 +107,10 @@ describe("the cash desk without shifts", () => {
     expect(await theirs.getByRole("button", { name: /Удалить/ }).count()).toBe(0);
   }, 90_000);
 
-  it("lets the admin enter entries like a cashier, and shows the button that counts the cash in the journal", async () => {
+  it("lets the head cashier enter entries like a cashier, and shows him the button that counts the cash in the journal", async () => {
     const { phoneOf } = await desk();
     const anvar = await phoneOf("anvar", "admin pass word");
-    await seeText(anvar.page.locator(".role"), "Админ");
+    await seeText(anvar.page.locator(".role"), "Главный кассир");
 
     await enterIncome(anvar.page, "654", "ADM-1");
     await seeText(anvar.page.locator(".success"), "Записано: приход");
@@ -132,7 +133,7 @@ describe("the cash desk without shifts", () => {
     await seeText(bar(anvar.page), /Рубли: по книге 1\s654,00\s₽, насчитано 1\s640,00\s₽\. Недостача 14,00\s₽\./);
     await seeText(bar(anvar.page), /Доллары: по книге 50,00\s\$, насчитано 50,00\s\$\. Сошлось\./);
     await seeText(anvar.page.getByRole("region", { name: "Остатки" }), /1\s640,00\s₽/);
-    // It can be done again whenever the admin likes.
+    // It can be done again whenever the head cashier likes.
     await seeVisible(bar(anvar.page).getByRole("button", { name: "Сверить кассу" }));
   }, 90_000);
 
@@ -171,25 +172,27 @@ describe("the cash desk without shifts", () => {
     await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
   }, 90_000);
 
-  it("gives the admin the owner's screen as well, behind \"Управление\": the counts of the cash, the totals, the lists of categories", async () => {
+  it("gives the admin the owner's screen as well, behind \"Управление\", but not the button that counts the cash", async () => {
     const { phoneOf } = await desk();
     const anvar = await phoneOf("anvar", "admin pass word");
     await countWith(anvar.page, "990", "50");
     await seeText(bar(anvar.page), "Касса сверена");
 
-    await anvar.page.getByRole("tab", { name: "Управление", exact: true }).click();
-    await anvar.page.getByRole("tab", { name: "Сверки", exact: true }).click();
-    await seeText(anvar.page.locator(".reconciliation-card").first(), "Анвар");
-    await anvar.page.getByRole("tab", { name: "Итоги", exact: true }).click();
-    await seeText(anvar.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
-    await anvar.page.getByRole("tab", { name: "Категории", exact: true }).click();
-    await seeVisible(anvar.page.getByRole("heading", { name: "Категории" }));
+    const mudir = await phoneOf("mudir", "admin password");
+    await mudir.page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await mudir.page.getByRole("tab", { name: "Сверки", exact: true }).click();
+    await seeText(mudir.page.locator(".reconciliation-card").first(), "Анвар");
+    await mudir.page.getByRole("tab", { name: "Итоги", exact: true }).click();
+    await seeText(mudir.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
+    await mudir.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await seeVisible(mudir.page.getByRole("heading", { name: "Категории" }));
 
-    // Back at the cash desk, the count can be made again.
-    await anvar.page.getByRole("tab", { name: "Касса", exact: true }).click();
-    await seeVisible(anvar.page.getByRole("tab", { name: "Приход", exact: true }));
-    await showJournal(anvar.page);
-    await seeVisible(bar(anvar.page).getByRole("button", { name: "Сверить кассу" }));
+    // At the cash desk he enters like a cashier; only the head cashier counts the cash.
+    await mudir.page.getByRole("tab", { name: "Касса", exact: true }).click();
+    await seeVisible(mudir.page.getByRole("tab", { name: "Приход", exact: true }));
+    await showJournal(mudir.page);
+    await seeVisible(mudir.page.getByRole("tab", { name: "Журнал", exact: true, selected: true }));
+    expect(await mudir.page.getByRole("button", { name: "Сверить кассу" }).count()).toBe(0);
   }, 90_000);
 
   it("does not count the cash while an entry waits on the phone", async () => {

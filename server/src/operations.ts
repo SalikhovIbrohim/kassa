@@ -116,7 +116,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     "/api/operations",
     {
       // onRequest runs before the body is validated: who you are comes before what you sent.
-      onRequest: [app.authenticate, app.requireRole("cashier", "admin"), mustBeSentForTheSessionsOwner],
+      onRequest: [app.authenticate, app.requireRole("cashier", "head_cashier", "admin"), mustBeSentForTheSessionsOwner],
       schema: {
         // The id is made by the client, so that sending the same entry twice stores it once.
         // `shiftId` is accepted and ignored: a phone that was offline when the shifts were taken away still has entries
