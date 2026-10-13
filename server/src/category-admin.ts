@@ -76,7 +76,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
   app.patch<{
     Params: { code: string };
-    Body: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down" };
+    Body: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number };
   }>(
     "/api/admin/categories/:code",
     {
@@ -94,6 +94,8 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             notifyGroup: { type: "boolean" },
             archived: { type: "boolean" },
             move: { type: "string", enum: ["up", "down"] },
+            // Where to put it in the list of its kind, counted from 0 (dragged there with the mouse); past the end is the end.
+            position: { type: "integer", minimum: 0, maximum: 1000 },
           },
         },
       },
@@ -137,6 +139,13 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
               const neighbourAt = list.indexOf(neighbour);
               await client.query("UPDATE categories SET sort_order = $2 WHERE code = $1", [code, neighbourAt + 1]);
               await client.query("UPDATE categories SET sort_order = $2 WHERE code = $1", [neighbour.code, at + 1]);
+            }
+          }
+          if (change.position !== undefined) {
+            const others = all.filter((item) => item.kind === found.kind && item.code !== code);
+            others.splice(Math.min(change.position, others.length), 0, found);
+            for (const [index, item] of others.entries()) {
+              await client.query("UPDATE categories SET sort_order = $2 WHERE code = $1", [item.code, index + 1]);
             }
           }
           return "done";

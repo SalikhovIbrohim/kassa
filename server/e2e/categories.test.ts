@@ -93,4 +93,27 @@ describe("the lists of categories", () => {
     await page.getByRole("tab", { name: "Журнал", exact: true }).click();
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "Взяли долг");
   }, 120_000);
+
+  it("are put in order by dragging a row with the mouse on a laptop", async () => {
+    const started = await startTestApp({ webDistDir });
+    app = started;
+    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+    const owner = await signedIn(started, "owner", "long enough pass");
+    await owner.page.setViewportSize({ width: 1100, height: 900 });
+    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
+    const order = () => expenseList.locator("li[data-category]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-category")));
+    await expenseList.locator('[data-category="customs"]').waitFor();
+    expect((await order()).slice(0, 2)).toEqual(["fuel_road", "salaries"]);
+
+    // "Таможня" is dropped on the upper half of the first row: it becomes the first.
+    const first = expenseList.locator('[data-category="fuel_road"]');
+    await expenseList.locator('[data-category="customs"]').dragTo(first, { targetPosition: { x: 40, y: 4 } });
+
+    await expect.poll(async () => (await order()).slice(0, 3)).toEqual(["customs", "fuel_road", "salaries"]);
+    // The order is the server's, also after the screen is loaded again.
+    await owner.page.reload();
+    await owner.page.getByRole("tab", { name: "Категории", exact: true }).click();
+    await expect.poll(async () => (await order()).slice(0, 1)).toEqual(["customs"]);
+  }, 90_000);
 });

@@ -172,6 +172,22 @@ describe("categories", () => {
       expect((await patchJson(started, `/api/admin/categories/${last}`, { move: "down" }, owner)).status).toBe(200);
       expect((await lists(started, ivan)).categories.at(-1)!.code).toBe(last);
     });
+    it("are put at a place in the list when dragged there, past the end being the end", async () => {
+      const { started, ivan, owner } = await desk();
+
+      expect((await patchJson(started, "/api/admin/categories/household_repair", { position: 0 }, owner)).status).toBe(200);
+      expect((await lists(started, ivan)).categories.slice(0, 3).map((item) => item.code)).toEqual(["household_repair", "fuel_road", "salaries"]);
+
+      await patchJson(started, "/api/admin/categories/household_repair", { position: 2 }, owner);
+      expect((await lists(started, ivan)).categories.slice(0, 3).map((item) => item.code)).toEqual(["fuel_road", "salaries", "household_repair"]);
+
+      await patchJson(started, "/api/admin/categories/fuel_road", { position: 999 }, owner);
+      expect((await lists(started, ivan)).categories.at(-1)!.code).toBe("fuel_road");
+      // Only its own kind moves: the incomes are as they were.
+      expect((await lists(started, ivan)).income[0]!.code).toBe("client_payment");
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { position: -1 }, owner)).status).toBe(400);
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { position: 1.5 }, owner)).status).toBe(400);
+    });
   });
 
   describe("an archived category", () => {

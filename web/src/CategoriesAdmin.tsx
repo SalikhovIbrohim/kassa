@@ -133,7 +133,7 @@ type ListProps = {
   onEdit: (code: string | null) => void;
   onChange: (
     code: string,
-    change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down" },
+    change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
   ) => Promise<boolean>;
   onCreate: (label: string, requiresClient: boolean, notifyGroup: boolean) => Promise<boolean>;
 };
@@ -142,6 +142,19 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
   const [label, setLabel] = useState("");
   const [requiresClient, setRequiresClient] = useState(false);
   const [notifyGroup, setNotifyGroup] = useState(true);
+  // Dragging with the mouse: which row is held, and where it would land (before the row of that index; the length is the end).
+  const [dragged, setDragged] = useState<number | null>(null);
+  const [target, setTarget] = useState<number | null>(null);
+
+  function dropAt(at: number) {
+    if (dragged === null) return;
+    const from = dragged;
+    setDragged(null);
+    setTarget(null);
+    // The place among the others, the dragged one taken out: what the server counts from.
+    const position = at > from ? at - 1 : at;
+    if (position !== from) void onChange(items[from]!.code, { position });
+  }
 
   async function add(event: FormEvent) {
     event.preventDefault();
@@ -158,7 +171,36 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
       <h3>{TITLE[kind]}</h3>
       <ul>
         {items.map((item, index) => (
-          <li key={item.code} className={item.archived ? "category-row archived" : "category-row"} data-category={item.code}>
+          <li
+            key={item.code}
+            className={cn(
+              item.archived ? "category-row archived" : "category-row",
+              dragged === index && "opacity-40",
+              target === index && dragged !== null && "shadow-[inset_0_2px_0_var(--primary)]",
+              target === items.length && index === items.length - 1 && dragged !== null && "shadow-[inset_0_-2px_0_var(--primary)]",
+            )}
+            data-category={item.code}
+            draggable={!busy && editing === null}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", item.code);
+              setDragged(index);
+            }}
+            onDragOver={(event) => {
+              if (dragged === null) return;
+              event.preventDefault();
+              const box = event.currentTarget.getBoundingClientRect();
+              setTarget(event.clientY < box.top + box.height / 2 ? index : index + 1);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (target !== null) dropAt(target);
+            }}
+            onDragEnd={() => {
+              setDragged(null);
+              setTarget(null);
+            }}
+          >
             {editing === item.code ? (
               <EditCategory
                 item={item}
@@ -170,6 +212,9 @@ function CategoryList({ kind, items, busy, editing, onEdit, onChange, onCreate }
               />
             ) : (
               <div className="flex items-center gap-2">
+                <span aria-hidden="true" title="Перетащите, чтобы поменять порядок" className="hidden cursor-grab text-lg leading-none text-muted-foreground select-none md:inline">
+                  ⠿
+                </span>
                 <span className="category-name flex min-w-0 flex-1 flex-wrap items-center gap-1.5 font-semibold">
                   {item.label}
                   {item.requiresClient && <Badge variant="secondary" className="text-xs font-medium">нужен код клиента</Badge>}

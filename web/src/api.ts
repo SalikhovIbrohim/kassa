@@ -612,7 +612,7 @@ export async function createCategory(kind: CategoryKind, label: string, requires
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down" },
+  change: { label?: string; requiresClient?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",
