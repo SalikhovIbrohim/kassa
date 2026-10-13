@@ -10,6 +10,11 @@ import {
 } from "./api";
 import { formatDay, cashDayToday, presetPeriod, type PeriodPreset } from "./days";
 import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   onSessionExpired: () => void;
@@ -113,9 +118,9 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
     <section className="totals" aria-label="Итоги" aria-busy={shown?.stale === true || load.kind === "loading"}>
       <div className="journal-head">
         <h2>Итоги</h2>
-        <button type="button" className="secondary small" onClick={refresh}>
+        <Button type="button" variant="outline" size="sm" onClick={refresh}>
           Обновить
-        </button>
+        </Button>
       </div>
 
       <div className="presets" role="group" aria-label="Быстрый выбор периода">
@@ -123,32 +128,33 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
           const wanted = presetPeriod(preset, today);
           const chosen = wanted.from === from && wanted.to === to;
           return (
-            <button
+            <Button
               key={preset}
               type="button"
-              className={chosen ? "secondary small chosen" : "secondary small"}
+              variant={chosen ? "default" : "outline"}
+              size="sm"
               aria-pressed={chosen}
               onClick={() => choose(preset)}
             >
               {text}
-            </button>
+            </Button>
           );
         })}
       </div>
 
       <div className="filter-grid">
-        <label>
+        <Label>
           С
-          <input type="date" name="from" aria-label="Период: с" value={from} max={today} onChange={(event) => setFrom(event.target.value)} />
-        </label>
-        <label>
+          <Input type="date" name="from" aria-label="Период: с" value={from} max={today} onChange={(event) => setFrom(event.target.value)} />
+        </Label>
+        <Label>
           По
-          <input type="date" name="to" aria-label="Период: по" value={to} max={today} onChange={(event) => setTo(event.target.value)} />
-        </label>
+          <Input type="date" name="to" aria-label="Период: по" value={to} max={today} onChange={(event) => setTo(event.target.value)} />
+        </Label>
       </div>
 
       {problem && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {problem}
         </p>
       )}
@@ -157,19 +163,19 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
 
       {!problem && load.kind === "failed" && (
         <>
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Не удалось загрузить итоги. Проверьте связь и попробуйте ещё раз.
           </p>
-          <button type="button" className="secondary" onClick={refresh}>
+          <Button type="button" variant="outline" onClick={refresh}>
             Повторить
-          </button>
+          </Button>
         </>
       )}
 
       {shown && (
         <>
           {shown.refreshFailed && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               Не удалось обновить итоги: показаны прежние. Проверьте связь и нажмите «Обновить».
             </p>
           )}

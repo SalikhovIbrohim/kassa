@@ -3,6 +3,9 @@ import { fetchHistory, SessionExpiredError, type OperationHistory, type Snapshot
 import { formatMoscowShort } from "./days";
 import { formatMoney, formatRate } from "./money";
 import { usePanelEntrance } from "./usePanelEntrance";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 type Props = {
   operationId: string;
@@ -80,21 +83,21 @@ export function HistoryPanel({ operationId, labels, onClose, onSessionExpired }:
 
       {state.kind === "failed" && (
         <>
-          <p className="error" role="alert">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Не удалось загрузить историю.
           </p>
-          <button type="button" className="secondary" onClick={() => setAttempt((count) => count + 1)}>
+          <Button type="button" variant="outline" onClick={() => setAttempt((count) => count + 1)}>
             Повторить
-          </button>
+          </Button>
         </>
       )}
 
       {state.kind === "ready" && <HistoryList history={state.history} labels={labels} />}
 
       <div className="panel-buttons">
-        <button type="button" className="secondary" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose}>
           Закрыть
-        </button>
+        </Button>
       </div>
     </section>
   );

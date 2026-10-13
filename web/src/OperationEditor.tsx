@@ -16,6 +16,11 @@ import { AmountInput } from "./AmountInput";
 import { formatAmountInput, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
 import { usePanelEntrance } from "./usePanelEntrance";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   operation: Operation;
@@ -139,7 +144,7 @@ export function OperationEditor({
 
       <CurrencyPicker value={currency} onChange={setCurrency} />
 
-      <label>
+      <Label>
         Сумма
         <AmountInput
           ref={amountInput}
@@ -149,7 +154,7 @@ export function OperationEditor({
           value={amount}
           onChange={setAmount}
         />
-      </label>
+      </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required={isIncome} />}
 
@@ -166,11 +171,11 @@ export function OperationEditor({
       {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
 
       {!isIncome && (
-        <label>
+        <Label>
           <span>
             Кому выдали <span className="optional">(необязательно)</span>
           </span>
-          <input
+          <Input
             name="recipient"
             type="text"
             autoComplete="off"
@@ -178,14 +183,14 @@ export function OperationEditor({
             value={recipient}
             onChange={(event) => setRecipient(event.target.value)}
           />
-        </label>
+        </Label>
       )}
 
-      <label>
+      <Label>
         <span>
           Комментарий <span className="optional">(необязательно)</span>
         </span>
-        <input
+        <Input
           name="comment"
           type="text"
           autoComplete="off"
@@ -193,13 +198,13 @@ export function OperationEditor({
           value={comment}
           onChange={(event) => setComment(event.target.value)}
         />
-      </label>
+      </Label>
 
-      <label>
+      <Label>
         <span>
           Причина правки <span className="optional">(необязательно, видит смотрящий)</span>
         </span>
-        <input
+        <Input
           name="reason"
           type="text"
           autoComplete="off"
@@ -207,21 +212,21 @@ export function OperationEditor({
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
-      </label>
+      </Label>
 
       {error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {error}
         </p>
       )}
 
       <div className="panel-buttons">
-        <button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy}>
           {busy ? "Сохраняем…" : "Сохранить"}
-        </button>
-        <button type="button" className="secondary" onClick={onCancel}>
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Отмена
-        </button>
+        </Button>
       </div>
     </form>
   );

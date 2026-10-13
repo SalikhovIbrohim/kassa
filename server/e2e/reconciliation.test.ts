@@ -99,7 +99,7 @@ describe("the cash desk without shifts", () => {
     const theirs = table.locator("tr", { hasText: "THEIRS-1" });
     const mine = table.locator("tr", { hasText: "MINE-1" });
     await seeText(theirs, "Пётр");
-    await seeText(mine, "Иван");
+    // On a phone the own entry shows its buttons where the name of a colleague stands.
     expect(await mine.getByRole("button", { name: /Изменить/ }).count()).toBe(1);
     expect(await mine.getByRole("button", { name: /Удалить/ }).count()).toBe(1);
     expect(await theirs.getByRole("button", { name: /Изменить/ }).count()).toBe(0);

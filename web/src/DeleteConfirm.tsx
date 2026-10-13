@@ -2,6 +2,11 @@ import { useState, type FormEvent } from "react";
 import { deleteOperation, NetworkError, type Balance, type Operation } from "./api";
 import { explainFailure, NO_CONNECTION } from "./changeMessages";
 import { usePanelEntrance } from "./usePanelEntrance";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 type Props = {
   operation: Operation;
@@ -57,11 +62,11 @@ export function DeleteConfirm({ operation, description, onDeleted, onCancel, onS
         удалили, кто и когда.
       </p>
 
-      <label>
+      <Label>
         <span>
           Причина <span className="optional">(необязательно)</span>
         </span>
-        <input
+        <Input
           name="reason"
           type="text"
           autoComplete="off"
@@ -69,21 +74,21 @@ export function DeleteConfirm({ operation, description, onDeleted, onCancel, onS
           value={reason}
           onChange={(event) => setReason(event.target.value)}
         />
-      </label>
+      </Label>
 
       {error && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {error}
         </p>
       )}
 
       <div className="panel-buttons">
-        <button type="submit" className="danger" disabled={busy}>
+        <Button type="submit" variant="destructive" disabled={busy}>
           {busy ? "Удаляем…" : "Удалить"}
-        </button>
-        <button type="button" className="secondary" onClick={onCancel}>
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
           Отмена
-        </button>
+        </Button>
       </div>
     </form>
   );

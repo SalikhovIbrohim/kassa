@@ -17,6 +17,14 @@ import { HistoryPanel } from "./HistoryPanel";
 import { OperationEditor } from "./OperationEditor";
 import { formatDay, formatMoscowClock, formatMoscowShort, cashDayToday, shiftDay } from "./days";
 import { CURRENCIES, CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { alertVariants } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { cn } from "@/lib/utils";
 
 type Props = {
   /** A cashier looks at one day of everybody's entries (one book, one box of money); the viewer filters them. */
@@ -298,23 +306,23 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
         <h2 ref={heading} tabIndex={-1}>
           Журнал
         </h2>
-        <button type="button" className="secondary small" onClick={refresh}>
+        <Button type="button" variant="outline" size="sm" onClick={refresh}>
           Обновить
-        </button>
+        </Button>
       </div>
 
       {mode === "cashier" ? (
         <div className="day-picker">
-          <button
+          <Button
             type="button"
-            className="secondary small"
+            variant="outline" size="sm"
             aria-label="Предыдущий день"
             disabled={draft.from === ""}
             onClick={() => change({ from: shiftDay(draft.from, -1), to: shiftDay(draft.from, -1) })}
           >
             ←
-          </button>
-          <input
+          </Button>
+          <Input
             type="date"
             aria-label="День"
             name="day"
@@ -322,50 +330,50 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
             max={today}
             onChange={(event) => change({ from: event.target.value, to: event.target.value })}
           />
-          <button
+          <Button
             type="button"
-            className="secondary small"
+            variant="outline" size="sm"
             aria-label="Следующий день"
             disabled={draft.from === "" || draft.from >= today}
             onClick={() => change({ from: shiftDay(draft.from, 1), to: shiftDay(draft.from, 1) })}
           >
             →
-          </button>
+          </Button>
         </div>
       ) : (
         <details className="filters" open={filtersOpen}>
           <summary>Фильтры</summary>
           <div className="filter-grid">
-            <label>
+            <Label>
               С
-              <input type="date" name="from" aria-label="Период: с" value={draft.from} max={today} onChange={(e) => change({ from: e.target.value })} />
-            </label>
-            <label>
+              <Input type="date" name="from" aria-label="Период: с" value={draft.from} max={today} onChange={(e) => change({ from: e.target.value })} />
+            </Label>
+            <Label>
               По
-              <input type="date" name="to" aria-label="Период: по" value={draft.to} max={today} onChange={(e) => change({ to: e.target.value })} />
-            </label>
-            <label>
+              <Input type="date" name="to" aria-label="Период: по" value={draft.to} max={today} onChange={(e) => change({ to: e.target.value })} />
+            </Label>
+            <Label>
               Валюта
-              <select name="currency" value={draft.currency} onChange={(e) => change({ currency: e.target.value as Draft["currency"] })}>
+              <NativeSelect name="currency" value={draft.currency} onChange={(e) => change({ currency: e.target.value as Draft["currency"] })}>
                 <option value="">Все</option>
                 {CURRENCIES.map((code) => (
                   <option key={code} value={code}>
                     {CURRENCY_NAME[code]}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label>
+              </NativeSelect>
+            </Label>
+            <Label>
               Тип
-              <select name="type" value={draft.type} onChange={(e) => change({ type: e.target.value as Draft["type"] })}>
+              <NativeSelect name="type" value={draft.type} onChange={(e) => change({ type: e.target.value as Draft["type"] })}>
                 <option value="">Все</option>
                 <option value="income">Приход</option>
                 <option value="expense">Расход</option>
-              </select>
-            </label>
-            <label>
+              </NativeSelect>
+            </Label>
+            <Label>
               Категория
-              <select name="category" value={draft.category} onChange={(e) => change({ category: e.target.value })}>
+              <NativeSelect name="category" value={draft.category} onChange={(e) => change({ category: e.target.value })}>
                 <option value="">Все</option>
                 {(["income", "expense"] as const).map((kind) => (
                   <optgroup key={kind} label={kind === "income" ? "Приход" : "Расход"}>
@@ -379,31 +387,31 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
                       ))}
                   </optgroup>
                 ))}
-              </select>
-            </label>
-            <label>
+              </NativeSelect>
+            </Label>
+            <Label>
               Кассир
-              <select name="author" value={draft.author} onChange={(e) => change({ author: e.target.value })}>
+              <NativeSelect name="author" value={draft.author} onChange={(e) => change({ author: e.target.value })}>
                 <option value="">Все</option>
                 {cashiers.map((cashier) => (
                   <option key={cashier.login} value={cashier.login}>
                     {cashier.displayName}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="whole-line-on-phone">
+              </NativeSelect>
+            </Label>
+            <Label className="whole-line-on-phone">
               Удалённые записи
-              <select name="deleted" value={draft.deleted} onChange={(e) => change({ deleted: e.target.value as Draft["deleted"] })}>
+              <NativeSelect name="deleted" value={draft.deleted} onChange={(e) => change({ deleted: e.target.value as Draft["deleted"] })}>
                 <option value="">Скрывать</option>
                 <option value="include">Показывать</option>
                 <option value="only">Только удалённые</option>
-              </select>
-            </label>
+              </NativeSelect>
+            </Label>
             <ClientCodeField required={false} value={draft.clientCode} onChange={(clientCode) => change({ clientCode })} />
-            <button type="button" className="secondary reset" onClick={() => setDraft(startingDraft(today))}>
+            <Button type="button" variant="outline" className="reset" onClick={() => setDraft(startingDraft(today))}>
               Сбросить
-            </button>
+            </Button>
           </div>
         </details>
       )}
@@ -411,26 +419,26 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
       <p className="period">{shownPeriod}</p>
 
       {notice && (
-        <p className="notice" role="status">
+        <p className={cn(alertVariants({ variant: "info" }), "notice")} role="status">
           {notice}
         </p>
       )}
       {categoriesFailed && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           Не удалось загрузить названия категорий.{" "}
-          <button type="button" className="link" onClick={loadCategories}>
+          <Button type="button" variant="link" className="h-auto p-0 align-baseline" onClick={loadCategories}>
             Повторить
-          </button>
+          </Button>
         </p>
       )}
 
       {periodIsBackwards && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           Начало периода позже его конца.
         </p>
       )}
       {periodIsIncomplete && (
-        <p className="error" role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
           {mode === "cashier" ? "Выберите день." : "Укажите начало и конец периода."}
         </p>
       )}
@@ -438,24 +446,24 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
       {load.kind === "loading" && <p className="hint">Загрузка…</p>}
 
       {load.kind === "failed" && (
-        <div className="card">
-          <p className="error" role="alert">
+        <Card className="gap-3 p-4">
+          <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
             Не удалось загрузить журнал.
           </p>
-          <button type="button" className="secondary" onClick={refresh}>
+          <Button type="button" variant="outline" onClick={refresh}>
             Повторить
-          </button>
-        </div>
+          </Button>
+        </Card>
       )}
 
       {load.kind === "ready" && (
         <>
           {load.refreshFailed && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               Не удалось обновить журнал, показаны прежние данные.{" "}
-              <button type="button" className="link" onClick={refresh}>
+              <Button type="button" variant="link" className="h-auto p-0 align-baseline" onClick={refresh}>
                 Повторить
-              </button>
+              </Button>
             </p>
           )}
           {load.operations.length === 0 ? (
@@ -542,19 +550,19 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
           )}
 
           {load.moreFailed && (
-            <p className="error" role="alert">
+            <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               Не удалось загрузить остальное.
             </p>
           )}
           {load.nextCursor && (
-            <button
+            <Button
               type="button"
-              className="secondary"
+              variant="outline"
               disabled={load.loadingMore || load.stale}
               onClick={loadMore}
             >
               {load.loadingMore ? "Загружаем…" : "Показать ещё"}
-            </button>
+            </Button>
           )}
         </>
       )}
@@ -622,12 +630,13 @@ function OperationRow({
           {withDate ? formatMoscowShort(operation.createdAt) : formatMoscowClock(operation.createdAt)}
         </time>
       </td>
-      <td className="c-who">{operation.author.displayName}</td>
+      {/* On a phone the buttons of one's own entry take the corner where the name stands; the name is one's own anyway. */}
+      <td className={cn("c-who min-[720px]:whitespace-nowrap", canChange && "max-[719px]:invisible")}>{operation.author.displayName}</td>
       <td className="c-what">
         {what}{" "}
         {deleted ? (
           <>
-            <span className="badge deleted">удалена</span>
+            <Badge variant="destructive" className="deleted">удалена</Badge>
             {operation.deletedBy && (
               <span className="deleted-note">
                 {operation.deletedBy.displayName}, {formatMoscowShort(operation.deletedAt!)}
@@ -635,7 +644,7 @@ function OperationRow({
             )}
           </>
         ) : (
-          operation.revision > 0 && <span className="badge edited">изменена</span>
+          operation.revision > 0 && <Badge variant="secondary" className="edited">изменена</Badge>
         )}
       </td>
       <td className="c-amount">
@@ -650,36 +659,36 @@ function OperationRow({
       <td className={mode === "cashier" ? "c-actions corner" : "c-actions"}>
         {canChange && (
           <>
-            <button
+            <Button
               type="button"
-              className="secondary small"
+              variant="outline" size="sm"
               aria-expanded={open === "edit"}
               aria-label={`Изменить: ${description}`}
               onClick={() => onToggle("edit")}
             >
               Изменить
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="secondary small"
+              variant="outline" size="sm"
               aria-expanded={open === "delete"}
               aria-label={`Удалить: ${description}`}
               onClick={() => onToggle("delete")}
             >
               Удалить
-            </button>
+            </Button>
           </>
         )}
         {mode === "viewer" && operation.revision > 0 && (
-          <button
+          <Button
             type="button"
-            className="secondary small"
+            variant="outline" size="sm"
             aria-expanded={open === "history"}
             aria-label={`История: ${description}`}
             onClick={() => onToggle("history")}
           >
             История
-          </button>
+          </Button>
         )}
       </td>
     </tr>
