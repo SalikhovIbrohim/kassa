@@ -139,6 +139,12 @@ function ReconciliationCard({ reconciliation }: { reconciliation: Reconciliation
             </dd>
           </div>
         ))}
+        {reconciliation.cardMinor != null && (
+          <div className="reconciliation-row" data-currency="card">
+            <dt>На карте</dt>
+            <dd>{formatMoney(reconciliation.cardMinor, "RUB")}</dd>
+          </div>
+        )}
       </dl>
     </li>
   );

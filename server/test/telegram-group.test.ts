@@ -73,6 +73,22 @@ describe("messages for the Telegram group", () => {
     expect(message!.text).toContain("Комментарий: за рейс P194");
   });
 
+  it("tells the main topic what is left after the head cashier counts the cash: cash, cards, dollars; once, also when the count is sent again", async () => {
+    const { started } = await desk({ incomeThread: 3, expenseThread: 5 });
+    await started.admin.createUser({ login: "anvar", password: "admin pass word", role: "head_cashier", displayName: "Анвар" });
+    const anvar = await loginAs(started, "anvar", "admin pass word");
+    const body = { id: randomUUID(), counted: [{ currency: "RUB", amountMinor: 20_800_000 }, { currency: "USD", amountMinor: 530_000 }], cardMinor: 1_920_050 };
+
+    expect((await postJson(started, "/api/reconciliations", body, anvar)).status).toBe(201);
+    const [message] = await telegram.untilMessages(1);
+    expect(message!.threadId).toBeUndefined();
+    expect(message!.text).toBe("Кассада колган пул\n208.000₽. Наличка\n19.200,50₽. Карталарда\n5.300$. Доллар");
+
+    expect((await postJson(started, "/api/reconciliations", body, anvar)).status).toBe(200);
+    await settle();
+    expect(telegram.messages).toHaveLength(1);
+  });
+
   it("writes the incomes into one topic of a group that has topics and the expenses into another, and into the main one when it is not told", async () => {
     const { started, ivan } = await desk({ incomeThread: 3, expenseThread: 5 });
     await post(started, ivan, payment());

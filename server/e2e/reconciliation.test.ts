@@ -54,7 +54,7 @@ describe("the cash desk without shifts", () => {
   const bar = (page: Page) => page.getByRole("region", { name: "Сверка кассы", exact: true });
   const showJournal = (page: Page) => cashMenu(page, "Журнал");
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
-  const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
+  const countField = (page: Page, currency: "RUB" | "USD" | "card") => page.locator(`input[name=count-${currency}]`);
 
   async function enterIncome(page: Page, amount: string, clientCode: string) {
     await page.getByRole("tab", { name: "Приход", exact: true }).click();
@@ -69,6 +69,7 @@ describe("the cash desk without shifts", () => {
     await page.getByRole("button", { name: "Сверить кассу" }).first().click();
     await countField(page, "RUB").fill(rub);
     await countField(page, "USD").fill(usd);
+    await countField(page, "card").fill("19200");
     await page.getByRole("button", { name: "Сверить кассу" }).last().click();
   }
 
@@ -149,6 +150,11 @@ describe("the cash desk without shifts", () => {
 
     await countField(anvar.page, "USD").fill("0");
     await anvar.page.getByRole("button", { name: "Сверить кассу" }).last().click();
+    await seeVisible(anvar.page.getByRole("alert").filter({ hasText: "сколько на карте" }));
+
+    await countField(anvar.page, "card").fill("0");
+    await anvar.page.getByRole("button", { name: "Сверить кассу" }).last().click();
+    await seeText(bar(anvar.page), "На карте: 0,00");
     await seeText(bar(anvar.page), /Доллары: по книге 50,00\s\$, насчитано 0,00\s\$\. Недостача 50,00\s\$\./);
   }, 90_000);
 

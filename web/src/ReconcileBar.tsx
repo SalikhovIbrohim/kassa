@@ -25,6 +25,8 @@ type Props = {
 export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   const [asking, setAsking] = useState(false);
   const [counts, setCounts] = useState<Record<Currency, string>>({ RUB: "", USD: "" });
+  // What lies on the cards, in rubles: for the record and the message to the group, the book does not count it.
+  const [card, setCard] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
@@ -33,8 +35,8 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   // What waits on the phone is not in the book yet: a count made now would not agree with it.
   const unsent = useQueueState().entries.filter((entry) => entry.login === login).length;
 
-  function idFor(counted: Balance[]): string {
-    const key = JSON.stringify(counted);
+  function idFor(counted: Balance[], cardMinor: number): string {
+    const key = JSON.stringify([counted, cardMinor]);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     return attempt.current.id;
   }
@@ -43,20 +45,22 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
     event.preventDefault();
     if (busy) return;
     const parsed = CURRENCIES.map((currency) => ({ currency, amountMinor: parseCountInput(counts[currency]) }));
-    if (parsed.some((item) => item.amountMinor === null)) {
-      setError("Введите, сколько насчитали, по каждой валюте. Если денег нет, введите 0.");
+    const cardMinor = parseCountInput(card);
+    if (parsed.some((item) => item.amountMinor === null) || cardMinor === null) {
+      setError("Введите, сколько насчитали, по каждой валюте и сколько на карте. Если денег нет, введите 0.");
       return;
     }
     const counted = parsed as Balance[];
     setBusy(true);
     setError(null);
     try {
-      const made = await reconcileCash(idFor(counted), counted);
+      const made = await reconcileCash(idFor(counted, cardMinor), counted, cardMinor);
       if (made.ok) {
         attempt.current = null;
         setResult(made.reconciliation);
         setAsking(false);
         setCounts({ RUB: "", USD: "" });
+        setCard("");
         onBalances(made.balances);
       } else {
         setError(problemText(made.reason));
@@ -84,7 +88,7 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
       ) : (
         <form className="reconcile-form" onSubmit={submit} noValidate>
           <p>
-            <strong>Сверка кассы.</strong> Пересчитайте наличные и введите, сколько денег лежит в кассе, по каждой валюте. Разница с книгой запишется на вас.
+            <strong>Сверка кассы.</strong> Пересчитайте наличные и введите, сколько денег лежит в кассе, по каждой валюте. Разница с книгой запишется на вас. Сколько на карте, только записывается и уходит в группу вместе с наличными: в остаток кассы карта не входит.
           </p>
           {unsent > 0 && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -102,6 +106,10 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
               />
             </Label>
           ))}
+          <Label>
+            На карте, рубли
+            <AmountInput name="count-card" autoComplete="off" value={card} onChange={setCard} />
+          </Label>
           {error && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               {error}
@@ -150,6 +158,7 @@ function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: (
             </strong>
           </li>
         ))}
+        {report.cardMinor != null && <li>На карте: {formatMoney(report.cardMinor, "RUB")}.</li>}
       </ul>
       <Button type="button" variant="outline" size="sm" onClick={onHide}>
         Скрыть

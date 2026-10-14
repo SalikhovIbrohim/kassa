@@ -3,6 +3,7 @@ import type pg from "pg";
 import { getBalances, type Balance, type Queryable } from "./balances.js";
 import { inTransaction, lockBalances } from "./ledger.js";
 import { CURRENCIES, type Currency } from "./money.js";
+import type { Outbox } from "./outbox.js";
 import { UUID } from "./schemas.js";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -13,6 +14,8 @@ const MAX_COUNTED_MINOR = 1_000_000_000_000_000;
 export type ReconciliationsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The Telegram group, told in its main topic what is left after each count. */
+  outbox?: Outbox;
 };
 
 type Person = { login: string; displayName: string };
@@ -31,14 +34,16 @@ export type ReconciliationReport = {
     /** Counted minus book: a shortage is negative, a surplus positive. */
     differenceMinor: number;
   }>;
+  /** What lay on the cards, in rubles: only written down, the book does not count it. Null for the counts of before. */
+  cardMinor: number | null;
 };
 
-type ReportRow = { id: string; made_at: Date; login: string; display_name: string };
+type ReportRow = { id: string; made_at: Date; login: string; display_name: string; card_minor: string | null };
 
 /** Reads the reconciliations that `where` picks (newest first), with their figures. */
 async function readReports(db: Queryable, where: string, params: unknown[], limit: number): Promise<ReconciliationReport[]> {
   const found = await db.query<ReportRow>(
-    `SELECT r.id, r.made_at, u.login, u.display_name
+    `SELECT r.id, r.made_at, u.login, u.display_name, r.card_minor
        FROM reconciliations r JOIN users u ON u.id = r.made_by
        ${where} ORDER BY r.made_at DESC, r.id DESC LIMIT ${limit}`,
     params,
@@ -64,6 +69,7 @@ async function readReports(db: Queryable, where: string, params: unknown[], limi
         differenceMinor: Number(figure?.difference_minor ?? 0),
       };
     }),
+    cardMinor: row.card_minor === null ? null : Number(row.card_minor),
   }));
 }
 
@@ -80,7 +86,8 @@ export type ReconcileResult =
  */
 export async function reconcile(
   pool: pg.Pool,
-  request: { id: string; madeBy: string; counted: Balance[]; now: Date },
+  request: { id: string; madeBy: string; counted: Balance[]; cardMinor?: number; now: Date },
+  outbox?: Outbox,
 ): Promise<ReconcileResult> {
   return inTransaction(pool, async (client): Promise<ReconcileResult> => {
     await lockBalances(client, CURRENCIES);
@@ -89,12 +96,18 @@ export async function reconcile(
       const who = await client.query<{ made_by: string }>("SELECT made_by FROM reconciliations WHERE id = $1", [request.id]);
       const same =
         who.rows[0]?.made_by === request.madeBy &&
-        request.counted.every((item) => stored.currencies.find((figure) => figure.currency === item.currency)?.actualMinor === item.amountMinor);
+        request.counted.every((item) => stored.currencies.find((figure) => figure.currency === item.currency)?.actualMinor === item.amountMinor) &&
+        stored.cardMinor === (request.cardMinor ?? null);
       return same ? { status: "replayed", reconciliation: stored, balances: await getBalances(client) } : { status: "id_conflict" };
     }
 
     const books = await getBalances(client);
-    await client.query("INSERT INTO reconciliations (id, made_by, made_at) VALUES ($1, $2, $3)", [request.id, request.madeBy, request.now]);
+    await client.query("INSERT INTO reconciliations (id, made_by, made_at, card_minor) VALUES ($1, $2, $3, $4)", [
+      request.id,
+      request.madeBy,
+      request.now,
+      request.cardMinor ?? null,
+    ]);
     for (const { currency, amountMinor: counted } of request.counted) {
       const calculated = books.find((item) => item.currency === currency)?.amountMinor ?? 0;
       await client.query(
@@ -105,12 +118,31 @@ export async function reconcile(
     }
     const [reconciliation] = await readReports(client, "WHERE r.id = $1", [request.id], 1);
     if (!reconciliation) throw new Error(`Reconciliation ${request.id} was made and is not there`);
+    if (outbox?.enabled) await outbox.queue(client, leftText(reconciliation), null, "general");
     return { status: "made", reconciliation, balances: await getBalances(client) };
   });
 }
 
+/** "208000" rubles -> "208.000", "5300,50" -> "5.300,50": the way the cashiers write sums in the group. */
+function groupAmount(minor: number): string {
+  const whole = String(Math.floor(minor / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const cents = minor % 100;
+  return cents === 0 ? whole : `${whole},${String(cents).padStart(2, "0")}`;
+}
+
+/** What the group reads after a count, as the cashiers used to write it by hand: cash, cards, dollars. */
+export function leftText(report: ReconciliationReport): string {
+  const counted = (currency: Currency) => report.currencies.find((item) => item.currency === currency)?.actualMinor ?? 0;
+  return [
+    "Кассада колган пул",
+    `${groupAmount(counted("RUB"))}₽. Наличка`,
+    ...(report.cardMinor === null ? [] : [`${groupAmount(report.cardMinor)}₽. Карталарда`]),
+    `${groupAmount(counted("USD"))}$. Доллар`,
+  ].join("\n");
+}
+
 export async function registerReconciliations(app: FastifyInstance, options: ReconciliationsOptions) {
-  const { pool, now } = options;
+  const { pool, now, outbox } = options;
 
   // The owner reads the counts of the cash, and so does the cashier who makes them: who counted, when, and how it came
   // out. Newest first.
@@ -144,7 +176,7 @@ export async function registerReconciliations(app: FastifyInstance, options: Rec
   );
 
   // The admin counts the cash, one amount per currency. The id is made by the client, like that of an entry.
-  app.post<{ Body: { id: string; counted: Balance[] } }>(
+  app.post<{ Body: { id: string; counted: Balance[]; cardMinor?: number } }>(
     "/api/reconciliations",
     {
       onRequest: [app.authenticate, app.requireRole("head_cashier")],
@@ -169,17 +201,21 @@ export async function registerReconciliations(app: FastifyInstance, options: Rec
                 },
               },
             },
+            // What lies on the cards, in rubles. Optional: a page of before does not send it.
+            cardMinor: { type: "integer", minimum: 0, maximum: MAX_COUNTED_MINOR },
           },
         },
       },
     },
     async (request, reply) => {
-      const { id, counted } = request.body;
+      const { id, counted, cardMinor } = request.body;
       if (new Set(counted.map((item) => item.currency)).size !== CURRENCIES.length) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/counted must name each currency once" });
       }
-      const result = await reconcile(pool, { id, madeBy: request.user!.id, counted, now: now() });
+      const result = await reconcile(pool, { id, madeBy: request.user!.id, counted, cardMinor, now: now() }, outbox);
       if (result.status === "id_conflict") return reply.code(409).send({ error: "reconciliation_id_conflict" });
+      // The message was written with the count; now that it is committed, the worker is asked to send it.
+      if (result.status === "made") outbox?.nudge();
       return reply.code(result.status === "made" ? 201 : 200).send({ reconciliation: result.reconciliation, balances: result.balances });
     },
   );

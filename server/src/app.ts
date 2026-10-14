@@ -165,6 +165,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerReconciliations(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    outbox,
   });
 
   await registerSummary(app, {

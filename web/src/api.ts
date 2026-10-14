@@ -558,6 +558,8 @@ export type Reconciliation = {
     actualMinor: number;
     differenceMinor: number;
   }>;
+  /** What lay on the cards, in rubles: written down only, the book does not count it. Null for the counts of before. */
+  cardMinor?: number | null;
 };
 
 function readReconciliation(value: unknown): Reconciliation | null {
@@ -577,11 +579,11 @@ export type ReconcileResult =
  * The admin counts the cash: one amount per currency (what was counted, not what the book says). The id is made once per
  * count and kept across retries, so that a lost answer cannot make the count twice. Throws when the server cannot be reached.
  */
-export async function reconcileCash(id: string, counted: Balance[]): Promise<ReconcileResult> {
+export async function reconcileCash(id: string, counted: Balance[], cardMinor: number): Promise<ReconcileResult> {
   const response = await request("/api/reconciliations", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id, counted }),
+    body: JSON.stringify({ id, counted, cardMinor }),
   });
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (response.ok) {

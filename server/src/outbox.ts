@@ -29,9 +29,9 @@ export type Outbox = {
   readonly enabled: boolean;
   /**
    * Writes a message to the queue, on the connection (the transaction) of the operation it is about. `topic` says whether
-   * it is about an income or an expense, which decides the topic of the group it goes to.
+   * it is about an income or an expense, which decides the topic of the group it goes to; `general` is the main topic.
    */
-  queue(db: Queryable, text: string, operationId: string | null, topic: "income" | "expense"): Promise<void>;
+  queue(db: Queryable, text: string, operationId: string | null, topic: "income" | "expense" | "general"): Promise<void>;
   /** Asks the worker to look at the queue now. Call it after the transaction has been committed. */
   nudge(): void;
   /** Sends what is due, oldest first, until the queue is empty or the oldest is waiting for its next try. */
@@ -124,7 +124,7 @@ export function createOutbox(options: OutboxOptions): Outbox {
     enabled: settings !== undefined,
     async queue(db, text, operationId, topic) {
       if (!settings) return;
-      const threadId = topic === "income" ? settings.incomeThreadId : settings.expenseThreadId;
+      const threadId = topic === "income" ? settings.incomeThreadId : topic === "expense" ? settings.expenseThreadId : undefined;
       await db.query(
         "INSERT INTO telegram_outbox (created_at, operation_id, text, thread_id, next_attempt_at) VALUES ($1, $2, $3, $4, $1)",
         [now(), operationId, text, threadId ?? null],
