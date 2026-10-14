@@ -79,7 +79,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
   app.patch<{
     Params: { code: string };
-    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number };
+    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: "income" | "expense" };
   }>(
     "/api/admin/categories/:code",
     {
@@ -99,6 +99,8 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             requiresEmployee: { type: "boolean" },
             notifyGroup: { type: "boolean" },
             archived: { type: "boolean" },
+            // An income category becomes an expense one or back, only while no entry was made in it.
+            kind: { type: "string", enum: ["income", "expense"] },
             move: { type: "string", enum: ["up", "down"] },
             // Where to put it in the list of its kind, counted from 0 (dragged there with the mouse); past the end is the end.
             position: { type: "integer", minimum: 0, maximum: 1000 },
@@ -113,7 +115,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
       if (label === "") return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/label must not be blank" });
 
       try {
-        const result = await inTransaction(pool, async (client): Promise<"not_found" | "last_category" | "done"> => {
+        const result = await inTransaction(pool, async (client): Promise<"not_found" | "last_category" | "kind_locked" | "category_used" | "done"> => {
           await lockCategories(client);
           const all = await readCategories(client);
           const found = all.find((item) => item.code === code);
@@ -123,6 +125,21 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
           if (change.archived === true && !found.archived) {
             const stillInUse = all.filter((item) => item.kind === found.kind && !item.archived && item.code !== code);
             if (stillInUse.length === 0) return "last_category";
+          }
+
+          if (change.kind !== undefined && change.kind !== found.kind) {
+            // The payment of a client goes to 1C, and the handover to the owner is not a cost: both are what they are.
+            if (found.code === "client_payment" || !found.countsAsCost) return "kind_locked";
+            // Entries already made in it would turn from incomes into expenses: not while there is one.
+            const used = await client.query("SELECT 1 FROM operations WHERE category = $1 LIMIT 1", [code]);
+            if (used.rowCount !== 0) return "category_used";
+            if (!found.archived && all.filter((item) => item.kind === found.kind && !item.archived && item.code !== code).length === 0) return "last_category";
+            // It goes to the end of the other list.
+            await client.query(
+              "UPDATE categories SET kind = $2, sort_order = COALESCE((SELECT max(sort_order) FROM categories WHERE kind = $2), 0) + 1 WHERE code = $1",
+              [code, change.kind],
+            );
+            found.kind = change.kind;
           }
 
           await client.query(
@@ -136,7 +153,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
           );
 
           if (change.move !== undefined) {
-            const list = all.filter((item) => item.kind === found.kind);
+            const list = (await readCategories(client)).filter((item) => item.kind === found.kind);
             const at = list.findIndex((item) => item.code === code);
             const neighbour: Category | undefined = list[at + (change.move === "up" ? -1 : 1)];
             if (neighbour) {
@@ -161,6 +178,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
         if (result === "not_found") return reply.code(404).send({ error: "not_found" });
         if (result === "last_category") return reply.code(409).send({ error: "last_category" });
+        if (result === "kind_locked" || result === "category_used") return reply.code(409).send({ error: result });
         const all = await readCategories(pool);
         return { category: all.find((item) => item.code === code), all };
       } catch (error) {

@@ -607,7 +607,7 @@ export async function fetchReconciliations(before?: string): Promise<Reconciliat
 
 export type CategoryChangeResult =
   | { ok: true; all: Category[] }
-  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "last-category" | "rejected" | "server-error" };
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "last-category" | "category-used" | "kind-locked" | "rejected" | "server-error" };
 
 async function categoryChangeResult(response: Response): Promise<CategoryChangeResult> {
   if (response.ok) {
@@ -619,7 +619,8 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
   if (response.status === 404) return { ok: false, reason: "not-found" };
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    return { ok: false, reason: body?.error === "last_category" ? "last-category" : "exists" };
+    const known = { last_category: "last-category", category_used: "category-used", kind_locked: "kind-locked" } as const;
+    return { ok: false, reason: known[body?.error as keyof typeof known] ?? "exists" };
   }
   if (response.status >= 500) return { ok: false, reason: "server-error" };
   return { ok: false, reason: "rejected" };
@@ -640,7 +641,7 @@ export async function createCategory(kind: CategoryKind, label: string, flags: C
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",

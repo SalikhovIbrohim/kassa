@@ -142,6 +142,45 @@ describe("categories", () => {
     });
   });
 
+  describe("the kind of a category", () => {
+    it("turns from income to expense and back while no entry was made in it, going to the end of the other list", async () => {
+      const { started, ivan, owner } = await desk();
+      const made = await make(started, owner, { kind: "income", label: "Ошибся типом" });
+      const code = (await made.json()).category.code as string;
+
+      const moved = await patchJson(started, `/api/admin/categories/${code}`, { kind: "expense" }, owner);
+      expect(moved.status).toBe(200);
+      const all = (await moved.json()).all as Category[];
+      const expenses = all.filter((item) => item.kind === "expense");
+      expect(expenses.at(-1)).toMatchObject({ code, kind: "expense" });
+      expect((await post(started, ivan, expense({ category: code }))).status).toBe(201);
+
+      // Now there is an entry in it: it stays an expense.
+      const refused = await patchJson(started, `/api/admin/categories/${code}`, { kind: "income" }, owner);
+      expect([refused.status, (await refused.json()).error]).toEqual([409, "category_used"]);
+    });
+
+    it("never changes for the payment of a client or the handover to the owner, nor for a cashier", async () => {
+      const { started, ivan, owner } = await desk();
+      for (const code of ["client_payment", "owner_handover"]) {
+        const refused = await patchJson(started, `/api/admin/categories/${code}`, { kind: code === "client_payment" ? "expense" : "income" }, owner);
+        expect([refused.status, (await refused.json()).error]).toEqual([409, "kind_locked"]);
+      }
+      expect((await patchJson(started, "/api/admin/categories/sublease", { kind: "expense" }, ivan)).status).toBe(403);
+      expect((await patchJson(started, "/api/admin/categories/sublease", { kind: "salary" }, owner)).status).toBe(400);
+    });
+
+    it("refuses a label that the other list has already", async () => {
+      const { started, owner } = await desk();
+      const made = await make(started, owner, { kind: "income", label: "Прочее" });
+      expect(made.status).toBe(409);
+      const other = await make(started, owner, { kind: "income", label: "Топливо и дорога" });
+      const code = (await other.json()).category.code as string;
+      const refused = await patchJson(started, `/api/admin/categories/${code}`, { kind: "expense" }, owner);
+      expect([refused.status, (await refused.json()).error]).toEqual([409, "category_exists"]);
+    });
+  });
+
   describe("the employee", () => {
     it("is asked of an entry when the owner ticks it, kept in the history, and refused where it is not asked", async () => {
       const { started, ivan, owner } = await desk();

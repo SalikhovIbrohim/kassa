@@ -59,12 +59,12 @@ describe("the lists of categories", () => {
 
     // The owner adds an expense category and an income category, and archives one.
     await openSection(owner.page, "Категории");
-    const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
+    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
     await addCategory(owner.page, "Расход", "Ремонт склада");
     await seeGone(owner.page.getByRole("dialog"));
     await seeText(expenseList, "Ремонт склада");
 
-    const incomeList = owner.page.getByRole("region", { name: "Категории: приход" });
+    const incomeList = owner.page.locator('tbody[data-kind="income"]');
     await addCategory(owner.page, "Приход", "Аренда мест");
     await seeText(incomeList, "Аренда мест");
 
@@ -106,21 +106,47 @@ describe("the lists of categories", () => {
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "Взяли долг");
   }, 120_000);
 
+  it("are one table: the ticks and the type change right in the row", async () => {
+    const started = await startTestApp({ webDistDir });
+    app = started;
+    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+    const owner = await signedIn(started, "owner", "long enough pass");
+    await openSection(owner.page, "Категории");
+    const incomeList = owner.page.locator('tbody[data-kind="income"]');
+    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
+    await seeText(incomeList, "Взяли долг");
+
+    // A tick is saved at once, and is there after the screen is loaded again.
+    await expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).check();
+    await owner.page.reload();
+    await openSection(owner.page, "Категории");
+    await expect.poll(() => expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).isChecked()).toBe(true);
+
+    // A new income category made by mistake becomes an expense one, at the end of that list.
+    await addCategory(owner.page, "Приход", "Стоянка");
+    await seeText(incomeList, "Стоянка");
+    await incomeList.getByRole("combobox", { name: "Тип: Стоянка" }).selectOption("expense");
+    await seeText(expenseList.locator("tr[data-category]").last(), "Стоянка");
+    // The payment of a client keeps its type.
+    expect(await incomeList.getByRole("combobox", { name: "Тип: Оплата от клиента" }).isDisabled()).toBe(true);
+  }, 90_000);
+
   it("are put in order by dragging a row with the mouse on a laptop", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const owner = await signedIn(started, "owner", "long enough pass");
-    await owner.page.setViewportSize({ width: 1100, height: 900 });
+    // Tall enough for the whole table: a drag that has to scroll is not what is tested here.
+    await owner.page.setViewportSize({ width: 1100, height: 1700 });
     await openSection(owner.page, "Категории");
-    const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
-    const order = () => expenseList.locator("li[data-category]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-category")));
+    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
+    const order = () => expenseList.locator("tr[data-category]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-category")));
     await expenseList.locator('[data-category="customs"]').waitFor();
     expect((await order()).slice(0, 2)).toEqual(["fuel_road", "salaries"]);
 
     // "Таможня" is dropped on the upper half of the first row: it becomes the first.
     const first = expenseList.locator('[data-category="fuel_road"]');
-    await expenseList.locator('[data-category="customs"]').dragTo(first, { targetPosition: { x: 40, y: 4 } });
+    await expenseList.locator('[data-category="customs"] [title="Перетащите, чтобы поменять порядок"]').dragTo(first, { targetPosition: { x: 40, y: 4 } });
 
     await expect.poll(async () => (await order()).slice(0, 3)).toEqual(["customs", "fuel_road", "salaries"]);
     // The order is the server's, also after the screen is loaded again.
@@ -137,11 +163,13 @@ describe("the lists of categories", () => {
     const owner = await signedIn(started, "owner", "long enough pass");
 
     await openSection(owner.page, "Категории");
-    const expenseList = owner.page.getByRole("region", { name: "Категории: расход" });
+    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
     await addCategory(owner.page, "Расход", "Перевозчику", ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]);
-    await seeText(expenseList, "нужен сотрудник");
-    await seeText(expenseList, "нужен рейс");
-    await seeText(expenseList, "нужен контрагент");
+    await seeText(expenseList, "Перевозчику");
+    for (const tick of ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]) {
+      await expect.poll(() => expenseList.getByRole("checkbox", { name: `${tick}: Перевозчику` }).isChecked()).toBe(true);
+    }
+    expect(await expenseList.getByRole("checkbox", { name: "Нужен код клиента: Перевозчику" }).isChecked()).toBe(false);
 
     const { page } = await signedIn(started, "ivan", "correct horse");
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
