@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type Role } from "./api";
+import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type City, type Role, CITY_LABEL } from "./api";
+import { CitySelect } from "./CitySelect";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +161,11 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
                         <Badge variant="secondary" className="text-xs font-medium">
                           {ROLE_LABEL[user.role]}
                         </Badge>
+                        {user.city && (
+                          <Badge variant="secondary" className="text-xs font-medium">
+                            {CITY_LABEL[user.city]}
+                          </Badge>
+                        )}
                         {!user.active && (
                           <Badge variant="destructive" className="text-xs font-medium">
                             отключён
@@ -208,7 +214,7 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
   );
 }
 
-type Change = { login?: string; displayName?: string; role?: Role; password?: string };
+type Change = { login?: string; displayName?: string; role?: Role; password?: string; city?: City | null };
 
 /** Everything about one person in one place: what to change, and below, to block or delete. */
 function EditAccount({
@@ -231,6 +237,7 @@ function EditAccount({
   const [displayName, setDisplayName] = useState(user.displayName);
   const [login, setLogin] = useState(user.login);
   const [role, setRole] = useState<Role>(user.role);
+  const [city, setCity] = useState<City | null>(user.city ?? null);
   const [password, setPassword] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -240,6 +247,7 @@ function EditAccount({
       ...(displayName.trim() === user.displayName ? {} : { displayName: displayName.trim() }),
       ...(login.trim() === user.login ? {} : { login: login.trim() }),
       ...(role === user.role ? {} : { role }),
+      ...(city === (user.city ?? null) ? {} : { city }),
       ...(password === "" ? {} : { password }),
     };
     if (Object.keys(change).length === 0) onCancel();
@@ -257,6 +265,12 @@ function EditAccount({
         <Input name="login" autoComplete="off" autoCapitalize="none" maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
       </Label>
       <RoleField value={role} onChange={setRole} disabled={self} />
+      <Label>
+        <span>
+          Город <LabelNote>(для отчётов и 1С)</LabelNote>
+        </span>
+        <CitySelect name="city" value={city} onChange={setCity} />
+      </Label>
       <Label>
         <span>
           Новый пароль <LabelNote>(пусто: не менять)</LabelNote>
@@ -315,21 +329,23 @@ function NewAccount({
   busy: boolean;
   error: string | null;
   onOpen: () => void;
-  onCreate: (input: { login: string; displayName: string; password: string; role: Role }) => Promise<boolean>;
+  onCreate: (input: { login: string; displayName: string; password: string; role: Role; city: City | null }) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<Role>("cashier");
+  const [city, setCity] = useState<City | null>(null);
 
   async function add(event: FormEvent) {
     event.preventDefault();
-    if (await onCreate({ login: login.trim(), displayName: displayName.trim(), password, role })) {
+    if (await onCreate({ login: login.trim(), displayName: displayName.trim(), password, role, city })) {
       setDisplayName("");
       setLogin("");
       setPassword("");
       setRole("cashier");
+      setCity(null);
       setOpen(false);
     }
   }
@@ -369,6 +385,12 @@ function NewAccount({
             <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков.</span>
           </Label>
           <RoleField value={role} onChange={setRole} />
+          <Label>
+            <span>
+              Город <LabelNote>(для отчётов и 1С)</LabelNote>
+            </span>
+            <CitySelect name="city" value={city} onChange={setCity} />
+          </Label>
           {error && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               {error}

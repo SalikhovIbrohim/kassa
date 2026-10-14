@@ -9,6 +9,7 @@ import {
   type CategoryChangeResult,
   type CategoryFlags,
   type CategoryKind,
+  type City,
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
@@ -20,6 +21,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
+import { CitySelect } from "./CitySelect";
 
 type Props = {
   onSessionExpired: () => void;
@@ -202,12 +204,15 @@ function CategoryTable({
             <th className={cn(head, "w-8 rounded-tl-xl")} aria-label="Порядок" />
             <th className={cn(head, "text-left")}>Категория</th>
             <th className={cn(head, "w-36 text-left")}>Тип</th>
+            <th className={cn(head, "w-36 text-left")} title="Для отчётов и 1С; кассиры этого не видят">
+              Город
+            </th>
             {FLAGS.map((flag) => (
               <th key={flag.key} className={cn(head, "w-[92px] text-center")} title={flag.title}>
                 {flag.short}
               </th>
             ))}
-            <th className={cn(head, "w-[132px] rounded-tr-xl")} aria-label="Действия" />
+            <th className={cn(head, "w-14 rounded-tr-xl")} aria-label="Действия" />
           </tr>
         </thead>
         {(["income", "expense"] as const).map((kind) => {
@@ -217,7 +222,7 @@ function CategoryTable({
               {list.map((item, index) =>
                 editing === item.code ? (
                   <tr key={item.code} className={TINT[kind]} data-category={item.code}>
-                    <td colSpan={FLAGS.length + 4} className="border-b px-3 py-3">
+                    <td colSpan={FLAGS.length + 5} className="border-b px-3 py-3">
                       <EditCategory
                         item={item}
                         busy={busy}
@@ -296,6 +301,15 @@ function CategoryTable({
                         <option value="expense">Расход</option>
                       </NativeSelect>
                     </td>
+                    <td className="border-b px-3 py-2">
+                      <CitySelect
+                        aria-label={`Город: ${item.label}`}
+                        className="h-9 bg-card/70 text-sm"
+                        value={item.city}
+                        disabled={busy}
+                        onChange={(city) => void onChange(item.code, { city })}
+                      />
+                    </td>
                     {FLAGS.map((flag) => (
                       <td key={flag.key} className="border-b px-3 py-2 text-center">
                         <Checkbox
@@ -308,12 +322,6 @@ function CategoryTable({
                     ))}
                     <td className="border-b px-2 py-1.5">
                       <div className="flex items-center justify-end gap-1">
-                        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground" disabled={busy || index === 0} aria-label={`Выше: ${item.label}`} onClick={() => onChange(item.code, { move: "up" })}>
-                          ↑
-                        </Button>
-                        <Button type="button" variant="ghost" size="icon" className="size-9 text-muted-foreground" disabled={busy || index === list.length - 1} aria-label={`Ниже: ${item.label}`} onClick={() => onChange(item.code, { move: "down" })}>
-                          ↓
-                        </Button>
                         <Button type="button" variant="outline" size="icon" className="size-9" disabled={busy} aria-label={`Изменить: ${item.label}`} title="Изменить" onClick={() => onEdit(item.code)}>
                           <PencilIcon />
                         </Button>
@@ -396,6 +404,7 @@ function NewCategory({
   const [requiresCounterparty, setRequiresCounterparty] = useState(false);
   const [requiresEmployee, setRequiresEmployee] = useState(false);
   const [notifyGroup, setNotifyGroup] = useState(true);
+  const [city, setCity] = useState<City | null>(null);
 
   function reset() {
     setLabel("");
@@ -404,12 +413,13 @@ function NewCategory({
     setRequiresCounterparty(false);
     setRequiresEmployee(false);
     setNotifyGroup(true);
+    setCity(null);
   }
 
   async function add(event: FormEvent) {
     event.preventDefault();
     if (label.trim() === "") return;
-    if (await onCreate(kind, label.trim(), { requiresClient, requiresTrip, requiresCounterparty, requiresEmployee, notifyGroup })) {
+    if (await onCreate(kind, label.trim(), { requiresClient, requiresTrip, requiresCounterparty, requiresEmployee, notifyGroup, city })) {
       reset();
       setOpen(false);
     }
@@ -451,6 +461,12 @@ function NewCategory({
           <Label>
             Название
             <Input name="label" type="text" autoComplete="off" maxLength={60} autoFocus value={label} onChange={(event) => setLabel(event.target.value)} />
+          </Label>
+          <Label>
+            <span>
+              Город <span className="font-normal text-muted-foreground">(для отчётов и 1С)</span>
+            </span>
+            <CitySelect name="city" value={city} onChange={setCity} />
           </Label>
           <Label className="flex items-center gap-2.5 font-normal">
             <Checkbox name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />

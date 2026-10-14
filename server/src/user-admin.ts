@@ -10,9 +10,11 @@ export type UserAdminOptions = {
   pool: pg.Pool;
 };
 
-type UserRow = { id: string; login: string; display_name: string; role: Role; active: boolean; created_at: Date; has_entries: boolean };
+type City = "andijan" | "moscow";
 
-const USER_SELECT = `SELECT u.id, u.login, u.display_name, u.role, u.active, u.created_at,
+type UserRow = { id: string; login: string; display_name: string; role: Role; city: City | null; active: boolean; created_at: Date; has_entries: boolean };
+
+const USER_SELECT = `SELECT u.id, u.login, u.display_name, u.role, u.city, u.active, u.created_at,
        (EXISTS (SELECT 1 FROM operations o WHERE o.author_id = u.id OR o.deleted_by = u.id)
         OR EXISTS (SELECT 1 FROM operation_changes c WHERE c.changed_by = u.id)
         OR EXISTS (SELECT 1 FROM reconciliations r WHERE r.made_by = u.id)
@@ -24,6 +26,8 @@ const toUser = (row: UserRow) => ({
   login: row.login,
   displayName: row.display_name,
   role: row.role,
+  // The city the person works in, for the reports and 1C; null is everywhere.
+  city: row.city,
   active: row.active,
   createdAt: row.created_at.toISOString(),
   // A user who wrote anything stays in the base, so that the journal keeps saying who; they can only be blocked.
@@ -38,6 +42,7 @@ const loginProperty = { type: "string", minLength: 1, maxLength: 64 } as const;
 const nameProperty = { type: "string", minLength: 1, maxLength: 60, pattern: NO_NUL } as const;
 const passwordProperty = { type: "string", minLength: 1, maxLength: 1024 } as const;
 const roleProperty = { type: "string", enum: [...ROLES] } as const;
+const cityProperty = { type: ["string", "null"], enum: ["andijan", "moscow", null] } as const;
 
 /** Says what is wrong with a login or a password, or nothing. */
 function badInput(input: { login?: string; password?: string }): string | null {
@@ -70,7 +75,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
     return { users: rows.rows.map(toUser) };
   });
 
-  app.post<{ Body: { login: string; displayName?: string; password: string; role: Role } }>(
+  app.post<{ Body: { login: string; displayName?: string; password: string; role: Role; city?: City | null } }>(
     "/api/admin/users",
     {
       onRequest: admin,
@@ -80,7 +85,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
           type: "object",
           required: ["login", "password", "role"],
           additionalProperties: false,
-          properties: { login: loginProperty, displayName: nameProperty, password: passwordProperty, role: roleProperty },
+          properties: { login: loginProperty, displayName: nameProperty, password: passwordProperty, role: roleProperty, city: cityProperty },
         },
       },
     },
@@ -92,8 +97,8 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
       const passwordHash = await hashPassword(request.body.password);
       try {
         const inserted = await pool.query<{ id: string }>(
-          "INSERT INTO users (login, display_name, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id",
-          [login, displayName, passwordHash, request.body.role],
+          "INSERT INTO users (login, display_name, password_hash, role, city) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+          [login, displayName, passwordHash, request.body.role, request.body.city ?? null],
         );
         return reply.code(201).send({ user: toUser((await readUser(pool, inserted.rows[0]!.id))!) });
       } catch (error) {
@@ -103,7 +108,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { login?: string; displayName?: string; role?: Role; password?: string; active?: boolean } }>(
+  app.patch<{ Params: { id: string }; Body: { login?: string; displayName?: string; role?: Role; password?: string; active?: boolean; city?: City | null } }>(
     "/api/admin/users/:id",
     {
       onRequest: admin,
@@ -114,7 +119,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
           type: "object",
           additionalProperties: false,
           minProperties: 1,
-          properties: { login: loginProperty, displayName: nameProperty, role: roleProperty, password: passwordProperty, active: { type: "boolean" } },
+          properties: { login: loginProperty, displayName: nameProperty, role: roleProperty, password: passwordProperty, active: { type: "boolean" }, city: cityProperty },
         },
       },
     },
@@ -137,9 +142,10 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
           if (!before) return null;
           await client.query(
             `UPDATE users SET login = COALESCE($2, login), display_name = COALESCE($3, display_name), role = COALESCE($4, role),
-                    password_hash = COALESCE($5, password_hash), active = COALESCE($6, active)
+                    password_hash = COALESCE($5, password_hash), active = COALESCE($6, active),
+                    city = CASE WHEN $7::boolean THEN $8 ELSE city END
               WHERE id = $1`,
-            [id, login ?? null, displayName ?? null, body.role ?? null, passwordHash, body.active ?? null],
+            [id, login ?? null, displayName ?? null, body.role ?? null, passwordHash, body.active ?? null, body.city !== undefined, body.city ?? null],
           );
           // A new password or a block ends every session of the person, as after a lost phone.
           if (passwordHash !== null || body.active === false) await client.query("DELETE FROM sessions WHERE user_id = $1", [id]);

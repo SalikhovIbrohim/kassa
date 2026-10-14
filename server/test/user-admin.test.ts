@@ -79,6 +79,18 @@ describe("the accounts, kept by the admin", () => {
     expect((await patchJson(started, `/api/admin/users/${randomUUID()}`, { displayName: "Никто" }, mudir)).status).toBe(404);
   });
 
+  it("keeps the city of a person, set when added or later, and taken away", async () => {
+    const { started, mudir } = await desk();
+    const made = await postJson(started, "/api/admin/users", { login: "rustam", displayName: "Рустам", password: "new password", role: "cashier", city: "andijan" }, mudir);
+    expect((await made.json()).user).toMatchObject({ city: "andijan" });
+    const id = await idOf(started, mudir, "ivan");
+    expect((await users(started, mudir)).find((user) => user.login === "ivan")).toMatchObject({ city: null });
+    expect((await (await patchJson(started, `/api/admin/users/${id}`, { city: "moscow" }, mudir)).json()).user).toMatchObject({ city: "moscow" });
+    expect((await (await patchJson(started, `/api/admin/users/${id}`, { displayName: "Иван П." }, mudir)).json()).user).toMatchObject({ city: "moscow" });
+    expect((await (await patchJson(started, `/api/admin/users/${id}`, { city: null }, mudir)).json()).user).toMatchObject({ city: null });
+    expect((await patchJson(started, `/api/admin/users/${id}`, { city: "tashkent" }, mudir)).status).toBe(400);
+  });
+
   it("sets a new password and ends the sessions of that person", async () => {
     const { started, mudir, ivan } = await desk();
     const id = await idOf(started, mudir, "ivan");

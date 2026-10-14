@@ -262,7 +262,7 @@ describe("expenses", () => {
         label: "Топливо и дорога",
         sortOrder: 1,
         archived: false,
-        requiresClient: false, requiresTrip: false, requiresCounterparty: false, requiresEmployee: false,
+        requiresClient: false, requiresTrip: false, requiresCounterparty: false, requiresEmployee: false, city: null,
         countsAsCost: true,
         notifyGroup: true,
       });

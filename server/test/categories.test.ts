@@ -181,6 +181,26 @@ describe("categories", () => {
     });
   });
 
+  describe("the city", () => {
+    it("is set and taken away by the owner, on a new category too; anything but the two cities is refused", async () => {
+      const { started, owner } = await desk();
+      const city = async () => ((await lists(started, owner)).all as Array<Category & { city: string | null }>).find((item) => item.code === "fuel_road")!.city;
+      expect(await city()).toBeNull();
+
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { city: "andijan" }, owner)).status).toBe(200);
+      expect(await city()).toBe("andijan");
+      // A change of something else leaves the city as it is.
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, owner)).status).toBe(200);
+      expect(await city()).toBe("andijan");
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { city: null }, owner)).status).toBe(200);
+      expect(await city()).toBeNull();
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { city: "tashkent" }, owner)).status).toBe(400);
+
+      const made = await make(started, owner, { kind: "expense", label: "Оплата водителю (Москва)", city: "moscow" });
+      expect((await made.json()).category).toMatchObject({ city: "moscow" });
+    });
+  });
+
   describe("the employee", () => {
     it("is asked of an entry when the owner ticks it, kept in the history, and refused where it is not asked", async () => {
       const { started, ivan, owner } = await desk();

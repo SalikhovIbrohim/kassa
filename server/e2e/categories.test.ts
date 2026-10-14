@@ -122,6 +122,14 @@ describe("the lists of categories", () => {
     await openSection(owner.page, "Категории");
     await expect.poll(() => expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).isChecked()).toBe(true);
 
+    // The city is chosen right in the row and kept.
+    await expenseList.getByRole("combobox", { name: "Город: Таможня" }).selectOption("moscow");
+    await owner.page.reload();
+    await openSection(owner.page, "Категории");
+    await expect.poll(() => expenseList.getByRole("combobox", { name: "Город: Таможня" }).inputValue()).toBe("moscow");
+    // No more arrows: the order is changed by dragging.
+    expect(await expenseList.getByRole("button", { name: /^Выше:/ }).count()).toBe(0);
+
     // A new income category made by mistake becomes an expense one, at the end of that list.
     await addCategory(owner.page, "Приход", "Стоянка");
     await seeText(incomeList, "Стоянка");

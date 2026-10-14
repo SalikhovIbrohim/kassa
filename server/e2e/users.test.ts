@@ -65,9 +65,11 @@ describe("the accounts on the admin's screen", () => {
     const edit = list.getByRole("form", { name: "Изменить Азиз" });
     await edit.getByRole("textbox", { name: "Логин" }).fill("aziz2");
     await edit.getByRole("combobox", { name: "Роль" }).selectOption("head_cashier");
+    await edit.getByRole("combobox", { name: /Город/ }).selectOption("andijan");
     await edit.getByRole("textbox", { name: /Новый пароль/ }).fill("second password");
     await edit.getByRole("button", { name: "Сохранить" }).click();
     await seeText(list.locator('[data-user="aziz2"]'), "Главный кассир");
+    await seeText(list.locator('[data-user="aziz2"]'), "Андижан");
     await seeText(list, "Пароль Азиз сменён");
     await signedIn(started, "aziz2", "second password");
 

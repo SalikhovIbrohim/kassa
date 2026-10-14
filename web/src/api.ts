@@ -168,6 +168,8 @@ export type Category = {
   requiresCounterparty: boolean;
   /** An entry of this category must name the employee. */
   requiresEmployee: boolean;
+  /** The city it belongs to, for the reports and 1C (the cashiers do not see it); null is everywhere. */
+  city?: City | null;
   /** False for the money handed to the owner: it is not a cost of the business. */
   countsAsCost: boolean;
   /** The Telegram group is told of the entries of this category. */
@@ -627,7 +629,12 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean };
+/** The cities a category or a person can belong to; none means everywhere. */
+export type City = "andijan" | "moscow";
+
+export const CITY_LABEL: Record<City, string> = { andijan: "Андижан", moscow: "Москва" };
+
+export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null };
 
 export async function createCategory(kind: CategoryKind, label: string, flags: CategoryFlags): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
@@ -641,7 +648,7 @@ export async function createCategory(kind: CategoryKind, label: string, flags: C
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind; city?: City | null },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",
@@ -658,6 +665,8 @@ export type Account = {
   login: string;
   displayName: string;
   role: Role;
+  /** The city the person works in, for the reports and 1C; null is everywhere. */
+  city?: City | null;
   active: boolean;
   createdAt: string;
   /** The person wrote, changed or counted something: the account stays, it can only be blocked. */
@@ -698,7 +707,7 @@ export async function fetchAccounts(): Promise<Account[]> {
   return users;
 }
 
-export async function createAccount(input: { login: string; displayName?: string; password: string; role: Role }): Promise<AccountResult> {
+export async function createAccount(input: { login: string; displayName?: string; password: string; role: Role; city?: City | null }): Promise<AccountResult> {
   const response = await request("/api/admin/users", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -709,7 +718,7 @@ export async function createAccount(input: { login: string; displayName?: string
 
 export async function changeAccount(
   id: string,
-  change: { login?: string; displayName?: string; role?: Role; password?: string; active?: boolean },
+  change: { login?: string; displayName?: string; role?: Role; password?: string; active?: boolean; city?: City | null },
 ): Promise<AccountResult> {
   const response = await request(`/api/admin/users/${encodeURIComponent(id)}`, {
     method: "PATCH",
