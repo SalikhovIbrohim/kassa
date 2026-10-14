@@ -152,6 +152,12 @@ const TINT: Record<CategoryKind, string> = {
   expense: "bg-rose-600/[0.04]",
 };
 
+/** Under the mouse the row darkens a little in its own color, so the eye stays on the line being ticked. */
+const HOVER: Record<CategoryKind, string> = {
+  income: "transition-colors hover:bg-emerald-600/[0.13]",
+  expense: "transition-colors hover:bg-rose-600/[0.12]",
+};
+
 /**
  * All the categories in one table, incomes first: the type and what an entry has to say are ticked right in the
  * row, the arrows and the mouse put them in order within their type, the pencil renames or archives.
@@ -229,6 +235,7 @@ function CategoryTable({
                     className={cn(
                       "category-row",
                       TINT[kind],
+                      HOVER[kind],
                       dragged?.kind === kind && dragged.index === index && "opacity-40",
                       dragged?.kind === kind && target === index && "shadow-[inset_0_2px_0_var(--primary)]",
                       dragged?.kind === kind && target === list.length && index === list.length - 1 && "shadow-[inset_0_-2px_0_var(--primary)]",

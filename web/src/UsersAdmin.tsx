@@ -127,7 +127,7 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
           {users.map((user) => {
             const self = user.login.toLowerCase() === myLogin.toLowerCase();
             return (
-              <li key={user.id} className="flex flex-col gap-3 p-3" data-user={user.login}>
+              <li key={user.id} className={cn("flex flex-col gap-3 p-3 transition-colors", editing !== user.id && "hover:bg-muted/60")} data-user={user.login}>
                 {editing === user.id ? (
                   <EditAccount
                     user={user}
