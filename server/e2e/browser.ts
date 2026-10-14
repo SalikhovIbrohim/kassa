@@ -48,15 +48,27 @@ export async function newLaptop(browser: Browser): Promise<{ context: BrowserCon
   return { context, page };
 }
 
-/** Picks an item of the cash desk's menu ☰ (the journal, the admin's «Управление»). */
+/** The cash desk and «Управление» share one menu: a section, the admin's switch («Управление», «Касса»). */
 export async function cashMenu(page: Page, label: string): Promise<void> {
-  await page.locator("main.page").getByRole("button", { name: "Меню", exact: true }).click();
-  await page.getByRole("dialog").getByRole("button", { name: label, exact: true }).click();
+  if (label === "Управление" || label === "Касса") {
+    const burger = page.getByRole("button", { name: "Меню", exact: true });
+    if (await burger.isVisible()) await burger.click();
+    await page.getByRole("group", { name: "Режим" }).getByRole("button", { name: label, exact: true }).click();
+    return;
+  }
+  await openSection(page, label);
 }
 
-/** Leaves from the cash desk: «Выйти» is in its menu ☰. */
+/** Leaves: «Выйти» is in the menu on a phone, in the header on a computer. */
 export async function leaveCashDesk(page: Page): Promise<void> {
-  await cashMenu(page, "Выйти");
+  await page.locator("[data-signed-in]:visible").first().waitFor();
+  const burger = page.getByRole("button", { name: "Меню", exact: true });
+  if (await burger.isVisible()) {
+    await burger.click();
+    await page.getByRole("dialog").getByRole("button", { name: "Выйти", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "Выйти", exact: true }).click();
+  }
 }
 
 /** Opens a section of «Управление» from its menu: on a phone the menu first comes out from behind ☰. */

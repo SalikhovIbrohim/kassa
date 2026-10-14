@@ -122,14 +122,14 @@ describe("making entries without a connection", () => {
     await seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло: Приход +777,00" }));
     await seeText(banner, "Не отправлено: 1 запись");
     // The balances do not count what is on the phone, and say so.
-    await seeText(page.getByRole("region", { name: "Остатки" }), "Без учёта неотправленных записей: 1");
+    await seeVisible(page.getByText("Остатки без учёта неотправленных записей: 1"));
     await seeValue(amountField(page), "");
 
     // The app is closed and opened again with no connection at all: it opens, and the entry is still there.
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.locator("[data-signed-in]:visible").first().waitFor();
     await seeText(banner, "Не отправлено: 1 запись");
-    await seeText(page.getByRole("region", { name: "Остатки" }), "Нет связи");
+    await seeVisible(page.getByText(/Нет связи: остатков не видно/));
     expect(await onServer("OFF-1")).toBe(0);
 
     await context.setOffline(false);

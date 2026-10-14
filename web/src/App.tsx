@@ -11,7 +11,7 @@ import {
   type Role,
   type User,
 } from "./api";
-import { Balances, type BalancesState } from "./Balances";
+import { BalanceNotes, type BalancesState } from "./Balances";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EntryScreen, type Section as CashSection } from "./EntryScreen";
@@ -21,7 +21,7 @@ import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 import { ManageScreen } from "./ManageScreen";
-import { CashMenu } from "./CashMenu";
+import { Shell } from "./Shell";
 import { TelegramLink } from "./TelegramLink";
 import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
@@ -341,33 +341,47 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
   return (
     <>
-      <main className="page" data-signed-in hidden={side === "manage"}>
-        <CashMenu
+      <div hidden={side === "manage"}>
+        <Shell
+          className="cash"
+          groups={[
+            {
+              title: null,
+              items: [
+                { key: "income", label: "Приход" },
+                { key: "expense", label: "Расход" },
+                { key: "journal", label: "Журнал" },
+              ],
+            },
+          ]}
+          active={cashSection}
+          onOpen={(key) => setCashSection(key as CashSection)}
+          mode={user.role === "admin" ? { current: "cash", onSwitch: () => show("manage") } : undefined}
           displayName={user.displayName}
           roleLabel={ROLE_LABEL[user.role]}
-          onJournal={() => setCashSection("journal")}
-          onManage={user.role === "admin" ? () => show("manage") : undefined}
+          balances={balances}
+          onRetryBalances={loadBalances}
           onLeave={() => void leave()}
-          menuButton={side === "cash" ? leaveButton : undefined}
-        />
-
-        {side === "cash" && notices}
-
-        <Balances balances={balances} onRetry={loadBalances} unsent={kept} />
-
-        <EntryScreen
-          login={user.login}
-          section={cashSection}
-          onSectionChange={setCashSection}
-          canReconcile={user.role === "head_cashier"}
-          onSaved={showSavedBalances}
-          onBalancesStale={loadBalances}
-          onSessionExpired={onLoggedOut}
-        />
-
-        {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
-        <QueueBanner login={user.login} onSignIn={onLoggedOut} />
-      </main>
+          leaveButton={side === "cash" ? leaveButton : undefined}
+        >
+          {/* The forms keep the width of a phone; the journal takes the room it is given. */}
+          <div className={cn("mx-auto grid w-full gap-4", cashSection !== "journal" && "max-w-[480px]")}>
+            {side === "cash" && notices}
+            <BalanceNotes balances={balances} onRetry={loadBalances} unsent={kept} />
+            <EntryScreen
+              login={user.login}
+              section={cashSection}
+              onSectionChange={setCashSection}
+              canReconcile={user.role === "head_cashier"}
+              onSaved={showSavedBalances}
+              onBalancesStale={loadBalances}
+              onSessionExpired={onLoggedOut}
+            />
+            {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
+            <QueueBanner login={user.login} onSignIn={onLoggedOut} />
+          </div>
+        </Shell>
+      </div>
       {manageOpened && <div hidden={side !== "manage"}>{manage(() => show("cash"))}</div>}
     </>
   );

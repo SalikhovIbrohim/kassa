@@ -1023,11 +1023,13 @@ h2 {
 }
 
 /* In «Управление» the header already names the section: its own heading stays for screen readers only. */
-.manage .journal-head {
+.manage .journal-head,
+.cash .journal-head {
   justify-content: flex-end;
 }
 
-.manage .journal-head > h2 {
+.manage .journal-head > h2,
+.cash .journal-head > h2 {
   position: absolute;
   width: 1px;
   height: 1px;

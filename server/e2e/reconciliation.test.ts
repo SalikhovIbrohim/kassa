@@ -78,7 +78,7 @@ describe("the cash desk without shifts", () => {
 
     await showJournal(ivan.page);
 
-    await seeVisible(ivan.page.getByRole("heading", { name: "Журнал" }));
+    await seeVisible(ivan.page.getByRole("heading", { name: "Журнал" }).first());
     expect(await ivan.page.getByRole("region", { name: "Смена", exact: true }).count()).toBe(0);
     expect(await ivan.page.getByRole("button", { name: "Открыть смену" }).count()).toBe(0);
     expect(await ivan.page.getByRole("button", { name: "Сверить кассу" }).count()).toBe(0);
@@ -191,7 +191,7 @@ describe("the cash desk without shifts", () => {
     await backToCashDesk(mudir.page);
     await seeVisible(mudir.page.getByRole("tab", { name: "Приход", exact: true }));
     await showJournal(mudir.page);
-    await seeVisible(mudir.page.locator("main.page").getByRole("heading", { name: /Журнал/ }).first());
+    await seeVisible(mudir.page.getByRole("heading", { name: /Журнал/ }).first());
     expect(await mudir.page.getByRole("button", { name: "Сверить кассу" }).count()).toBe(0);
   }, 90_000);
 
