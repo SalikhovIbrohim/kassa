@@ -141,8 +141,11 @@ function ReconciliationCard({ reconciliation }: { reconciliation: Reconciliation
         ))}
         {reconciliation.cardMinor != null && (
           <div className="reconciliation-row" data-currency="card">
-            <dt>На карте</dt>
-            <dd>{formatMoney(reconciliation.cardMinor, "RUB")}</dd>
+            <dt>Из рублей</dt>
+            <dd>
+              наличными {formatMoney(Math.max(0, (reconciliation.currencies.find((item) => item.currency === "RUB")?.actualMinor ?? 0) - reconciliation.cardMinor), "RUB")}, на карте{" "}
+              {formatMoney(reconciliation.cardMinor, "RUB")}
+            </dd>
           </div>
         )}
       </dl>

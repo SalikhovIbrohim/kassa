@@ -561,7 +561,7 @@ export type Reconciliation = {
     actualMinor: number;
     differenceMinor: number;
   }>;
-  /** What lay on the cards, in rubles: written down only, the book does not count it. Null for the counts of before. */
+  /** The part of the rubles counted that lay on the cards (the rubles counted include it). Null for the counts of before. */
   cardMinor?: number | null;
 };
 

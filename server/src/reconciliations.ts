@@ -34,7 +34,10 @@ export type ReconciliationReport = {
     /** Counted minus book: a shortage is negative, a surplus positive. */
     differenceMinor: number;
   }>;
-  /** What lay on the cards, in rubles: only written down, the book does not count it. Null for the counts of before. */
+  /**
+   * The part of the rubles counted that lay on the cards: the rubles are one, cash and cards together, so `actualMinor`
+   * of the rubles includes it; it is kept only to say how the rubles left are split. Null for the counts of before.
+   */
   cardMinor: number | null;
 };
 
@@ -89,6 +92,10 @@ export async function reconcile(
   request: { id: string; madeBy: string; counted: Balance[]; cardMinor?: number; now: Date },
   outbox?: Outbox,
 ): Promise<ReconcileResult> {
+  // The rubles are counted as one: what is in the box and what is on the cards.
+  const counted = request.counted.map((item) =>
+    item.currency === "RUB" ? { ...item, amountMinor: item.amountMinor + (request.cardMinor ?? 0) } : item,
+  );
   return inTransaction(pool, async (client): Promise<ReconcileResult> => {
     await lockBalances(client, CURRENCIES);
     const [stored] = await readReports(client, "WHERE r.id = $1", [request.id], 1);
@@ -96,7 +103,7 @@ export async function reconcile(
       const who = await client.query<{ made_by: string }>("SELECT made_by FROM reconciliations WHERE id = $1", [request.id]);
       const same =
         who.rows[0]?.made_by === request.madeBy &&
-        request.counted.every((item) => stored.currencies.find((figure) => figure.currency === item.currency)?.actualMinor === item.amountMinor) &&
+        counted.every((item) => stored.currencies.find((figure) => figure.currency === item.currency)?.actualMinor === item.amountMinor) &&
         stored.cardMinor === (request.cardMinor ?? null);
       return same ? { status: "replayed", reconciliation: stored, balances: await getBalances(client) } : { status: "id_conflict" };
     }
@@ -108,12 +115,12 @@ export async function reconcile(
       request.now,
       request.cardMinor ?? null,
     ]);
-    for (const { currency, amountMinor: counted } of request.counted) {
+    for (const { currency, amountMinor: actual } of counted) {
       const calculated = books.find((item) => item.currency === currency)?.amountMinor ?? 0;
       await client.query(
         `INSERT INTO reconciliation_balances (reconciliation_id, currency, calculated_minor, actual_minor, difference_minor)
          VALUES ($1, $2, $3::bigint, $4::bigint, $4::bigint - $3::bigint)`,
-        [request.id, currency, calculated, counted],
+        [request.id, currency, calculated, actual],
       );
     }
     const [reconciliation] = await readReports(client, "WHERE r.id = $1", [request.id], 1);
@@ -135,7 +142,7 @@ export function leftText(report: ReconciliationReport): string {
   const counted = (currency: Currency) => report.currencies.find((item) => item.currency === currency)?.actualMinor ?? 0;
   return [
     "Кассада колган пул",
-    `${groupAmount(counted("RUB"))}₽. Наличка`,
+    `${groupAmount(counted("RUB") - (report.cardMinor ?? 0))}₽. Наличка`,
     ...(report.cardMinor === null ? [] : [`${groupAmount(report.cardMinor)}₽. Карталарда`]),
     `${groupAmount(counted("USD"))}$. Доллар`,
   ].join("\n");

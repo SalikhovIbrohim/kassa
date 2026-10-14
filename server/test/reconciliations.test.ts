@@ -56,10 +56,12 @@ describe("reconciling the cash desk", () => {
     return d;
   }
 
-  it("keeps what lay on the cards, apart from the book: the balance does not move for it", async () => {
+  it("counts the rubles on the cards with the rubles in the box: one book of rubles, the card part kept apart", async () => {
     const { started, anvar } = await workedDay();
-    const made = await (await reconcile(started, withId({ ...counted(140_000, 7_000), cardMinor: 1_920_000 }), anvar)).json();
-    expect(made.reconciliation.cardMinor).toBe(1_920_000);
+    // The book says 1 400,00: 900,00 in the box and 500,00 on the cards agree with it.
+    const made = await (await reconcile(started, withId({ ...counted(90_000, 7_000), cardMinor: 50_000 }), anvar)).json();
+    expect(made.reconciliation.cardMinor).toBe(50_000);
+    expect(made.reconciliation.currencies[0]).toEqual({ currency: "RUB", calculatedMinor: 140_000, actualMinor: 140_000, differenceMinor: 0 });
     expect(made.balances).toEqual([{ currency: "RUB", amountMinor: 140_000 }, { currency: "USD", amountMinor: 7_000 }]);
     const without = await (await reconcile(started, withId(counted(140_000, 7_000)), anvar)).json();
     expect(without.reconciliation.cardMinor).toBeNull();

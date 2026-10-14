@@ -69,7 +69,7 @@ describe("the cash desk without shifts", () => {
     await page.getByRole("button", { name: "Сверить кассу" }).first().click();
     await countField(page, "RUB").fill(rub);
     await countField(page, "USD").fill(usd);
-    await countField(page, "card").fill("19200");
+    await countField(page, "card").fill("0");
     await page.getByRole("button", { name: "Сверить кассу" }).last().click();
   }
 
@@ -131,7 +131,7 @@ describe("the cash desk without shifts", () => {
 
     // The books said 1 654,00 (1 000,00 opening and 654,00 in): the cash desk was 14,00 short.
     await seeText(bar(anvar.page), "Касса сверена");
-    await seeText(bar(anvar.page), /Рубли: по книге 1\s654,00\s₽, насчитано 1\s640,00\s₽\. Недостача 14,00\s₽\./);
+    await seeText(bar(anvar.page), /Рубли: по книге 1\s654,00\s₽, насчитано 1\s640,00\s₽ \(наличными 1\s640,00\s₽, на карте 0,00\s₽\)\. Недостача 14,00\s₽\./);
     await seeText(bar(anvar.page), /Доллары: по книге 50,00\s\$, насчитано 50,00\s\$\. Сошлось\./);
     await seeText(anvar.page.getByRole("region", { name: "Остатки" }), /1\s640,00\s₽/);
     // It can be done again whenever the head cashier likes.
@@ -154,7 +154,7 @@ describe("the cash desk without shifts", () => {
 
     await countField(anvar.page, "card").fill("0");
     await anvar.page.getByRole("button", { name: "Сверить кассу" }).last().click();
-    await seeText(bar(anvar.page), "На карте: 0,00");
+    await seeText(bar(anvar.page), /наличными 1\s000,00\s₽, на карте 0,00\s₽/);
     await seeText(bar(anvar.page), /Доллары: по книге 50,00\s\$, насчитано 0,00\s\$\. Недостача 50,00\s\$\./);
   }, 90_000);
 

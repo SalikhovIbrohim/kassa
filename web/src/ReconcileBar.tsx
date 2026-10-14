@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { Fragment, useRef, useState, type FormEvent } from "react";
 import { AmountInput } from "./AmountInput";
 import { Label } from "@/components/ui/label";
 import { reconcileCash, SessionExpiredError, type Balance, type Reconciliation } from "./api";
@@ -25,7 +25,7 @@ type Props = {
 export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   const [asking, setAsking] = useState(false);
   const [counts, setCounts] = useState<Record<Currency, string>>({ RUB: "", USD: "" });
-  // What lies on the cards, in rubles: for the record and the message to the group, the book does not count it.
+  // The rubles on the cards: the rubles are one, so they count with the cash; kept apart only to say how they are split.
   const [card, setCard] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +88,7 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
       ) : (
         <form className="reconcile-form" onSubmit={submit} noValidate>
           <p>
-            <strong>Сверка кассы.</strong> Пересчитайте наличные и введите, сколько денег лежит в кассе, по каждой валюте. Разница с книгой запишется на вас. Сколько на карте, только записывается и уходит в группу вместе с наличными: в остаток кассы карта не входит.
+            <strong>Сверка кассы.</strong> Пересчитайте деньги и введите, сколько рублей наличными, сколько рублей на карте и сколько долларов. Рубли наличными и на карте считаются вместе. Разница с книгой запишется на вас.
           </p>
           {unsent > 0 && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -96,20 +96,24 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
             </p>
           )}
           {CURRENCIES.map((currency) => (
-            <Label key={currency}>
-              В кассе, {CURRENCY_NAME[currency].toLowerCase()}
-              <AmountInput
-                name={`count-${currency}`}
-                autoComplete="off"
-                value={counts[currency]}
-                onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
-              />
-            </Label>
+            <Fragment key={currency}>
+              <Label>
+                {currency === "RUB" ? "Рубли наличными" : CURRENCY_NAME[currency]}
+                <AmountInput
+                  name={`count-${currency}`}
+                  autoComplete="off"
+                  value={counts[currency]}
+                  onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
+                />
+              </Label>
+              {currency === "RUB" && (
+                <Label>
+                  Рубли на карте
+                  <AmountInput name="count-card" autoComplete="off" value={card} onChange={setCard} />
+                </Label>
+              )}
+            </Fragment>
           ))}
-          <Label>
-            На карте, рубли
-            <AmountInput name="count-card" autoComplete="off" value={card} onChange={setCard} />
-          </Label>
           {error && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               {error}
@@ -152,13 +156,13 @@ function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: (
       <ul>
         {report.currencies.map((item) => (
           <li key={item.currency}>
-            {CURRENCY_NAME[item.currency]}: по книге {formatMoney(item.calculatedMinor, item.currency)}, насчитано {formatMoney(item.actualMinor, item.currency)}.{" "}
+            {CURRENCY_NAME[item.currency]}: по книге {formatMoney(item.calculatedMinor, item.currency)}, насчитано {formatMoney(item.actualMinor, item.currency)}
+            {item.currency === "RUB" && report.cardMinor != null && <> (наличными {formatMoney(item.actualMinor - report.cardMinor, "RUB")}, на карте {formatMoney(report.cardMinor, "RUB")})</>}.{" "}
             <strong className={item.differenceMinor < 0 ? "shortage" : item.differenceMinor > 0 ? "surplus" : "agrees"}>
               {item.differenceMinor === 0 ? "Сошлось." : `${item.differenceMinor < 0 ? "Недостача" : "Излишек"} ${formatMoney(Math.abs(item.differenceMinor), item.currency)}.`}
             </strong>
           </li>
         ))}
-        {report.cardMinor != null && <li>На карте: {formatMoney(report.cardMinor, "RUB")}.</li>}
       </ul>
       <Button type="button" variant="outline" size="sm" onClick={onHide}>
         Скрыть
