@@ -261,6 +261,8 @@ describe("the totals for a period", () => {
       const before = await summary(started, owner, "?from=2026-03-05&to=2026-03-05");
       expect(of(before.body, "RUB")).toMatchObject({ incomeMinor: 800_000, handoverMinor: 50_000, closingMinor: 1_750_000 });
 
+      // Within the day the cashier has to correct their own entries.
+      started.setNow(new Date("2026-03-05T12:00:00Z"));
       expect((await deleteRequest(started, `/api/operations/${removed}`, ivan, { reason: "дубль" })).status).toBe(200);
       expect((await deleteRequest(started, `/api/operations/${removedExpense}`, ivan)).status).toBe(200);
 
@@ -275,6 +277,7 @@ describe("the totals for a period", () => {
     it("counts a corrected operation as it says now, in the period it was made in", async () => {
       const { started, ivan, owner } = await desk();
       const id = await record(started, ivan, "2026-03-05T09:00:00Z", income({ amountMinor: 100_000 }));
+      started.setNow(new Date("2026-03-05T12:00:00Z"));
       const edit = await putJson(started, `/api/operations/${id}`, { type: "income", amountMinor: 160_000, currency: "RUB", rateE4: 790_000, clientCode: "K17" }, ivan);
       expect(edit.status, await edit.clone().text()).toBe(200);
 
@@ -286,6 +289,7 @@ describe("the totals for a period", () => {
     it("moves an operation to the other currency when it was corrected into it", async () => {
       const { started, ivan, owner } = await desk();
       const id = await record(started, ivan, "2026-03-05T09:00:00Z", income({ amountMinor: 20_000, currency: "RUB" }));
+      started.setNow(new Date("2026-03-05T12:00:00Z"));
       const edit = await putJson(started, `/api/operations/${id}`, { type: "income", amountMinor: 20_000, currency: "USD", clientCode: "K17" }, ivan);
       expect(edit.status, await edit.clone().text()).toBe(200);
 

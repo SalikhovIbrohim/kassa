@@ -98,6 +98,32 @@ function differences(before: Snapshot, after: Snapshot, categories: readonly Cat
 }
 
 /**
+ * What the main topic of the group reads when the admin changes an entry its author could no longer change (past its
+ * day) or that is somebody else's: whose entry, of when, what it was and what it is now.
+ */
+async function adminChangeText(
+  db: pg.PoolClient,
+  event: { action: "edit" | "delete"; before: Snapshot; row: OperationRow; actorId: string; reason: string | null; at: Date },
+  categories: readonly Category[],
+): Promise<string> {
+  const { before, row } = event;
+  const admin = (await db.query<{ display_name: string }>("SELECT display_name FROM users WHERE id = $1", [event.actorId])).rows[0]?.display_name ?? "?";
+  const whose = row.author_id === event.actorId ? "свою запись" : `запись кассира ${row.author_display_name}`;
+  const what = `${whose} от ${moscowTime(row.created_at)}: ${headline(row.kind, before, categories)}`;
+  if (event.action === "delete") {
+    return [`⚠️ Админ ${admin} удалил ${what}`, `Было: ${amountLine(before)}`, `${moscowTime(event.at)}${because(event.reason)}`].join("\n");
+  }
+  const after = snapshotOfRow(row);
+  return [
+    `⚠️ Админ ${admin} изменил ${what}`,
+    `Было: ${amountLine(before)}`,
+    `Стало: ${amountLine(after)}`,
+    ...differences(before, after, categories),
+    `${moscowTime(event.at)}${because(event.reason)}`,
+  ].join("\n");
+}
+
+/**
  * The messages for the Telegram group: written down, with the operation, when an entry of a category that the owner
  * wants the group told of is made, corrected or deleted. The incomes go to one topic of the group and the expenses to
  * another (see `Outbox.queue`). Without a group set up there is nothing to tell and no events.
@@ -123,6 +149,7 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
     async changed(db, event) {
       const { before, row, action } = event;
       const categories = await readCategories(db);
+      if (event.byAdmin) await outbox.queue(db, await adminChangeText(db, event, categories), row.id, "general");
       const wasTold = told(categories, row.kind, before.category);
       const isTold = told(categories, row.kind, row.category);
       if (!wasTold && !(action === "edit" && isTold)) return;

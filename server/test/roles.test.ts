@@ -51,16 +51,28 @@ describe("the admin role", () => {
     expect((await deleteRequest(started, `/api/operations/${body.id}`, anvar, { reason: "дубль" })).status).toBe(200);
   });
 
-  it("does not correct or delete a colleague's entry, as nobody else does", async () => {
+  it("corrects and deletes any entry, a cashier's too, at any time", async () => {
     const { started, anvar, ivan } = await desk();
     const theirs = income();
+    started.setNow(new Date("2026-03-01T10:00:00Z"));
     await postJson(started, "/api/operations", theirs, ivan);
+    started.setNow(new Date("2026-03-04T10:00:00Z"));
 
     const edit = await putJson(started, `/api/operations/${theirs.id}`, { ...theirs, id: undefined, amountMinor: 1_000 }, anvar);
     const removed = await deleteRequest(started, `/api/operations/${theirs.id}`, anvar);
 
-    expect(edit.status).toBe(403);
-    expect(removed.status).toBe(403);
+    expect(edit.status).toBe(200);
+    expect(removed.status).toBe(200);
+  });
+
+  it("leaves a cashier's entry to the cashier and the admin: another cashier may not touch it", async () => {
+    const { started, ivan } = await desk();
+    await started.admin.createUser({ login: "petr", password: "another good one", role: "cashier", displayName: "Пётр" });
+    const petr = await loginAs(started, "petr", "another good one");
+    const theirs = income();
+    await postJson(started, "/api/operations", theirs, ivan);
+
+    expect((await deleteRequest(started, `/api/operations/${theirs.id}`, petr)).status).toBe(403);
   });
 
   it("stands above the owner: reads what the owner reads and settles what the owner settles", async () => {

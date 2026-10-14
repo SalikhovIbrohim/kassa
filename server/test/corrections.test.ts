@@ -165,16 +165,31 @@ describe("correcting and deleting operations", () => {
       ]);
     });
 
-    it("works on an operation from an earlier day", async () => {
+    it("works on an operation of the day before, within a day of its making", async () => {
       const { started, ivan } = await desk();
-      started.setNow(new Date("2026-03-01T10:00:00Z"));
+      started.setNow(new Date("2026-03-01T22:00:00Z"));
       const id = await record(started, ivan, income());
-      started.setNow(NOW);
+      started.setNow(new Date("2026-03-02T21:59:00Z"));
 
       const response = await remove(started, ivan, id);
 
       expect(response.status).toBe(200);
-      expect(await journalIds(started, ivan, "?from=2026-03-01&to=2026-03-01")).toEqual([]);
+      expect(await journalIds(started, ivan, "?from=2026-03-02&to=2026-03-02")).toEqual([]);
+    });
+
+    it("is closed to the author a day after the entry: neither a correction nor a deletion, and nothing changes", async () => {
+      const { started, ivan } = await desk();
+      started.setNow(new Date("2026-03-01T10:00:00Z"));
+      const body = income();
+      const id = await record(started, ivan, body);
+      started.setNow(new Date("2026-03-02T10:00:00Z"));
+
+      const removed = await remove(started, ivan, id);
+      const corrected = await putJson(started, `/api/operations/${id}`, { ...body, id: undefined, amountMinor: 1_000 }, ivan);
+
+      expect([removed.status, await removed.json()]).toEqual([403, { error: "change_window_closed" }]);
+      expect([corrected.status, await corrected.json()]).toEqual([403, { error: "change_window_closed" }]);
+      expect(await journalIds(started, ivan, "?from=2026-03-01&to=2026-03-01")).toEqual([id]);
     });
 
     it("is harmless to ask twice: the answer is the same and the deletion keeps its first time", async () => {

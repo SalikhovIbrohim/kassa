@@ -89,6 +89,31 @@ describe("messages for the Telegram group", () => {
     expect(telegram.messages).toHaveLength(1);
   });
 
+  it("tells the main topic when the admin changes an entry its cashier could no longer change, and not when a cashier corrects their own in time", async () => {
+    const { started, ivan } = await desk({ incomeThread: 3, expenseThread: 5 });
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
+    const mudir = await loginAs(started, "mudir", "admin password");
+    started.setNow(new Date("2026-03-05T08:30:00Z"));
+    const body = expense({ category: "other", amountMinor: 50_000 });
+    expect(await post(started, ivan, body)).toBe(201);
+    // The cashier corrects their own entry within the day: nothing for the main topic.
+    expect((await putJson(started, `/api/operations/${body.id}`, { ...body, id: undefined, amountMinor: 60_000 }, ivan)).status).toBe(200);
+
+    started.setNow(new Date("2026-03-07T09:00:00Z"));
+    expect((await putJson(started, `/api/operations/${body.id}`, { ...body, id: undefined, amountMinor: 70_000, reason: "по чеку" }, mudir)).status).toBe(200);
+    expect((await deleteRequest(started, `/api/operations/${body.id}`, mudir, { reason: "дубль" })).status).toBe(200);
+
+    // «Прочее» is told to the expense topic as well: made, corrected, corrected, deleted, and two for the main topic.
+    const general = (await telegram.untilMessages(6)).filter((message) => message.threadId === undefined);
+    expect(general).toHaveLength(2);
+    expect(general[0]!.text).toContain("⚠️ Админ Мудир изменил запись кассира Мухаммад Али от 05.03 11:30 МСК: Расход «Прочее»");
+    expect(general[0]!.text).toMatch(/Было: 600,00\s₽/);
+    expect(general[0]!.text).toMatch(/Стало: 700,00\s₽/);
+    expect(general[0]!.text).toContain("(причина: по чеку)");
+    expect(general[1]!.text).toContain("⚠️ Админ Мудир удалил запись кассира Мухаммад Али от 05.03 11:30 МСК");
+    expect(general[1]!.text).toContain("(причина: дубль)");
+  });
+
   it("writes the incomes into one topic of a group that has topics and the expenses into another, and into the main one when it is not told", async () => {
     const { started, ivan } = await desk({ incomeThread: 3, expenseThread: 5 });
     await post(started, ivan, payment());

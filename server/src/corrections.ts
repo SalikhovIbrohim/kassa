@@ -26,8 +26,8 @@ const reasonProperty = { type: "string", maxLength: 500, pattern: NO_NUL } as co
 export async function registerCorrections(app: FastifyInstance, options: CorrectionsOptions) {
   const { pool, now, events, outbox } = options;
 
-  async function apply(reply: FastifyReply, userId: string, id: string, change: Change) {
-    const result = await changeOperation(pool, { id, actorId: userId, now, change, events });
+  async function apply(reply: FastifyReply, user: { id: string; role: string }, id: string, change: Change) {
+    const result = await changeOperation(pool, { id, actorId: user.id, actorIsAdmin: user.role === "admin", now, change, events });
     if (result.status === "changed") outbox.nudge();
     return answer(reply, result);
   }
@@ -53,7 +53,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
-      return apply(reply, request.user!.id, request.params.id, {
+      return apply(reply, request.user!, request.params.id, {
         action: "edit",
         kind: normalized.kind,
         next: normalized.fields,
@@ -97,7 +97,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     },
     async (request, reply) => {
       const reason = cleanText(request.body?.reason ?? "") || null;
-      return apply(reply, request.user!.id, request.params.id, { action: "delete", reason });
+      return apply(reply, request.user!, request.params.id, { action: "delete", reason });
     },
   );
 }
@@ -112,6 +112,8 @@ function answer(reply: FastifyReply, result: ChangeResult) {
       return reply.code(404).send({ error: "not_found" });
     case "not_yours":
       return reply.code(403).send({ error: "forbidden" });
+    case "too_late":
+      return reply.code(403).send({ error: "change_window_closed" });
     case "deleted":
       return reply.code(409).send({ error: "operation_deleted" });
     case "kind_changed":

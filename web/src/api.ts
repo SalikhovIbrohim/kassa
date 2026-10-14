@@ -480,7 +480,7 @@ export type EditInput =
 
 export type ChangeResult =
   | { ok: true; operation: Operation; balances: Balance[] }
-  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "deleted" | "rejected" | "server-error" };
+  | { ok: false; reason: "session-expired" | "forbidden" | "too-late" | "not-found" | "deleted" | "rejected" | "server-error" };
 
 async function changeResult(response: Response): Promise<ChangeResult> {
   if (response.ok) {
@@ -488,7 +488,10 @@ async function changeResult(response: Response): Promise<ChangeResult> {
     return { ok: true, ...body };
   }
   if (response.status === 401) return { ok: false, reason: "session-expired" };
-  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 403) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, reason: body?.error === "change_window_closed" ? "too-late" : "forbidden" };
+  }
   if (response.status === 404) return { ok: false, reason: "not-found" };
   if (response.status === 409) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;

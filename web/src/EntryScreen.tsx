@@ -14,6 +14,8 @@ type Props = {
   login: string;
   /** The head cashier also counts the cash against the book ("Сверить кассу"); nobody else does. */
   canReconcile: boolean;
+  /** The admin may correct any entry, at any time (the group is told). */
+  isAdmin?: boolean;
   /** A form or the journal; the journal is opened from the menu ☰, the forms are the two tabs. */
   section: Section;
   onSectionChange: (section: Section) => void;
@@ -25,7 +27,7 @@ type Props = {
 export type Section = "income" | "expense" | "journal";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and the journal. */
-export function EntryScreen({ login, canReconcile, section, onSectionChange: setSection, onSaved, onBalancesStale, onSessionExpired }: Props) {
+export function EntryScreen({ login, canReconcile, isAdmin = false, section, onSectionChange: setSection, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
@@ -89,6 +91,7 @@ export function EntryScreen({ login, canReconcile, section, onSectionChange: set
           <Journal
             mode="cashier"
             login={login}
+            isAdmin={isAdmin}
             onSessionExpired={onSessionExpired}
             onRefresh={onBalancesStale}
             onBalances={onSaved}

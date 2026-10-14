@@ -29,8 +29,10 @@ import { cn } from "@/lib/utils";
 type Props = {
   /** A cashier looks at one day of everybody's entries (one book, one box of money); the viewer filters them. */
   mode: "cashier" | "viewer";
-  /** The cashier who is signed in: only their own entries can be corrected or deleted. */
+  /** The cashier who is signed in: only their own entries can be corrected or deleted, for a day after they were made. */
   login?: string;
+  /** The admin corrects and deletes any entry, at any time. */
+  isAdmin?: boolean;
   onSessionExpired: () => void;
   /** Called when the person asks for fresh data, so the screen can refresh its balances too. */
   onRefresh?: () => void;
@@ -76,6 +78,14 @@ type Load =
 
 const TYPING_PAUSE_MS = 300;
 
+/** How long the author may correct or delete their own entry; the server keeps the same rule. */
+const OWN_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Whether the author's day to put the entry right is still running. */
+function withinOwnDay(operation: Operation): boolean {
+  return Date.now() - Date.parse(operation.createdAt) < OWN_CHANGE_WINDOW_MS;
+}
+
 function startingDraft(today: string): Draft {
   return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "" };
 }
@@ -93,7 +103,7 @@ function toFilters(draft: Draft): JournalFilters {
   };
 }
 
-export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
+export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = cashDayToday();
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
@@ -510,7 +520,7 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
                         operation={operation}
                         mode={mode}
                         withDate={mode === "viewer"}
-                        canChange={mode === "cashier" && login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase()}
+                        canChange={mode === "cashier" && (isAdmin || (login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase() && withinOwnDay(operation)))}
                         labels={labels}
                         description={description}
                         open={open}

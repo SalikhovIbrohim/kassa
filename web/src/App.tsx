@@ -375,6 +375,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
               section={cashSection}
               onSectionChange={setCashSection}
               canReconcile={user.role === "head_cashier"}
+              isAdmin={user.role === "admin"}
               onSaved={showSavedBalances}
               onBalancesStale={loadBalances}
               onSessionExpired={onLoggedOut}

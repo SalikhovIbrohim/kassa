@@ -8,6 +8,8 @@ export function explainFailure(failure: Failure): string {
       return "Эта запись уже удалена.";
     case "forbidden":
       return "Это не ваша запись, менять её нельзя.";
+    case "too-late":
+      return "Прошли сутки с этой записи: менять и удалять её теперь может только админ.";
     case "not-found":
       return "Такой записи нет. Обновите журнал.";
     case "session-expired":

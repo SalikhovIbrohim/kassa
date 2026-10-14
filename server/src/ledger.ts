@@ -177,7 +177,16 @@ export type LedgerEvents = {
   /** An operation was corrected or deleted: `before` is what it said, `row` what it says now. */
   changed?: (
     db: pg.PoolClient,
-    event: { action: "edit" | "delete"; before: Snapshot; row: OperationRow; actorId: string; reason: string | null; at: Date },
+    event: {
+      action: "edit" | "delete";
+      before: Snapshot;
+      row: OperationRow;
+      actorId: string;
+      reason: string | null;
+      at: Date;
+      /** The admin changed an entry that was not his to change any more: somebody else's, or one past its day. */
+      byAdmin?: boolean;
+    },
   ) => Promise<void>;
 };
 
@@ -363,6 +372,8 @@ export type ChangeResult =
   | { status: "not_found" }
   /** It is somebody else's operation. */
   | { status: "not_yours" }
+  /** Its author's day to correct it is over: only the admin may change it now. */
+  | { status: "too_late" }
   /** A deleted operation can no longer be corrected. */
   | { status: "deleted" }
   /** An income cannot become an expense or the other way round. */
@@ -377,9 +388,12 @@ export type ChangeResult =
  * Every change adds a line to the history with the author, the time, the reason and the
  * values before; nothing is ever overwritten without that line (the database insists).
  */
+/** How long the author of an entry may correct or delete it; after that only the admin may. */
+export const OWN_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export async function changeOperation(
   pool: pg.Pool,
-  request: { id: string; actorId: string; now: () => Date; change: Change; events?: LedgerEvents },
+  request: { id: string; actorId: string; actorIsAdmin?: boolean; now: () => Date; change: Change; events?: LedgerEvents },
 ): Promise<ChangeResult> {
   const { id, actorId, now, change } = request;
 
@@ -393,7 +407,12 @@ export async function changeOperation(
 
     const stored = await findOperation(client, id);
     if (!stored) return { status: "not_found" };
-    if (stored.author_id !== actorId) return { status: "not_yours" };
+    // The author has a day to put right their own mistake; the admin may change any entry at any time, and the group
+    // is told when it was not his own entry within its day.
+    const own = stored.author_id === actorId;
+    const inTime = at.getTime() - stored.created_at.getTime() < OWN_CHANGE_WINDOW_MS;
+    const byAdmin = !(own && inTime);
+    if (byAdmin && !request.actorIsAdmin) return { status: own ? "too_late" : "not_yours" };
 
     const unchanged = async (): Promise<ChangeResult> => ({
       status: "unchanged",
@@ -447,7 +466,7 @@ export async function changeOperation(
 
     const changed = await findOperation(client, id);
     if (!changed) throw new Error(`Operation ${id} disappeared while it was being changed`);
-    await request.events?.changed?.(client, { action: change.action, before, row: changed, actorId, reason: change.reason, at });
+    await request.events?.changed?.(client, { action: change.action, before, row: changed, actorId, reason: change.reason, at, byAdmin });
     return { status: "changed", row: changed, balances: await getBalances(client) };
   });
 }
