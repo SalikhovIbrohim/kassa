@@ -189,14 +189,17 @@ function CategoryTable({
     if (position !== from) void onChange(list[from]!.code, { position });
   }
 
-  const head = "border-b bg-muted px-3 py-2.5 text-[13px] leading-tight font-semibold text-muted-foreground";
+  // The header stays under the page's own header while the table scrolls, so every column keeps its name.
+  // (A line drawn with a shadow: a border of a sticky cell does not travel with it.)
+  const head = "sticky top-[calc(4rem+1px)] z-[5] bg-muted px-3 py-2.5 text-[13px] leading-tight font-semibold text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
+    // Scrolled sideways only on a narrow screen: a box that scrolls would keep the header from sticking to the page.
+    <div className="rounded-xl border bg-card shadow-sm max-[959px]:overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse">
         <thead>
           <tr>
-            <th className={cn(head, "w-8")} aria-label="Порядок" />
+            <th className={cn(head, "w-8 rounded-tl-xl")} aria-label="Порядок" />
             <th className={cn(head, "text-left")}>Категория</th>
             <th className={cn(head, "w-36 text-left")}>Тип</th>
             {FLAGS.map((flag) => (
@@ -204,7 +207,7 @@ function CategoryTable({
                 {flag.short}
               </th>
             ))}
-            <th className={cn(head, "w-[132px]")} aria-label="Действия" />
+            <th className={cn(head, "w-[132px] rounded-tr-xl")} aria-label="Действия" />
           </tr>
         </thead>
         {(["income", "expense"] as const).map((kind) => {
