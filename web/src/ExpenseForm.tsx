@@ -148,24 +148,6 @@ export function ExpenseForm({
         )}
       </EntryStatus>
 
-      <CurrencyPicker value={currency} onChange={onCurrencyChange} />
-
-      <Label>
-        <span className="sr-only">Сумма</span>
-        <AmountInput
-          ref={amountInput}
-          name="amount"
-          autoComplete="off"
-          enterKeyHint="next"
-          placeholder="Сумма"
-          required
-          value={amount}
-          onChange={setAmount}
-        />
-      </Label>
-
-      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} inside />}
-
       <CategoryField
         list={categories}
         kind="expense"
@@ -189,6 +171,24 @@ export function ExpenseForm({
         onEmployeeChange={setEmployee}
         inside
       />
+
+      <CurrencyPicker value={currency} onChange={onCurrencyChange} />
+
+      <Label>
+        <span className="sr-only">Сумма</span>
+        <AmountInput
+          ref={amountInput}
+          name="amount"
+          autoComplete="off"
+          enterKeyHint="next"
+          placeholder="Сумма"
+          required
+          value={amount}
+          onChange={setAmount}
+        />
+      </Label>
+
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} inside />}
 
       <Label>
         <span className="sr-only">Комментарий</span>

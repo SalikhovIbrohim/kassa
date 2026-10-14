@@ -179,6 +179,23 @@ export function IncomeForm({
         )}
       </EntryStatus>
 
+      <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
+
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+
+      <TripFields
+        needsTrip={needsTrip}
+        needsCounterparty={needsCounterparty}
+        trip={trip}
+        onTripChange={setTrip}
+        counterparty={counterparty}
+        onCounterpartyChange={setCounterparty}
+        needsEmployee={needsEmployee}
+        employee={employee}
+        onEmployeeChange={setEmployee}
+        inside
+      />
+
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
       <Label>
@@ -196,23 +213,6 @@ export function IncomeForm({
       </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required inside />}
-
-      <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
-
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
-
-      <TripFields
-        needsTrip={needsTrip}
-        needsCounterparty={needsCounterparty}
-        trip={trip}
-        onTripChange={setTrip}
-        counterparty={counterparty}
-        onCounterpartyChange={setCounterparty}
-        needsEmployee={needsEmployee}
-        employee={employee}
-        onEmployeeChange={setEmployee}
-        inside
-      />
 
       <Label>
         <span className="sr-only">Комментарий</span>
