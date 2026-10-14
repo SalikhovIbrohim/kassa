@@ -477,11 +477,23 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
                   <th scope="col">Время (МСК)</th>
                   <th scope="col">Кассир</th>
                   <th scope="col">Операция</th>
-                  <th scope="col" className="amount">
+                  {/* A phone shows one amount in its card; a computer gives incomes, expenses and the rate a column each. */}
+                  <th scope="col" className="amount min-[960px]:hidden">
                     Сумма
                   </th>
-                  <th scope="col">Клиент и получатель</th>
-                  <th scope="col">Комментарий</th>
+                  <th scope="col" className="amount max-[959px]:hidden">
+                    Приход
+                  </th>
+                  <th scope="col" className="amount max-[959px]:hidden">
+                    Расход
+                  </th>
+                  <th scope="col" className="amount max-[959px]:hidden">
+                    Курс
+                  </th>
+                  <th scope="col" className="min-[960px]:hidden">Клиент и получатель</th>
+                  <th scope="col" className="min-[960px]:hidden">Комментарий</th>
+                  {/* On a computer both share one column, so that every row stays one line. */}
+                  <th scope="col" className="max-[959px]:hidden">Подробности</th>
                   <th scope="col" className="actions">
                     <span className="sr-only">{mode === "cashier" ? "Действия" : "История"}</span>
                   </th>
@@ -490,7 +502,7 @@ export function Journal({ mode, login, onSessionExpired, onRefresh, onBalances, 
               <tbody className={load.stale ? "stale" : undefined}>
                 {load.operations.map((operation) => {
                   const open = panel?.id === operation.id ? panel.kind : null;
-                  const columns = 7;
+                  const columns = 9;
                   const description = describe(operation, labels);
                   return (
                     <Fragment key={operation.id}>
@@ -650,15 +662,29 @@ function OperationRow({
           operation.revision > 0 && <Badge variant="secondary" className="edited">изменена</Badge>
         )}
       </td>
-      <td className="c-amount">
+      <td className="c-amount min-[960px]:hidden">
         <span className={operation.type === "income" ? "money-in" : "money-out"}>
           {sign}
           {formatMoney(operation.amountMinor, operation.currency)}
         </span>
         <DollarNote operation={operation} />
       </td>
-      <td className="c-details">{details}</td>
-      <td className="c-comment">{operation.comment}</td>
+      <td className="c-in max-[959px]:hidden">
+        {operation.type === "income" && <span className="money-in">+{formatMoney(operation.amountMinor, operation.currency)}</span>}
+      </td>
+      <td className="c-out max-[959px]:hidden">
+        {operation.type === "expense" && <span className="money-out">−{formatMoney(operation.amountMinor, operation.currency)}</span>}
+      </td>
+      <td className="c-rate max-[959px]:hidden">
+        <RateCell operation={operation} />
+      </td>
+      <td className="c-details min-[960px]:hidden">{details}</td>
+      <td className="c-comment min-[960px]:hidden">{operation.comment}</td>
+      <td className="c-more max-[959px]:hidden" title={[details, operation.comment].filter(Boolean).join(" · ") || undefined}>
+        {details}
+        {details && operation.comment && " · "}
+        {operation.comment && <span className="text-muted-foreground">{operation.comment}</span>}
+      </td>
       <td className={mode === "cashier" ? "c-actions corner" : "c-actions"}>
         {canChange && (
           <>
@@ -695,6 +721,29 @@ function OperationRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/**
+ * The rate of a ruble entry in its own column: its own, or the average of its day (marked «ср.»). What it comes to
+ * in dollars shows when the mouse rests on it, so that the row stays one line.
+ */
+function RateCell({ operation }: { operation: Operation }) {
+  if (operation.currency !== "RUB") return null;
+  if (operation.usdMinor === null) {
+    return operation.type === "expense" ? <span className="text-muted-foreground" title="В этот день ещё нет прихода с курсом">нет курса</span> : null;
+  }
+  const dollars = `≈ ${formatMoney(operation.usdMinor, "USD")}`;
+  if (operation.rateSource === "own" && operation.rateE4 !== null) {
+    return <span title={dollars}>{formatRate(operation.rateE4)}</span>;
+  }
+  // The average of the day, as the entry was counted at it: rubles over the dollars they came to.
+  // Shown to the kopeck, as people say a rate; the exact one is what the dollars were counted at.
+  const rateE4 = Math.round((operation.amountMinor * 100) / operation.usdMinor) * 100;
+  return (
+    <span title={`${dollars} · средний курс дня`}>
+      {formatRate(rateE4)} <span className="text-muted-foreground">ср.</span>
+    </span>
   );
 }
 

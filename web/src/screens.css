@@ -542,8 +542,52 @@ h2 {
   }
 
   .journal-table th.amount,
-  .journal-table td.c-amount {
+  .journal-table td.c-amount,
+  .journal-table td.c-in,
+  .journal-table td.c-out,
+  .journal-table td.c-rate {
     text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .journal-table td.c-in,
+  .journal-table td.c-out {
+    font-weight: 700;
+  }
+
+  /* Compact rows: one line each, and less air than a card. */
+  .journal-table th,
+  .journal-table td {
+    padding: 7px 12px;
+  }
+
+  .journal-table td.c-what,
+  .journal-table td.c-who {
+    white-space: nowrap;
+  }
+
+  .journal-table th {
+    white-space: nowrap;
+  }
+
+  /* What people typed is cut to one line with «…»; the whole of it shows under the mouse. */
+  /* Every column is as narrow as what it holds; what is left goes to the details. */
+  .journal-table td.c-time,
+  .journal-table td.c-who,
+  .journal-table td.c-what,
+  .journal-table td.c-in,
+  .journal-table td.c-out,
+  .journal-table td.c-rate {
+    width: 1%;
+  }
+
+  .journal-table td.c-more {
+    width: 100%;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .journal-table tbody tr:last-child td {
