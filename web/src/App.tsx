@@ -236,6 +236,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   const [manageOpened, setManageOpened] = useState(false);
   // Where the cash desk is: a form, or the journal (which is opened from ☰).
   const [cashSection, setCashSection] = useState<CashSection>("income");
+  const lastForm = useRef<"income" | "expense">("income");
+  if (cashSection !== "journal") lastForm.current = cashSection;
   const show = (next: Side) => {
     if (next === "manage") setManageOpened(true);
     setSide(next);
@@ -348,14 +350,14 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
             {
               title: null,
               items: [
-                { key: "income", label: "Приход" },
-                { key: "expense", label: "Расход" },
+                { key: "entry", label: "Касса" },
                 { key: "journal", label: "Журнал" },
               ],
             },
           ]}
-          active={cashSection}
-          onOpen={(key) => setCashSection(key as CashSection)}
+          active={cashSection === "journal" ? "journal" : "entry"}
+          // «Касса» goes back to the form that was open last (Приход or Расход, the tabs above the form).
+          onOpen={(key) => setCashSection(key === "journal" ? "journal" : lastForm.current)}
           mode={user.role === "admin" ? { current: "cash", onSwitch: () => show("manage") } : undefined}
           displayName={user.displayName}
           roleLabel={ROLE_LABEL[user.role]}

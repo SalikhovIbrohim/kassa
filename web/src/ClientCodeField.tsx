@@ -8,10 +8,12 @@ type Props = {
   onChange: (value: string) => void;
   /** An entry needs a client code; a filter does not. */
   required?: boolean;
+  /** The name stands inside the empty field instead of above it (the entry forms). */
+  inside?: boolean;
 };
 
 /** The client code input, with codes typed before offered as suggestions. */
-export function ClientCodeField({ value, onChange, required = true }: Props) {
+export function ClientCodeField({ value, onChange, required = true, inside = false }: Props) {
   const listId = useId();
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -24,9 +26,10 @@ export function ClientCodeField({ value, onChange, required = true }: Props) {
 
   return (
     <Label>
-      Код клиента
+      {inside ? <span className="sr-only">Код клиента</span> : "Код клиента"}
       <Input
         name="clientCode"
+        placeholder={inside ? "Код клиента" : undefined}
         type="text"
         list={listId}
         autoComplete="off"

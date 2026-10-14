@@ -19,6 +19,8 @@ type Props = {
   needsEmployee: boolean;
   employee: string;
   onEmployeeChange: (text: string) => void;
+  /** The names stand inside the empty fields instead of above them (the entry forms). */
+  inside?: boolean;
 };
 
 /** The number of the trip, the counterparty and the employee, shown only when the chosen category asks for them (then they must be filled in). */
@@ -32,14 +34,17 @@ export function TripFields({
   needsEmployee,
   employee,
   onEmployeeChange,
+  inside = false,
 }: Props) {
+  const name = (text: string) => (inside ? <span className="sr-only">{text}</span> : text);
   return (
     <>
       {needsTrip && (
         <Label>
-          Номер рейса
+          {name("Номер рейса")}
           <Input
             name="tripNumber"
+            placeholder={inside ? "Номер рейса" : undefined}
             type="text"
             inputMode="numeric"
             autoComplete="off"
@@ -56,9 +61,10 @@ export function TripFields({
       )}
       {needsCounterparty && (
         <Label>
-          Контрагент
+          {name("Контрагент")}
           <Input
             name="counterparty"
+            placeholder={inside ? "Контрагент" : undefined}
             type="text"
             autoComplete="off"
             enterKeyHint="next"
@@ -71,9 +77,10 @@ export function TripFields({
       )}
       {needsEmployee && (
         <Label>
-          Сотрудник
+          {name("Сотрудник")}
           <Input
             name="employee"
+            placeholder={inside ? "Сотрудник" : undefined}
             type="text"
             autoComplete="off"
             enterKeyHint="next"

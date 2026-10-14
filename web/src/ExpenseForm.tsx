@@ -151,13 +151,13 @@ export function ExpenseForm({
       <CurrencyPicker value={currency} onChange={onCurrencyChange} />
 
       <Label>
-        Сумма
+        <span className="sr-only">Сумма</span>
         <AmountInput
           ref={amountInput}
           name="amount"
           autoComplete="off"
           enterKeyHint="next"
-          placeholder="0"
+          placeholder="Сумма"
           required
           value={amount}
           onChange={setAmount}
@@ -173,7 +173,7 @@ export function ExpenseForm({
         onReload={onReloadCategories}
       />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
 
       <TripFields
         needsTrip={needsTrip}
@@ -185,15 +185,15 @@ export function ExpenseForm({
         needsEmployee={needsEmployee}
         employee={employee}
         onEmployeeChange={setEmployee}
+        inside
       />
 
-      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} />}
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} inside />}
 
       <Label>
-        <span>
-          Комментарий
-        </span>
+        <span className="sr-only">Комментарий</span>
         <Input
+          placeholder="Комментарий"
           name="comment"
           type="text"
           autoComplete="off"

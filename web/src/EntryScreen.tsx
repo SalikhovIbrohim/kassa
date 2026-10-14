@@ -69,7 +69,8 @@ export function EntryScreen({ login, canReconcile, section, onSectionChange: set
 
   return (
     <Tabs value={section} onValueChange={(next) => setSection(next as Section)}>
-      <TabsList className="grid grid-cols-2">
+      {/* The tabs belong to the forms: the journal is a section of its own, opened from the menu. */}
+      <TabsList className="grid grid-cols-2" hidden={section === "journal"}>
         <TabsTrigger value="income">Приход</TabsTrigger>
         <TabsTrigger value="expense">Расход</TabsTrigger>
       </TabsList>
