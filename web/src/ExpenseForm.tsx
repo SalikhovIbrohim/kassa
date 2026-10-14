@@ -164,6 +164,8 @@ export function ExpenseForm({
         />
       </Label>
 
+      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} inside />}
+
       <CategoryField
         list={categories}
         kind="expense"
@@ -187,8 +189,6 @@ export function ExpenseForm({
         onEmployeeChange={setEmployee}
         inside
       />
-
-      {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} inside />}
 
       <Label>
         <span className="sr-only">Комментарий</span>
