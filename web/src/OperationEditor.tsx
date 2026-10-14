@@ -55,7 +55,6 @@ export function OperationEditor({
   // An income from before there were categories of income is a payment of a client.
   const [category, setCategory] = useState<string | null>(operation.category ?? (isIncome ? DEFAULT_INCOME_CATEGORY : null));
   const [clientCode, setClientCode] = useState(operation.clientCode ?? "");
-  const [recipient, setRecipient] = useState(operation.recipient ?? "");
   const [trip, setTrip] = useState(operation.tripNumber ? String(operation.tripNumber) : "");
   const [counterparty, setCounterparty] = useState(operation.counterparty ?? "");
   const [employee, setEmployee] = useState(operation.employee ?? "");
@@ -133,7 +132,8 @@ export function OperationEditor({
       : {
           type: "expense",
           category,
-          recipient: recipient.trim() || undefined,
+          // There is no field «Кому выдали» any more (the counterparty and the employee say who): an older entry keeps what it had.
+          recipient: operation.recipient ?? undefined,
           clientCode: needsClient ? code : undefined,
           ...common,
         };
@@ -206,22 +206,6 @@ export function OperationEditor({
         employee={employee}
         onEmployeeChange={setEmployee}
       />
-
-      {!isIncome && (
-        <Label>
-          <span>
-            Кому выдали <span className="optional">(необязательно)</span>
-          </span>
-          <Input
-            name="recipient"
-            type="text"
-            autoComplete="off"
-            maxLength={100}
-            value={recipient}
-            onChange={(event) => setRecipient(event.target.value)}
-          />
-        </Label>
-      )}
 
       <Label>
         <span>

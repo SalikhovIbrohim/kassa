@@ -49,7 +49,6 @@ export function ExpenseForm({
   // Empty to start with, and again after each entry: an expense without a rate is counted at the average of its day.
   const [rate, setRate] = useState("");
   const [clientCode, setClientCode] = useState("");
-  const [recipient, setRecipient] = useState("");
   const [trip, setTrip] = useState("");
   const [counterparty, setCounterparty] = useState("");
   const [employee, setEmployee] = useState("");
@@ -114,7 +113,6 @@ export function ExpenseForm({
       currency,
       ...(rateE4 === null ? {} : { rateE4 }),
       category,
-      recipient: recipient.trim() || undefined,
       clientCode: needsClient ? code : undefined,
       ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
       ...(needsCounterparty ? { counterparty: party } : {}),
@@ -125,7 +123,6 @@ export function ExpenseForm({
       setAmount("");
       setRate("");
       setClientCode("");
-      setRecipient("");
       setTrip("");
       setCounterparty("");
       setEmployee("");
@@ -189,21 +186,6 @@ export function ExpenseForm({
         employee={employee}
         onEmployeeChange={setEmployee}
       />
-
-      <Label>
-        <span>
-          Кому выдали <LabelNote>(необязательно)</LabelNote>
-        </span>
-        <Input
-          name="recipient"
-          type="text"
-          autoComplete="off"
-          enterKeyHint="next"
-          maxLength={100}
-          value={recipient}
-          onChange={(event) => setRecipient(event.target.value)}
-        />
-      </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required={false} />}
 
