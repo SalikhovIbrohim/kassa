@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { get, loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, leaveCashDesk } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -213,7 +213,7 @@ describe("making entries without a connection", () => {
     await page.route("**/api/operations", (route) => (route.request().method() === "POST" ? route.abort("internetdisconnected") : route.continue()));
     await context.setOffline(false);
 
-    await page.getByRole("button", { name: "Выйти" }).click();
+    await leaveCashDesk(page);
     await seeText(page.getByRole("alertdialog"), "Она останется на этом телефоне");
     await page.getByRole("button", { name: "Всё равно выйти" }).click();
     await page.getByRole("button", { name: "Войти" }).waitFor();
@@ -227,7 +227,7 @@ describe("making entries without a connection", () => {
     await page.waitForTimeout(1500);
     expect(await onServer("OFF-4")).toBe(0);
 
-    await page.getByRole("button", { name: "Выйти" }).click();
+    await leaveCashDesk(page);
     await page.getByRole("button", { name: "Войти" }).waitFor();
     await signIn("ivan", "correct horse");
 
@@ -312,7 +312,7 @@ describe("making entries without a connection", () => {
     // Another tab of the same browser (one cookie jar): ivan leaves it, petr signs in.
     const other = await context.newPage();
     await other.goto(started.baseUrl);
-    await other.getByRole("button", { name: "Выйти" }).click();
+    await leaveCashDesk(other);
     await other.getByRole("button", { name: "Всё равно выйти" }).click();
     await other.getByLabel("Логин").fill("petr");
     await other.getByLabel("Пароль").fill("another good one");

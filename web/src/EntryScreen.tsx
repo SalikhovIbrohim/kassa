@@ -14,21 +14,23 @@ type Props = {
   login: string;
   /** The head cashier also counts the cash against the book ("Сверить кассу"); nobody else does. */
   canReconcile: boolean;
+  /** A form or the journal; the journal is opened from the menu ☰, the forms are the two tabs. */
+  section: Section;
+  onSectionChange: (section: Section) => void;
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
 };
 
-type Section = "income" | "expense" | "journal";
+export type Section = "income" | "expense" | "journal";
 
 /** The cashier's working screen: income, expense (sharing the currency choice) and the journal. */
-export function EntryScreen({ login, canReconcile, onSaved, onBalancesStale, onSessionExpired }: Props) {
+export function EntryScreen({ login, canReconcile, section, onSectionChange: setSection, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
   // they left it (an expense that the server refused for lack of money is exactly when they go and enter
   // the income first).
-  const [section, setSection] = useState<Section>("income");
   // What the cashier last corrected or deleted in the journal, for the "saved" banners.
   const [changed, setChanged] = useState<Operation | null>(null);
   // The currency of the last entry is known without the server: a form opened offline starts with it.
@@ -67,10 +69,9 @@ export function EntryScreen({ login, canReconcile, onSaved, onBalancesStale, onS
 
   return (
     <Tabs value={section} onValueChange={(next) => setSection(next as Section)}>
-      <TabsList className="grid grid-cols-3">
+      <TabsList className="grid grid-cols-2">
         <TabsTrigger value="income">Приход</TabsTrigger>
         <TabsTrigger value="expense">Расход</TabsTrigger>
-        <TabsTrigger value="journal">Журнал</TabsTrigger>
       </TabsList>
 
       <TabsContent value="income" forceMount onInputCapture={() => (currencyTouched.current = true)}>

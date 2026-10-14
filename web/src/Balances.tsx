@@ -45,11 +45,10 @@ export function Balances({ balances, onRetry, unsent = 0 }: Props) {
         const balance = known?.find((item) => item.currency === currency);
         const shown = shownFor(currency);
         return (
-          <Card key={currency} className="min-w-0 gap-1 py-3.5">
+          <Card key={currency} className="min-w-0 gap-1 py-3">
             {/* The amount is sized by the width of this box (see .balance-amount in index.css). */}
             <CardContent className="grid min-w-0 gap-1 px-3.5 [container-type:inline-size]">
-              <span className="text-sm text-muted-foreground">{CURRENCY_NAME[currency]}</span>
-              <strong className={cn("balance-amount", balance && balance.amountMinor < 0 && "text-destructive")} data-currency={currency}>
+              <strong aria-label={`${CURRENCY_NAME[currency]}: ${shown}`} className={cn("balance-amount", balance && balance.amountMinor < 0 && "text-destructive")} data-currency={currency}>
                 {shown}
               </strong>
             </CardContent>

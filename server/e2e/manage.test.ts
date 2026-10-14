@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { backToCashDesk, launchChromium, newLaptop, newPhone, openSection, seeGone, seeText, seeVisible } from "./browser.js";
+import { backToCashDesk, launchChromium, newLaptop, newPhone, openSection, seeGone, seeText, seeVisible, cashMenu } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -71,14 +71,14 @@ describe("the frame of «Управление»", () => {
     const started = await desk();
     const page = await signedIn(await newLaptop(browser), started, "mudir", "admin password");
 
-    await page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await cashMenu(page, "Управление");
     await openSection(page, "Люди");
     await seeText(heading(page), "Люди");
     await seeVisible(page.getByRole("region", { name: "Пользователи" }));
 
     await backToCashDesk(page);
     await seeVisible(page.getByRole("tab", { name: "Приход", exact: true }));
-    await page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await cashMenu(page, "Управление");
     // Where he was is where he comes back to.
     await seeText(heading(page), "Люди");
   }, 90_000);

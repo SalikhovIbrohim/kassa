@@ -48,6 +48,17 @@ export async function newLaptop(browser: Browser): Promise<{ context: BrowserCon
   return { context, page };
 }
 
+/** Picks an item of the cash desk's menu ☰ (the journal, the admin's «Управление»). */
+export async function cashMenu(page: Page, label: string): Promise<void> {
+  await page.locator("main.page").getByRole("button", { name: "Меню", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: label, exact: true }).click();
+}
+
+/** Leaves from the cash desk: «Выйти» is in its menu ☰. */
+export async function leaveCashDesk(page: Page): Promise<void> {
+  await cashMenu(page, "Выйти");
+}
+
 /** Opens a section of «Управление» from its menu: on a phone the menu first comes out from behind ☰. */
 export async function openSection(page: Page, label: string): Promise<void> {
   const burger = page.getByRole("button", { name: "Меню", exact: true });

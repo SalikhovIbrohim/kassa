@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext } from "playwright-core";
 import { signedLaunch } from "../test/helpers/telegram.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeText, seeVisible } from "./browser.js";
+import { launchChromium, newPhone, seeText, seeVisible, leaveCashDesk } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 const TOKEN = "123456:TEST-token-of-the-bot";
@@ -50,7 +50,7 @@ describe("the app inside Telegram", () => {
     await page.getByRole("button", { name: "Привязать Telegram" }).click();
     await seeText(page.getByRole("status").filter({ hasText: "Telegram привязан" }), "без пароля");
 
-    await page.getByRole("button", { name: "Выйти" }).click();
+    await leaveCashDesk(page);
     await page.getByLabel("Логин").waitFor();
     await page.goto(launch());
     await page.reload();

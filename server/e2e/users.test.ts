@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -44,7 +44,7 @@ describe("the accounts on the admin's screen", () => {
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const { page } = await signedIn(started, "mudir", "admin password");
 
-    await page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await cashMenu(page, "Управление");
     await openSection(page, "Люди");
     const list = page.getByRole("region", { name: "Пользователи" });
     await seeText(list.locator('[data-user="mudir"]'), "(это вы)");

@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -102,7 +102,7 @@ describe("the lists of categories", () => {
     await seeText(page.locator(".success:visible"), "(Взяли долг)");
 
     // The journal names the income by its category.
-    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
+    await cashMenu(page, "Журнал");
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "Взяли долг");
   }, 120_000);
 
@@ -199,7 +199,7 @@ describe("the lists of categories", () => {
     await page.getByRole("button", { name: "Записать расход" }).click();
     await seeText(page.locator(".success:visible"), "Записано: Перевозчику");
 
-    await page.getByRole("tab", { name: "Журнал", exact: true }).click();
+    await cashMenu(page, "Журнал");
     const journal = page.getByRole("table", { name: "Журнал операций" });
     await seeText(journal, "Рейс 194");
     await seeText(journal, "Контрагент: ООО Трасса");

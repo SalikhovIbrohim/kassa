@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, backToCashDesk } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, backToCashDesk, cashMenu } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -52,7 +52,7 @@ describe("the cash desk without shifts", () => {
   }
 
   const bar = (page: Page) => page.getByRole("region", { name: "Сверка кассы", exact: true });
-  const showJournal = (page: Page) => page.getByRole("tab", { name: "Журнал", exact: true }).click();
+  const showJournal = (page: Page) => cashMenu(page, "Журнал");
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
   const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
 
@@ -179,7 +179,7 @@ describe("the cash desk without shifts", () => {
     await seeText(bar(anvar.page), "Касса сверена");
 
     const mudir = await phoneOf("mudir", "admin password");
-    await mudir.page.getByRole("tab", { name: "Управление", exact: true }).click();
+    await cashMenu(mudir.page, "Управление");
     await openSection(mudir.page, "Сверки");
     await seeText(mudir.page.locator(".reconciliation-card").first(), "Анвар");
     await openSection(mudir.page, "Итоги");
@@ -191,7 +191,7 @@ describe("the cash desk without shifts", () => {
     await backToCashDesk(mudir.page);
     await seeVisible(mudir.page.getByRole("tab", { name: "Приход", exact: true }));
     await showJournal(mudir.page);
-    await seeVisible(mudir.page.getByRole("tab", { name: "Журнал", exact: true, selected: true }));
+    await seeVisible(mudir.page.locator("main.page").getByRole("heading", { name: /Журнал/ }).first());
     expect(await mudir.page.getByRole("button", { name: "Сверить кассу" }).count()).toBe(0);
   }, 90_000);
 

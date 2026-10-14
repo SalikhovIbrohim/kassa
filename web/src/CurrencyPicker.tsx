@@ -10,7 +10,7 @@ type Props = {
 export function CurrencyPicker({ value, onChange }: Props) {
   return (
     <fieldset className="m-0 grid min-w-0 grid-cols-2 gap-2.5 border-0 p-0">
-      <legend className="mb-2 p-0 text-base font-semibold">Валюта</legend>
+      <legend className="sr-only">Валюта</legend>
       {CURRENCIES.map((code) => (
         <label
           key={code}

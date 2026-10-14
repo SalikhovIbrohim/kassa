@@ -77,7 +77,7 @@
   /* The amount of a balance scales with the width of its card and the number of characters, so that a six- or seven-figure
      balance stays on one line on a phone (see Balances.tsx). */
   .balance-amount {
-    font-size: max(0.8rem, min(1.3rem, calc(100cqw / (var(--chars, 12) * 0.78))));
+    font-size: max(0.9rem, min(1.55rem, calc(100cqw / (var(--chars, 12) * 0.7))));
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }

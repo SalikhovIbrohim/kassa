@@ -14,14 +14,14 @@ import {
 import { Balances, type BalancesState } from "./Balances";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EntryScreen } from "./EntryScreen";
+import { EntryScreen, type Section as CashSection } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
 import { plural } from "./plural";
 import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 import { ManageScreen } from "./ManageScreen";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CashMenu } from "./CashMenu";
 import { TelegramLink } from "./TelegramLink";
 import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
@@ -234,6 +234,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // The admin's two screens: the cash desk (as a cashier's) and «Управление» (as the owner's), the second made on first use.
   const [side, setSide] = useState<Side>("cash");
   const [manageOpened, setManageOpened] = useState(false);
+  // Where the cash desk is: a form, or the journal (which is opened from ☰).
+  const [cashSection, setCashSection] = useState<CashSection>("income");
   const show = (next: Side) => {
     if (next === "manage") setManageOpened(true);
     setSide(next);
@@ -340,35 +342,23 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   return (
     <>
       <main className="page" data-signed-in hidden={side === "manage"}>
-        <header className="flex items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <h1 className="text-[1.6rem] leading-tight font-bold text-primary">Касса</h1>
-            {/* The classes "who" and "role" are hooks for the tests of the browser. */}
-            <p className="who m-0 flex flex-wrap items-center gap-2 text-lg font-semibold">
-              {user.displayName}
-              <Badge className="role">{ROLE_LABEL[user.role]}</Badge>
-            </p>
-          </div>
-          <Button ref={side === "cash" ? leaveButton : undefined} type="button" variant="outline" size="sm" onClick={() => void leave()}>
-            Выйти
-          </Button>
-        </header>
+        <CashMenu
+          displayName={user.displayName}
+          roleLabel={ROLE_LABEL[user.role]}
+          onJournal={() => setCashSection("journal")}
+          onManage={user.role === "admin" ? () => show("manage") : undefined}
+          onLeave={() => void leave()}
+          menuButton={side === "cash" ? leaveButton : undefined}
+        />
 
         {side === "cash" && notices}
 
         <Balances balances={balances} onRetry={loadBalances} unsent={kept} />
 
-        {user.role === "admin" && (
-          <Tabs value={side} onValueChange={(next) => show(next as Side)}>
-            <TabsList className="grid min-h-11 grid-cols-2 md:max-w-sm" aria-label="Режим">
-              <TabsTrigger value="cash">Касса</TabsTrigger>
-              <TabsTrigger value="manage">Управление</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
-
         <EntryScreen
           login={user.login}
+          section={cashSection}
+          onSectionChange={setCashSection}
           canReconcile={user.role === "head_cashier"}
           onSaved={showSavedBalances}
           onBalancesStale={loadBalances}
