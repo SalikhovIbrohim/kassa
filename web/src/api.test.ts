@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createOperation, fetchCurrentUser, fetchCategories, NetworkError, SessionExpiredError, type OperationInput } from "./api";
+import { activeCategories, createOperation, fetchCurrentUser, fetchCategories, NetworkError, SessionExpiredError, type OperationInput } from "./api";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 
 /** localStorage as a phone has it, for code that runs in Node. */
@@ -82,6 +82,18 @@ describe("the categories on a phone without a connection", () => {
     });
 
     await expect(fetchCategories()).rejects.toThrow();
+  });
+});
+
+describe("the categories a new entry may have", () => {
+  const category = (code: string, more: object = {}) => ({
+    code, kind: "expense" as const, label: code, sortOrder: 1, archived: false, requiresClient: false,
+    requiresTrip: false, requiresCounterparty: false, requiresEmployee: false, countsAsCost: true, notifyGroup: true, ...more,
+  });
+
+  it("leaves out the archived ones and those of another city, and keeps those a list of before the cities does not mark", () => {
+    const list = [category("fuel"), category("old", { archived: true }), category("andijan", { offered: false }), category("moscow", { offered: true })];
+    expect(activeCategories(list, "expense").map((item) => item.code)).toEqual(["fuel", "moscow"]);
   });
 });
 

@@ -19,6 +19,8 @@ export type SessionUser = {
   login: string;
   displayName: string;
   role: Role;
+  /** The city the person works in: the entry forms offer only its categories and those of everywhere. Null is everywhere. */
+  city: "andijan" | "moscow" | null;
 };
 
 export type LoginProtectionOptions = {
@@ -157,8 +159,8 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
   async function findSession(
     token: string,
   ): Promise<{ id: string; lastSeenAt: Date; user: SessionUser } | undefined> {
-    const result = await pool.query<UserRow & { session_id: string; last_seen_at: Date }>(
-      `SELECT s.id AS session_id, s.last_seen_at, u.id, u.login, u.display_name, u.role
+    const result = await pool.query<UserRow & { session_id: string; last_seen_at: Date; city: SessionUser["city"] }>(
+      `SELECT s.id AS session_id, s.last_seen_at, u.id, u.login, u.display_name, u.role, u.city
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.active`,
       [hashToken(token), now()],
@@ -168,7 +170,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
     return {
       id: row.session_id,
       lastSeenAt: row.last_seen_at,
-      user: { id: row.id, login: row.login, displayName: row.display_name, role: row.role },
+      user: { id: row.id, login: row.login, displayName: row.display_name, role: row.role, city: row.city },
     };
   }
 

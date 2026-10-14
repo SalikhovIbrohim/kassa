@@ -34,7 +34,7 @@ export function CategoryField({ list, kind, label, value, onChange, onReload, ke
       </div>
     );
   }
-  const options = list.filter((item) => item.kind === kind && (!item.archived || item.code === keep));
+  const options = list.filter((item) => item.kind === kind && ((!item.archived && item.offered !== false) || item.code === keep));
   return (
     <Label>
       {label}

@@ -170,6 +170,8 @@ export type Category = {
   requiresEmployee: boolean;
   /** The city it belongs to, for the reports and 1C (the cashiers do not see it); null is everywhere. */
   city?: City | null;
+  /** False when it is of another city than the person's: the entry forms do not show it. Absent means shown. */
+  offered?: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
   countsAsCost: boolean;
   /** The Telegram group is told of the entries of this category. */
@@ -178,7 +180,7 @@ export type Category = {
 
 /** The categories of one kind that a new entry may have, in the order of the owner's list. */
 export function activeCategories(all: readonly Category[], kind: CategoryKind): Category[] {
-  return all.filter((item) => item.kind === kind && !item.archived);
+  return all.filter((item) => item.kind === kind && !item.archived && item.offered !== false);
 }
 
 /** The income category that an entry without a category is: what the entries of before there were categories are. */
@@ -234,6 +236,8 @@ function keptCategories(): Category[] | null {
       requiresEmployee: item.requiresEmployee ?? false,
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
       notifyGroup: item.notifyGroup ?? true,
+      ...(item.city !== undefined && { city: item.city }),
+      ...(item.offered !== undefined && { offered: item.offered }),
     }));
   } catch {
     return null;

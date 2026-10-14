@@ -70,6 +70,15 @@ export async function readCategories(db: Queryable): Promise<Category[]> {
   return found.rows.map(toCategory);
 }
 
+/**
+ * Whether the entry forms of a person of `city` offer the category: a category of everywhere is offered to all, a
+ * category of a city only to the people of that city and to those of everywhere. It only hides: an entry of a category
+ * of another city is not turned away (an entry waiting on a phone must not fail because a city was changed meanwhile).
+ */
+export function isForCity(category: Pick<Category, "city">, city: Category["city"]): boolean {
+  return category.city === null || city === null || category.city === city;
+}
+
 /** What an income that names no category is: the entries of phones that were made before there were categories of income. */
 export const DEFAULT_INCOME_CATEGORY = "client_payment";
 

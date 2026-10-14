@@ -4,7 +4,7 @@ import { get, loginAs, patchJson, postJson, putJson } from "./helpers/http.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 
 type Entry = Record<string, unknown>;
-type Category = { code: string; kind: string; label: string; sortOrder: number; archived: boolean; requiresClient: boolean };
+type Category = { code: string; kind: string; label: string; sortOrder: number; archived: boolean; requiresClient: boolean; offered?: boolean };
 
 /** The lists of categories of incomes and expenses, which the owner keeps, and what an entry may say about them. */
 describe("categories", () => {
@@ -198,6 +198,30 @@ describe("categories", () => {
 
       const made = await make(started, owner, { kind: "expense", label: "Оплата водителю (Москва)", city: "moscow" });
       expect((await made.json()).category).toMatchObject({ city: "moscow" });
+    });
+
+    it("hides from the forms of a person of one city the categories of the other, and hides nothing from a person of everywhere", async () => {
+      const { started, ivan, owner } = await desk();
+      await started.admin.createUser({ login: "mudir", password: "long enough pass", role: "admin", displayName: "Мудир" });
+      const mudir = await loginAs(started, "mudir", "long enough pass");
+      const ivanId = ((await (await get(started, "/api/admin/users", mudir)).json()).users as Array<{ id: string; login: string }>).find((user) => user.login === "ivan")!.id;
+      expect((await patchJson(started, `/api/admin/users/${ivanId}`, { city: "moscow" }, mudir)).status).toBe(200);
+      expect((await patchJson(started, "/api/admin/categories/fuel_road", { city: "andijan" }, owner)).status).toBe(200);
+      expect((await patchJson(started, "/api/admin/categories/salaries", { city: "moscow" }, owner)).status).toBe(200);
+
+      const offered = (found: { all: Category[] }, code: string) => found.all.find((item) => item.code === code)!.offered;
+      const his = await lists(started, ivan);
+      expect(offered(his, "fuel_road")).toBe(false);
+      expect(offered(his, "salaries")).toBe(true);
+      expect(offered(his, "other")).toBe(true);
+      expect(his.categories.map((item) => item.code)).not.toContain("fuel_road");
+      expect(his.categories.map((item) => item.code)).toContain("salaries");
+
+      const theirs = await lists(started, mudir);
+      expect(theirs.all.every((item) => item.offered === true)).toBe(true);
+
+      // Only hidden: an entry of it, waiting on his phone since before the city was set, is still taken.
+      expect((await post(started, ivan, expense())).status).toBe(201);
     });
   });
 

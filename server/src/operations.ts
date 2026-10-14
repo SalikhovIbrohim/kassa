@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
-import { readCategories } from "./categories.js";
+import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
 import type { Outbox } from "./outbox.js";
@@ -102,13 +102,18 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
 
   // The lists for the entry forms and for reading old entries. `categories` is the active expense categories (the
   // answer older phones know), `income` the active income categories, `all` every category of both kinds with
-  // what the owner set on it, archived ones too: the journal still has to name them.
-  app.get("/api/categories", { onRequest: app.authenticate }, async () => {
+  // what the owner set on it, archived ones too: the journal still has to name them. The two lists for the forms hold
+  // only the categories of the person's city and those of everywhere.
+  app.get("/api/categories", { onRequest: app.authenticate }, async (request) => {
     const all = await readCategories(pool);
+    const offered = (kind: "income" | "expense") =>
+      all.filter((item) => item.kind === kind && !item.archived && isForCity(item, request.user!.city));
     return {
-      categories: all.filter((item) => item.kind === "expense" && !item.archived),
-      income: all.filter((item) => item.kind === "income" && !item.archived),
-      all,
+      categories: offered("expense"),
+      income: offered("income"),
+      // `offered` says whether the person's forms show it: a category of another city is hidden, but the journal
+      // still names it and an entry that has it can be corrected without changing it.
+      all: all.map((item) => ({ ...item, offered: isForCity(item, request.user!.city) })),
     };
   });
 
