@@ -209,7 +209,7 @@ export function OperationEditor({
 
       <Label>
         <span>
-          Комментарий <span className="optional">(необязательно)</span>
+          Комментарий
         </span>
         <Input
           name="comment"
@@ -223,7 +223,7 @@ export function OperationEditor({
 
       <Label>
         <span>
-          Причина правки <span className="optional">(необязательно, видит смотрящий)</span>
+          Причина правки
         </span>
         <Input
           name="reason"

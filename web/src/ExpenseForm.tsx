@@ -13,7 +13,7 @@ import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label, LabelNote } from "@/components/ui/label";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -191,7 +191,7 @@ export function ExpenseForm({
 
       <Label>
         <span>
-          Комментарий <LabelNote>(необязательно)</LabelNote>
+          Комментарий
         </span>
         <Input
           name="comment"

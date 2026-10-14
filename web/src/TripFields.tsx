@@ -44,7 +44,6 @@ export function TripFields({
             inputMode="numeric"
             autoComplete="off"
             enterKeyHint="next"
-            placeholder="например 194"
             required
             maxLength={9}
             value={trip}

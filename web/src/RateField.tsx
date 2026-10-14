@@ -1,5 +1,5 @@
 import { AmountInput } from "./AmountInput";
-import { Label, LabelNote } from "@/components/ui/label";
+import { Label } from "@/components/ui/label";
 
 type Props = {
   value: string;
@@ -8,29 +8,21 @@ type Props = {
   required: boolean;
 };
 
-/** The rate (rubles for one dollar) of a ruble entry, with what to do when it is not known. */
+/** The rate (rubles for one dollar) of a ruble entry. Left empty on an expense, the average rate of the day is used. */
 export function RateField({ value, onChange, required }: Props) {
   return (
-    <>
-      <Label>
-        <span>
-          Курс <LabelNote>{required ? "(рублей за 1 $)" : "(рублей за 1 $, необязательно)"}</LabelNote>
-        </span>
-        <AmountInput
-          name="rate"
-          autoComplete="off"
-          enterKeyHint="next"
-          placeholder="например 79,5"
-          decimals={4}
-          wholeDigits={4}
-          required={required}
-          value={value}
-          onChange={onChange}
-        />
-      </Label>
-      {!required && (
-        <p className="-mt-2 mb-0 text-sm text-muted-foreground">Не знаете курс? Оставьте пустым: возьмём средний курс приходов за этот день.</p>
-      )}
-    </>
+    <Label>
+      Курс
+      <AmountInput
+        name="rate"
+        autoComplete="off"
+        enterKeyHint="next"
+        decimals={4}
+        wholeDigits={4}
+        required={required}
+        value={value}
+        onChange={onChange}
+      />
+    </Label>
   );
 }
