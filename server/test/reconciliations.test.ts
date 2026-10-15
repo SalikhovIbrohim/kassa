@@ -77,6 +77,7 @@ describe("reconciling the cash desk", () => {
     expect(response.status).toBe(201);
     expect((await response.json()).reconciliation).toEqual({
       id,
+      kassa: "moscow",
       madeAt: "2026-03-05T15:00:00.000Z",
       madeBy: { login: "anvar", displayName: "Анвар" },
       currencies: [

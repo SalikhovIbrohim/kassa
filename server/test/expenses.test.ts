@@ -70,6 +70,7 @@ describe("expenses", () => {
       operation: {
         id: body.id,
         type: "expense",
+        kassa: "moscow",
         amountMinor: 120_050,
         currency: "RUB",
         rateE4: null,

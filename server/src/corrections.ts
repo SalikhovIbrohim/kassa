@@ -118,5 +118,7 @@ function answer(reply: FastifyReply, result: ChangeResult) {
       return reply.code(409).send({ error: "operation_deleted" });
     case "kind_changed":
       return reply.code(409).send({ error: "type_cannot_change" });
+    case "currency_not_kept":
+      return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by the cash desk of this entry" });
   }
 }

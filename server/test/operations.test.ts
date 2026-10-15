@@ -50,6 +50,7 @@ describe("income and balances", () => {
       operation: {
         id: body.id,
         type: "income",
+        kassa: "moscow",
         amountMinor: 150_000,
         currency: "RUB",
         rateE4: 790_000,

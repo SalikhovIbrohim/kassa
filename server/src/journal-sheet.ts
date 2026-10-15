@@ -3,6 +3,7 @@ import type { Queryable } from "./balances.js";
 import { cashDayStartSql } from "./cash-day.js";
 import { isClientPayment, readCategories, type Category } from "./categories.js";
 import { OPERATION_FROM, OPERATION_SELECT, inDollars, type LedgerEvents, type OperationRow } from "./ledger.js";
+import { KASSA_LABEL } from "./kassa.js";
 import { createSheetsClient, SheetsError, type SheetSettings, type SheetsClient } from "./sheets-api.js";
 
 type Logger = { warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
@@ -37,8 +38,11 @@ export const SHEET_HEADER = [
   "Комментарий",
   "Статус",
   "ID записи",
+  "Касса",
 ] as const;
-const LAST_COLUMN = "N";
+const LAST_COLUMN = "O";
+/** The column of the id of the entry, by which a row is found again. */
+const ID_COLUMN = "N";
 const MAX_BACKOFF_SECONDS = 15 * 60;
 /** A row that is being written is not offered to anybody else for this long. */
 const LEASE_SECONDS = 60;
@@ -83,6 +87,7 @@ export function sheetRow(row: OperationRow, categories: readonly Category[]): Ar
     comment,
     status,
     row.id,
+    KASSA_LABEL[row.kassa],
   ];
 }
 
@@ -123,7 +128,18 @@ export function createJournalSheet(options: JournalSheetOptions): JournalSheet {
     if (ready) return;
     await client!.ensureTab();
     const [first] = await client!.read(`A1:${LAST_COLUMN}1`);
-    if (!first || first.length === 0) await client!.write(`A1:${LAST_COLUMN}1`, [[...SHEET_HEADER]]);
+    const current = (first ?? []).map(String);
+    if (current.join("\t") !== SHEET_HEADER.join("\t")) {
+      await client!.write(`A1:${LAST_COLUMN}1`, [[...SHEET_HEADER]]);
+      // A sheet written by a version with fewer columns: every row is written again, once, to fill the new ones.
+      if (current.length > 0) {
+        await pool.query(
+          `INSERT INTO sheet_outbox (operation_id, created_at, next_attempt_at)
+           SELECT r.operation_id, $1, $1 FROM sheet_rows r ORDER BY r.row_number`,
+          [now()],
+        );
+      }
+    }
     ready = true;
   }
 
@@ -161,7 +177,7 @@ export function createJournalSheet(options: JournalSheetOptions): JournalSheet {
     let rowNumber = (await pool.query<{ row_number: number }>("SELECT row_number FROM sheet_rows WHERE operation_id = $1", [operationId])).rows[0]?.row_number;
     if (rowNumber === undefined && attempts > 1) {
       // A try before may have added the row and failed before its number was kept: look for the id, not to add it twice.
-      const ids = await client!.read(`${LAST_COLUMN}:${LAST_COLUMN}`);
+      const ids = await client!.read(`${ID_COLUMN}:${ID_COLUMN}`);
       const index = ids.findIndex((cells) => cells[0] === operationId);
       if (index >= 0) rowNumber = index + 1;
     }

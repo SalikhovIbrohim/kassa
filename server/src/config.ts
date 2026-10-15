@@ -27,6 +27,8 @@ export type Config = {
   /** The topics of that group that get the messages about incomes and about expenses, when it has topics; unset: the main topic. */
   telegramIncomeThreadId: number | undefined;
   telegramExpenseThreadId: number | undefined;
+  /** The topic of the Andijan cash desk: all its messages. */
+  telegramAndijanThreadId: number | undefined;
   /** The address of the Bot API; only a test or a proxy sets it. */
   telegramApiUrl: string;
   /** The 1C base the payments of clients are written to. Unset: nothing is written. */
@@ -99,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     telegramGroupChatId: groupChatId,
     telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),
     telegramExpenseThreadId: threadOf("TELEGRAM_THREAD_EXPENSE"),
+    telegramAndijanThreadId: threadOf("TELEGRAM_THREAD_ANDIJAN"),
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
     onec,
     ...sheetOrProblem(env),

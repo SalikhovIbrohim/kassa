@@ -326,7 +326,8 @@ export function onecEvents(onec: OneC, telegram: Outbox): LedgerEvents | undefin
   if (!onec.enabled) return undefined;
   return {
     async created(db, row) {
-      if (isClientPayment(row.kind, row.category)) await onec.queue(db, row.id);
+      // Only the Moscow cash desk keeps its book in 1C.
+      if (row.kassa === "moscow" && isClientPayment(row.kind, row.category)) await onec.queue(db, row.id);
     },
     async changed(db, event) {
       const state = (await db.query<{ status: string; doc_number: string | null }>("SELECT status, doc_number FROM onec_outbox WHERE operation_id = $1", [event.row.id])).rows[0];

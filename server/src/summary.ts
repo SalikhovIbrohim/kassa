@@ -1,3 +1,4 @@
+import { KASSA_CURRENCIES, kassaProperty, type Kassa } from "./kassa.js";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
@@ -45,7 +46,7 @@ export type DollarSummary = {
   };
 };
 
-type SummaryQuery = { from?: string; to?: string };
+type SummaryQuery = { from?: string; to?: string; kassa?: Kassa };
 
 /**
  * The totals of a period for the viewer, each currency on its own: the balance at the start, income, expense by
@@ -67,6 +68,8 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
           properties: {
             from: { type: "string", format: "date" },
             to: { type: "string", format: "date" },
+            // One cash desk, or both added up when it is not given (each currency on its own, as always).
+            kassa: kassaProperty,
           },
         },
       },
@@ -85,7 +88,8 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
       // One statement, so one snapshot of the database: the balances and the sums cannot come from two moments.
       const start = cashDayStart(from);
       const end = cashDayEnd(to);
-      const values: unknown[] = [start, end, [...CURRENCIES]];
+      const kassa = query.kassa ?? null;
+      const values: unknown[] = [start, end, kassa ? [...KASSA_CURRENCIES[kassa]] : [...CURRENCIES], kassa];
       const inPeriod = "op.created_at >= $1 AND op.created_at < $2";
       // The costs are the expense categories that count as costs; the others (the handover to the owner) are on their own.
       const expenseCategories = (await readCategories(pool)).filter((category) => category.kind === "expense");
@@ -100,21 +104,20 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
 
       const result = await pool.query(
         `SELECT c.currency,
-                COALESCE(ob.amount_minor, 0) AS opening_balance,
+                COALESCE((SELECT SUM(ob.amount_minor) FROM opening_balances ob WHERE ob.currency = c.currency AND ($4::text IS NULL OR ob.kassa = $4)), 0) AS opening_balance,
                 COALESCE(SUM(CASE op.kind WHEN 'income' THEN op.amount_minor ELSE -op.amount_minor END), 0) AS until_end,
                 COALESCE(SUM(CASE op.kind WHEN 'income' THEN op.amount_minor ELSE -op.amount_minor END)
                          FILTER (WHERE op.created_at < $1), 0) AS until_start,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'income' AND ${inPeriod}), 0) AS income,
                 COALESCE(SUM(op.amount_minor) FILTER (WHERE op.kind = 'expense' AND op.category = ANY(${handover}) AND ${inPeriod}), 0) AS handover,
                 COALESCE((SELECT SUM(rb.difference_minor) FROM reconciliation_balances rb JOIN reconciliations r ON r.id = rb.reconciliation_id
-                           WHERE rb.currency = c.currency AND r.made_at < $2), 0) AS difference_until_end,
+                           WHERE rb.currency = c.currency AND r.made_at < $2 AND ($4::text IS NULL OR r.kassa = $4)), 0) AS difference_until_end,
                 COALESCE((SELECT SUM(rb.difference_minor) FROM reconciliation_balances rb JOIN reconciliations r ON r.id = rb.reconciliation_id
-                           WHERE rb.currency = c.currency AND r.made_at < $1), 0) AS difference_until_start,
+                           WHERE rb.currency = c.currency AND r.made_at < $1 AND ($4::text IS NULL OR r.kassa = $4)), 0) AS difference_until_start,
                 ${categoryColumns.join(",\n                ")}
            FROM unnest($3::text[]) AS c(currency)
-           LEFT JOIN opening_balances ob ON ob.currency = c.currency
-           LEFT JOIN operations op ON op.currency = c.currency AND op.deleted_at IS NULL AND op.created_at < $2
-          GROUP BY c.currency, ob.amount_minor
+           LEFT JOIN operations op ON op.currency = c.currency AND op.deleted_at IS NULL AND op.created_at < $2 AND ($4::text IS NULL OR op.kassa = $4)
+          GROUP BY c.currency
           ORDER BY c.currency`,
         values,
       );
@@ -149,7 +152,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
            SELECT op.kind, op.currency, op.amount_minor, COALESCE(op.category = ANY($3::text[]), false) AS handover,
                   COALESCE(op.rate_e4, ${dayAverageRateSql("op")}) AS rate
              FROM operations op
-            WHERE op.deleted_at IS NULL AND op.created_at >= $1 AND op.created_at < $2
+            WHERE op.deleted_at IS NULL AND op.created_at >= $1 AND op.created_at < $2 AND ($4::text IS NULL OR op.kassa = $4)
          )
          SELECT kind, handover,
                 COALESCE(SUM(CASE WHEN currency = 'USD' THEN amount_minor
@@ -157,7 +160,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
                 COALESCE(SUM(amount_minor) FILTER (WHERE currency = 'RUB' AND rate IS NULL), 0) AS unrated_rub,
                 COUNT(*) FILTER (WHERE currency = 'RUB' AND rate IS NULL) AS unrated_count
            FROM rated GROUP BY kind, handover`,
-        [start, end, handoverCodes],
+        [start, end, handoverCodes, kassa],
       );
       const usd: DollarSummary = {
         incomeMinor: 0,

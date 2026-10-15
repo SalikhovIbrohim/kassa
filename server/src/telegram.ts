@@ -76,14 +76,14 @@ export async function registerTelegram(app: FastifyInstance, options: TelegramOp
     if (!checked.ok) {
       return reply.code(401).send({ error: checked.reason === "stale" ? "stale_telegram_data" : "invalid_telegram_data" });
     }
-    const found = await pool.query<{ id: string; login: string; display_name: string; role: string }>(
-      "SELECT id, login, display_name, role FROM users WHERE telegram_id = $1 AND active",
+    const found = await pool.query<{ id: string; login: string; display_name: string; role: string; city: string | null }>(
+      "SELECT id, login, display_name, role, city FROM users WHERE telegram_id = $1 AND active",
       [checked.telegramId],
     );
     const user = found.rows[0];
     if (!user) return reply.code(403).send({ error: "telegram_not_linked" });
     if (!(await app.startSession(reply, user.id))) return reply.code(403).send({ error: "telegram_not_linked" });
-    return { user: { login: user.login, displayName: user.display_name, role: user.role, telegramLinked: true } };
+    return { user: { login: user.login, displayName: user.display_name, role: user.role, city: user.city, telegramLinked: true } };
   });
 
   app.post<{ Body: { initData: string } }>(

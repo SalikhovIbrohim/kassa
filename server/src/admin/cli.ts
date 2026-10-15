@@ -1,6 +1,15 @@
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
+import { isKassa, type Kassa } from "../kassa.js";
+
+/** --kassa moscow or andijan; undefined when not given. */
+function kassaOption(text: string | undefined): Kassa | undefined {
+  if (text === undefined) return undefined;
+  const kassa = text.trim().toLowerCase();
+  if (!isKassa(kassa)) throw new AdminError(`--kassa must be moscow or andijan, got "${text}"`);
+  return kassa;
+}
 import { loadOneC } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
@@ -38,9 +47,11 @@ Commands:
   revoke-user    --login <login>      block access and end all sessions
   restore-user   --login <login>      give access back (the user logs in again)
   reset-password --login <login>      set a new password and end all sessions
-  set-opening-balance --currency <RUB|USD> --amount <1000.50>
-                                      the amount a currency's balance starts from
-  balances                            current balance per currency (opening balance + income)
+  set-opening-balance --currency <RUB|USD> --amount <1000.50> [--kassa <moscow|andijan>]
+                                      the amount a currency's balance starts from, in a cash desk (Moscow
+                                      unless said; Andijan keeps dollars only)
+  balances [--kassa <moscow|andijan>] current balance per currency (opening balance + income), of one cash
+                                      desk or of both added up
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
@@ -70,6 +81,7 @@ async function main(): Promise<void> {
     args: rest,
     options: {
       login: { type: "string" },
+      kassa: { type: "string" },
       role: { type: "string" },
       name: { type: "string" },
       currency: { type: "string" },
@@ -134,9 +146,10 @@ async function main(): Promise<void> {
       case "set-opening-balance": {
         const currency = required(values.currency, "--currency");
         const amount = required(values.amount, "--amount");
-        const minor = await setOpeningBalance(pool, currency, amount);
-        console.log(`Opening balance for ${currency.trim().toUpperCase()} set to ${formatAmount(minor)}.`);
-        const entered = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM operations")).rows[0]!.n;
+        const kassa = kassaOption(values.kassa) ?? "moscow";
+        const minor = await setOpeningBalance(pool, currency, amount, kassa);
+        console.log(`Opening balance for ${currency.trim().toUpperCase()} in ${kassa} set to ${formatAmount(minor)}.`);
+        const entered = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM operations WHERE kassa = $1", [kassa])).rows[0]!.n;
         if (entered > 0) {
           console.log(
             `Note: ${entered} operation(s) are in the book already. The new opening balance replaces the old one, ` +
@@ -146,7 +159,7 @@ async function main(): Promise<void> {
         break;
       }
       case "balances": {
-        for (const balance of await getBalances(pool)) {
+        for (const balance of await getBalances(pool, kassaOption(values.kassa))) {
           console.log(`${balance.currency}  ${formatAmount(balance.amountMinor)}`);
         }
         break;

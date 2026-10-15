@@ -116,6 +116,7 @@ describe("correcting and deleting operations", () => {
         operation: {
           id: body.id,
           type: "income",
+          kassa: "moscow",
           amountMinor: 50_000,
           currency: "RUB",
           rateE4: 790_000,
@@ -320,6 +321,7 @@ describe("correcting and deleting operations", () => {
         operation: {
           id: body.id,
           type: "income",
+          kassa: "moscow",
           amountMinor: 75_050,
           currency: "USD",
           rateE4: null,

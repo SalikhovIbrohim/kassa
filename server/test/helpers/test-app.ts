@@ -80,6 +80,7 @@ type StartOptions = {
   telegramGroupChatId?: string;
   telegramIncomeThreadId?: number;
   telegramExpenseThreadId?: number;
+  telegramAndijanThreadId?: number;
   telegramApiUrl?: string;
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
   /** The 1C base to write the payments of clients to (a fake one, see fake-onec.ts). */
@@ -156,6 +157,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       telegramGroupChatId: options.telegramGroupChatId,
       telegramIncomeThreadId: options.telegramIncomeThreadId,
       telegramExpenseThreadId: options.telegramExpenseThreadId,
+      telegramAndijanThreadId: options.telegramAndijanThreadId,
       telegramApiUrl: options.telegramApiUrl,
       telegramQueue: options.telegramQueue,
       onec: options.onec,

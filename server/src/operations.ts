@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
+import { defaultKassa, KASSA_CURRENCIES, kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
 import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
@@ -50,9 +51,19 @@ async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: Fas
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
   const { pool, now, events, outbox } = options;
 
-  app.get("/api/balances", { onRequest: app.authenticate }, async () => ({
-    balances: await getBalances(pool),
-  }));
+  // The balances of one cash desk: the one asked for (a person of everywhere chooses), or the person's own.
+  app.get<{ Querystring: { kassa?: Kassa } }>(
+    "/api/balances",
+    {
+      onRequest: app.authenticate,
+      schema: { querystring: { type: "object", additionalProperties: false, properties: { kassa: kassaProperty } } },
+    },
+    async (request, reply) => {
+      const kassa = request.query.kassa ?? defaultKassa(request.user!.city);
+      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      return { balances: await getBalances(pool, kassa) };
+    },
+  );
 
   // Codes people typed before, to save typing: every code in use, most recently used first,
   // matched on the lower-cased key so letter case works for Cyrillic too. A deleted
@@ -138,9 +149,17 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
 
+      // The cash desk: the one sent, or the person's own; a person works only in the desks of their city.
+      const kassa = body.kassa ?? defaultKassa(request.user!.city);
+      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      if (!KASSA_CURRENCIES[kassa].includes(normalized.fields.currency)) {
+        return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by this cash desk" });
+      }
+
       const recorded = await recordOperation(pool, {
         id: body.id,
         kind: normalized.kind,
+        kassa,
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),

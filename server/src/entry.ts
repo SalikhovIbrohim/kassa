@@ -1,3 +1,4 @@
+import { kassaProperty, type Kassa } from "./kassa.js";
 import { DEFAULT_INCOME_CATEGORY, type Category } from "./categories.js";
 import type { Snapshot } from "./ledger.js";
 import { CURRENCIES, MAX_AMOUNT_MINOR, MAX_RATE_E4, MIN_RATE_E4 } from "./money.js";
@@ -43,7 +44,8 @@ export type ExpenseEntry = {
   comment?: string;
 };
 
-export type Entry = IncomeEntry | ExpenseEntry;
+/** The cash desk it goes to (see `kassaProperty`). */
+export type Entry = (IncomeEntry | ExpenseEntry) & { kassa?: Kassa };
 
 const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
 const tripNumberProperty = { type: "integer", minimum: 1, maximum: 999_999_999 } as const;
@@ -56,6 +58,8 @@ const commonProperties = {
   currency: { type: "string", enum: [...CURRENCIES] },
   rateE4: { type: "integer", minimum: MIN_RATE_E4, maximum: MAX_RATE_E4 },
   comment: { type: "string", maxLength: 500, pattern: NO_NUL },
+  /** The cash desk it goes to; without it, the one of the person (see `defaultKassa`). A correction never moves an entry. */
+  kassa: kassaProperty,
 } as const;
 
 /**

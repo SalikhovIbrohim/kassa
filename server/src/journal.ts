@@ -1,3 +1,4 @@
+import { kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
@@ -21,6 +22,7 @@ type JournalQuery = {
   category?: string;
   clientCode?: string;
   author?: string;
+  kassa?: Kassa;
   deleted?: "exclude" | "include" | "only";
   limit?: string;
   cursor?: string;
@@ -81,6 +83,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             category: { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
+            // One cash desk; without it, the person's own, or both for a person of everywhere.
+            kassa: kassaProperty,
             // Deleted operations: left out (the default), shown among the others, or only them.
             deleted: { type: "string", enum: ["exclude", "include", "only"] },
             // Query strings arrive as text and this server does not guess types.
@@ -131,6 +135,9 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
 
       // lower() on both sides: the database folds case its own way, and so must the typed text.
       if (query.author !== undefined) add((p) => `lower(u.login) = lower(${p})`, query.author);
+      const kassa = query.kassa ?? user.city ?? undefined;
+      if (kassa !== undefined && !mayUseKassa(user.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      if (kassa !== undefined) add((p) => `o.kassa = ${p}`, kassa);
       if (query.currency !== undefined) add((p) => `o.currency = ${p}`, query.currency);
       if (query.type !== undefined) add((p) => `o.kind = ${p}`, query.type);
       if (query.category !== undefined) add((p) => `o.category = ${p}`, query.category);

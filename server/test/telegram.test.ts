@@ -33,7 +33,7 @@ describe("signing in inside Telegram", () => {
     const response = await login(started, signedLaunch(TOKEN, 1001, { authDate: NOW }));
 
     expect(response.status).toBe(200);
-    expect((await response.json()).user).toEqual({ login: "ivan", displayName: "Иван", role: "cashier", telegramLinked: true });
+    expect((await response.json()).user).toEqual({ login: "ivan", displayName: "Иван", role: "cashier", city: null, telegramLinked: true });
     const cookie = (response.headers.getSetCookie().find((c) => c.startsWith("kassa_session=")) ?? "").split(";")[0]!;
     expect((await (await get(started, "/api/me", cookie)).json()).user).toMatchObject({ login: "ivan", telegramLinked: true });
   });

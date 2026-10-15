@@ -22,6 +22,7 @@ const app = await buildApp({
   telegramGroupChatId: config.telegramGroupChatId,
   telegramIncomeThreadId: config.telegramIncomeThreadId,
   telegramExpenseThreadId: config.telegramExpenseThreadId,
+  telegramAndijanThreadId: config.telegramAndijanThreadId,
   telegramApiUrl: config.telegramApiUrl,
   onec: config.onec,
   sheet: config.sheet,

@@ -5,6 +5,8 @@ export type TelegramSettings = {
   /** The topics of the group that get the messages about incomes and about expenses, when the group has topics; without one the main topic ("General") gets them. */
   incomeThreadId?: number;
   expenseThreadId?: number;
+  /** The topic of everything of the Andijan cash desk (incomes, expenses, corrections, counts); without one, the main topic. */
+  andijanThreadId?: number;
   /** `https://api.telegram.org` unless a test or a proxy stands in for it. */
   apiUrl: string;
 };

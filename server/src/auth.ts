@@ -59,6 +59,7 @@ type UserRow = {
   display_name: string;
   password_hash: string;
   role: Role;
+  city: SessionUser["city"];
 };
 
 declare module "fastify" {
@@ -159,7 +160,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
   async function findSession(
     token: string,
   ): Promise<{ id: string; lastSeenAt: Date; user: SessionUser } | undefined> {
-    const result = await pool.query<UserRow & { session_id: string; last_seen_at: Date; city: SessionUser["city"] }>(
+    const result = await pool.query<UserRow & { session_id: string; last_seen_at: Date }>(
       `SELECT s.id AS session_id, s.last_seen_at, u.id, u.login, u.display_name, u.role, u.city
          FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token_hash = $1 AND s.expires_at > $2 AND u.active`,
@@ -175,9 +176,10 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
   }
 
   app.get("/api/me", { onRequest: app.authenticate }, async (request) => {
-    const { id, login, displayName, role } = request.user!;
+    const { id, login, displayName, role, city } = request.user!;
     const linked = await pool.query<{ linked: boolean }>("SELECT telegram_id IS NOT NULL AS linked FROM users WHERE id = $1", [id]);
-    return { user: { login, displayName, role, telegramLinked: linked.rows[0]?.linked ?? false } };
+    // The city is the cash desk the person works in; none: both (they choose on the screen).
+    return { user: { login, displayName, role, city, telegramLinked: linked.rows[0]?.linked ?? false } };
   });
 
   app.post("/api/logout", async (request, reply) => {
@@ -227,7 +229,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       // a login follows the account it opens, never the spelling. Text that opens no account
       // is counted as typed, the same way for every such text.
       const found = await pool.query<UserRow>(
-        `SELECT id, login, display_name, password_hash, role
+        `SELECT id, login, display_name, password_hash, role, city
            FROM users WHERE lower(login) = lower($1) AND active`,
         [typedLogin],
       );
@@ -307,7 +309,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
 
       setSessionCookie(reply, token);
       return {
-        user: { login: user.login, displayName: user.display_name, role: user.role },
+        user: { login: user.login, displayName: user.display_name, role: user.role, city: user.city },
       };
     },
   );

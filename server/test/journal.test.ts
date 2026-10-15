@@ -79,6 +79,7 @@ describe("the journal of operations", () => {
           {
             id: second.id,
             type: "expense",
+            kassa: "moscow",
             amountMinor: 30_000,
             currency: "RUB",
             rateE4: null,
@@ -101,6 +102,7 @@ describe("the journal of operations", () => {
           {
             id: first.id,
             type: "income",
+            kassa: "moscow",
             amountMinor: 150_050,
             currency: "RUB",
             rateE4: 790_000,

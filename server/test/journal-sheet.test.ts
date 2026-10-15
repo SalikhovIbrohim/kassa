@@ -53,8 +53,8 @@ describe("the journal in a Google spreadsheet", () => {
     await post(started, ivan, body);
 
     const rows = await google.untilRows("Журнал", 2);
-    expect(rows[0]).toEqual(["Дата и время (МСК)", "Кассир", "Операция", "Приход", "Расход", "Валюта", "Курс", "Клиент", "Рейс", "Контрагент", "Сотрудник", "Комментарий", "Статус", "ID записи"]);
-    expect(rows[1]).toEqual(["14.10.2026 18:45", "Хожиакбар", "Приход", "86550", "", "₽", "86.55", "A412 Лочинбек", "", "", "", "за рейс", "", body.id]);
+    expect(rows[0]).toEqual(["Дата и время (МСК)", "Кассир", "Операция", "Приход", "Расход", "Валюта", "Курс", "Клиент", "Рейс", "Контрагент", "Сотрудник", "Комментарий", "Статус", "ID записи", "Касса"]);
+    expect(rows[1]).toEqual(["14.10.2026 18:45", "Хожиакбар", "Приход", "86550", "", "₽", "86.55", "A412 Лочинбек", "", "", "", "за рейс", "", body.id, "Москва"]);
   });
 
   it("writes a correction and a deletion over the entry's own row, with what it says now and its status", async () => {

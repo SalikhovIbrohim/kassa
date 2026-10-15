@@ -123,6 +123,9 @@ async function adminChangeText(
   ].join("\n");
 }
 
+/** The topic of the group an entry is told in: Andijan has one topic for all of it; Moscow, one for incomes and one for expenses. */
+const topicOf = (row: OperationRow) => (row.kassa === "andijan" ? "andijan" : row.kind);
+
 /**
  * The messages for the Telegram group: written down, with the operation, when an entry of a category that the owner
  * wants the group told of is made, corrected or deleted. The incomes go to one topic of the group and the expenses to
@@ -143,13 +146,13 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
   return {
     async created(db, row) {
       const categories = await readCategories(db);
-      if (told(categories, row.kind, row.category)) await outbox.queue(db, createdText(row, categories), row.id, row.kind);
+      if (told(categories, row.kind, row.category)) await outbox.queue(db, createdText(row, categories), row.id, topicOf(row));
     },
 
     async changed(db, event) {
       const { before, row, action } = event;
       const categories = await readCategories(db);
-      if (event.byAdmin) await outbox.queue(db, await adminChangeText(db, event, categories), row.id, "general");
+      if (event.byAdmin) await outbox.queue(db, await adminChangeText(db, event, categories), row.id, row.kassa === "andijan" ? "andijan" : "general");
       const wasTold = told(categories, row.kind, before.category);
       const isTold = told(categories, row.kind, row.category);
       if (!wasTold && !(action === "edit" && isTold)) return;
@@ -161,7 +164,7 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
           db,
           [`🗑 Удалено: ${headline(row.kind, before, categories)}`, `Было: ${amountLine(before)}`, `Удалил: ${who}, ${when}${because(event.reason)}`].join("\n"),
           row.id,
-          row.kind,
+          topicOf(row),
         );
         return;
       }
@@ -178,7 +181,7 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
             `Исправил: ${who}, ${when}${because(event.reason)}`,
           ].join("\n"),
           row.id,
-          row.kind,
+          topicOf(row),
         );
       } else if (wasTold) {
         await outbox.queue(
@@ -189,10 +192,10 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
             `Исправил: ${who}, ${when}${because(event.reason)}`,
           ].join("\n"),
           row.id,
-          row.kind,
+          topicOf(row),
         );
       } else {
-        await outbox.queue(db, `${createdText(row, categories)}\n(внесено исправлением записи: ${who}${because(event.reason)})`, row.id, row.kind);
+        await outbox.queue(db, `${createdText(row, categories)}\n(внесено исправлением записи: ${who}${because(event.reason)})`, row.id, topicOf(row));
       }
     },
   };
