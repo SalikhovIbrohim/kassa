@@ -1,18 +1,20 @@
 import { useState, type ReactNode, type Ref } from "react";
 import type { BalancesState } from "./Balances";
 import { CategoriesAdmin } from "./CategoriesAdmin";
+import { ClientsAdmin } from "./ClientsAdmin";
 import { Journal } from "./Journal";
 import { ReconciliationsList } from "./ReconciliationsList";
 import { Totals } from "./Totals";
 import { UsersAdmin } from "./UsersAdmin";
 import { Shell, type ShellGroup } from "./Shell";
 
-type Section = "journal" | "totals" | "reconciliations" | "categories" | "users";
+type Section = "journal" | "totals" | "reconciliations" | "clients" | "categories" | "users";
 
 const LABEL: Record<Section, string> = {
   journal: "Журнал",
   totals: "Итоги",
   reconciliations: "Сверки",
+  clients: "Клиенты",
   categories: "Категории",
   users: "Люди",
 };
@@ -48,6 +50,7 @@ export function ManageScreen(props: Props) {
   const item = (key: Section) => ({ key, label: LABEL[key] });
   const groups: ShellGroup[] = [
     { title: null, items: [item("journal"), item("totals"), item("reconciliations")] },
+    { title: "Справочники", items: [item("clients")] },
     { title: "Настройки", items: admin === undefined ? [item("categories")] : [item("categories"), item("users")] },
   ];
 
@@ -81,6 +84,9 @@ export function ManageScreen(props: Props) {
         {opened.has("reconciliations") && (
           <ReconciliationsList onSessionExpired={onSessionExpired} onRefresh={onRefresh} active={section === "reconciliations"} />
         )}
+      </div>
+      <div hidden={section !== "clients"}>
+        {opened.has("clients") && <ClientsAdmin canEdit={admin !== undefined} onSessionExpired={onSessionExpired} active={section === "clients"} />}
       </div>
       <div hidden={section !== "categories"}>
         {opened.has("categories") && <CategoriesAdmin onSessionExpired={onSessionExpired} active={section === "categories"} />}

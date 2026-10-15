@@ -70,6 +70,7 @@ export function EntryScreen({ login, canReconcile, isAdmin = false, section, onS
     changed,
     categories,
     onReloadCategories: reloadCategories,
+    canAddClients: isAdmin || canReconcile,
   };
 
   return (

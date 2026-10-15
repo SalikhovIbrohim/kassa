@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type pg from "pg";
 import { readCategories } from "./categories.js";
+import { clientOfEntry } from "./clients.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { changeOperation, readHistory, toOperation, type Change, type ChangeResult, type LedgerEvents } from "./ledger.js";
 import type { Outbox } from "./outbox.js";
@@ -48,10 +49,16 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     },
     async (request, reply) => {
       // A correction that leaves the category as it is stays valid after the category was archived.
-      const stored = await pool.query<{ category: string | null }>("SELECT category FROM operations WHERE id = $1", [request.params.id]);
+      const stored = await pool.query<{ category: string | null; client_code: string | null }>("SELECT category, client_code FROM operations WHERE id = $1", [request.params.id]);
       const normalized = normalizeEntry(request.body, await readCategories(pool), stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
+      }
+      // A client of the directory; one the entry named before may stay, even when it is not (or no longer) in it.
+      if (normalized.fields.clientCode !== null) {
+        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code);
+        if ("error" in client) return reply.code(400).send({ statusCode: 400, error: client.error, message: "body/clientCode is not a client of the directory" });
+        normalized.fields.clientCode = client.clientCode;
       }
       return apply(reply, request.user!, request.params.id, {
         action: "edit",

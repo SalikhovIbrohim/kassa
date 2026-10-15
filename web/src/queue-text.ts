@@ -34,5 +34,7 @@ export function problemText(problem: Problem): string {
       return "У вас нет права вносить операции.";
     case "rejected":
       return "Сервер не принял данные записи. Удалите её и внесите заново.";
+    case "unknown-client":
+      return "Такого клиента нет в справочнике. Удалите запись и внесите заново, выбрав клиента из подсказок.";
   }
 }

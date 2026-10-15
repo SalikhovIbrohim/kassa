@@ -175,6 +175,7 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
           forbidden: "У вас нет права вносить операции.",
           conflict: "Эта запись уже сохранена раньше, возможно с другой суммой. Проверьте остаток.",
           rejected: "Проверьте данные и попробуйте ещё раз.",
+          "unknown-client": "Такого клиента нет в справочнике. Выберите клиента из подсказок.",
         }[problem.kind],
       );
       return false;

@@ -22,6 +22,7 @@ import type { Currency } from "./money";
 export type Problem =
   | { kind: "conflict" }
   | { kind: "rejected" }
+  | { kind: "unknown-client" }
   | { kind: "forbidden" };
 
 export type QueuedEntry = {
@@ -245,6 +246,8 @@ export function createQueue(deps: QueueDeps) {
         return { kind: "refused", problem: { kind: "forbidden" } };
       case "rejected":
         return { kind: "refused", problem: { kind: "rejected" } };
+      case "unknown-client":
+        return { kind: "refused", problem: { kind: "unknown-client" } };
     }
   }
 

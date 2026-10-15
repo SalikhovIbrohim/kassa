@@ -323,6 +323,8 @@ export type OperationResult =
         | "wrong-session"
         | "forbidden"
         | "conflict"
+        /** The client code is not one of the directory. */
+        | "unknown-client"
         | "rejected"
         | "server-error";
     };
@@ -361,6 +363,10 @@ export async function createOperation(input: OperationInput, login: string): Pro
   // The server itself failed, or is busy: the entry may or may not have been saved, which is not the
   // data's fault and must not be reported as if it were.
   if (response.status >= 500 || TRY_AGAIN_LATER.has(response.status)) return { ok: false, reason: "server-error" };
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (body?.error === "unknown_client") return { ok: false, reason: "unknown-client" };
+  }
   return { ok: false, reason: "rejected" };
 }
 
@@ -752,4 +758,82 @@ export async function changeAccount(
 export async function deleteAccount(id: string): Promise<AccountResult> {
   const response = await request(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" });
   return accountResult(response);
+}
+
+// ---- Clients ----
+
+/** A client of the directory: one to a code (А707, А34-2); the names may repeat. */
+export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
+
+/** How an entry names a client: "А707 Карим", or the code alone. */
+export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.name ? `${client.code} ${client.name}` : client.code);
+
+/**
+ * The clients whose code starts with `q`, then those whose name has it; all of them without `q` (the list of
+ * «Управление»), switched off ones too with `all`.
+ */
+export async function fetchClients(q = "", options: { all?: boolean; limit?: number } = {}): Promise<Client[]> {
+  const query = new URLSearchParams({ ...(q ? { q } : {}), ...(options.all ? { all: "1" } : {}), ...(options.limit ? { limit: String(options.limit) } : {}) });
+  const response = await request(`/api/clients${query.toString() ? `?${query}` : ""}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/clients`);
+  return ((await response.json()) as { clients: Client[] }).clients;
+}
+
+export type ClientResult =
+  | { ok: true; client?: Client }
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "bad-code" | "rejected" | "server-error" };
+
+async function clientResult(response: Response): Promise<ClientResult> {
+  if (response.ok) {
+    const body = (await response.json().catch(() => null)) as { client?: Client } | null;
+    return { ok: true, client: body?.client };
+  }
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  if (body?.error === "client_exists") return { ok: false, reason: "exists" };
+  if (body?.error === "bad_code") return { ok: false, reason: "bad-code" };
+  return { ok: false, reason: "rejected" };
+}
+
+/** A new client (the admin, and the head cashier from the entry form). */
+export async function createClient(input: { code: string; name: string; phone?: string; note?: string }): Promise<ClientResult> {
+  const response = await request("/api/admin/clients", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return clientResult(response);
+}
+
+/** The admin changes a client's name, phone, note, or switches them off. The code never changes. */
+export async function changeClient(code: string, change: { name?: string; phone?: string | null; note?: string | null; active?: boolean }): Promise<ClientResult> {
+  const response = await request(`/api/admin/clients/${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(change),
+  });
+  return clientResult(response);
+}
+
+export type ImportResult =
+  | { ok: true; added: number; skipped: number }
+  | { ok: false; reason: "session-expired" | "forbidden" | "server-error" | "rejected"; repeated?: Array<{ code: string; lines: number[] }>; bad?: Array<{ line: number; code: string }> };
+
+/** A whole list at once: new codes are added, codes already there are left alone. A code twice: nothing is loaded. */
+export async function importClients(clients: Array<{ code: string; name: string; phone?: string }>): Promise<ImportResult> {
+  const response = await request("/api/admin/clients/import", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clients }),
+  }, 60_000);
+  if (response.ok) return { ok: true, ...((await response.json()) as { added: number; skipped: number }) };
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  const body = (await response.json().catch(() => null)) as { codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
+  return { ok: false, reason: "rejected", repeated: body?.codes, bad: body?.rows };
 }

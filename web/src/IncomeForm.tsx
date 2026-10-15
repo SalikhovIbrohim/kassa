@@ -28,6 +28,8 @@ type Props = {
   /** The lists of categories (see `useCategories`). */
   categories: Category[] | null | undefined;
   onReloadCategories: () => void;
+  /** The admin and the head cashier may add a client from the form. */
+  canAddClients?: boolean;
   /** The operation last corrected or deleted in the journal (see useEntry). */
   changed?: Operation | null;
   /** The form is on the screen (and not hidden behind the other one or the journal). */
@@ -61,6 +63,7 @@ export function IncomeForm({
   changed,
   categories,
   onReloadCategories,
+  canAddClients = false,
   active,
 }: Props) {
   const [amount, setAmount] = useState("");
@@ -184,7 +187,7 @@ export function IncomeForm({
 
       <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside canAdd={canAddClients} onSessionExpired={onSessionExpired} />}
 
       <TripFields
         needsTrip={needsTrip}

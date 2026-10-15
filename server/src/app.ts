@@ -18,6 +18,7 @@ import { registerReconciliations } from "./reconciliations.js";
 import { registerTelegram } from "./telegram.js";
 import { registerSummary } from "./summary.js";
 import { registerUserAdmin } from "./user-admin.js";
+import { registerClients } from "./clients.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
 export type { LoginProtectionOptions };
@@ -165,6 +166,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   await registerCategoryAdmin(app, { pool: database.pool });
   await registerUserAdmin(app, { pool: database.pool });
+  await registerClients(app, { pool: database.pool });
 
   await registerCorrections(app, {
     pool: database.pool,

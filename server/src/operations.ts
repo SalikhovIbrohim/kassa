@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
+import { clientOfEntry } from "./clients.js";
 import { defaultKassa, KASSA_CURRENCIES, kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
 import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
@@ -143,10 +144,17 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     async (request, reply) => {
       const body = request.body;
       // An entry that is stored already (a retry) is not turned away because its category was archived since.
-      const stored = await pool.query<{ category: string | null }>("SELECT category FROM operations WHERE id = $1", [body.id]);
+      const stored = await pool.query<{ category: string | null; client_code: string | null }>("SELECT category, client_code FROM operations WHERE id = $1", [body.id]);
       const normalized = normalizeEntry(body, await readCategories(pool), stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
+      }
+
+      // The client is one of the directory, and is written the way the directory names them ("А707 Карим").
+      if (normalized.fields.clientCode !== null) {
+        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code);
+        if ("error" in client) return reply.code(400).send({ statusCode: 400, error: client.error, message: "body/clientCode is not a client of the directory" });
+        normalized.fields.clientCode = client.clientCode;
       }
 
       // The cash desk: the one sent, or the person's own; a person works only in the desks of their city.
