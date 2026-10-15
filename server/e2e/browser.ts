@@ -109,3 +109,26 @@ export function seeValue(locator: Locator, expected: string) {
 export function seeGone(locator: Locator) {
   return expect.poll(() => locator.count(), WAIT).toBe(0);
 }
+
+/** A drop-down list drawn by the page (web/src/components/ui/select.tsx), found by the name of its field. */
+export const selectField = (scope: Page | Locator, name: string) => scope.locator(`[data-slot=select-trigger][data-name=${name}]:visible`).first();
+
+/** Opens a drop-down list drawn by the page and chooses a line: by its value, or by its text. */
+export async function choose(trigger: Locator, option: string | { label: string }) {
+  await trigger.click();
+  const page = trigger.page();
+  const item = typeof option === "string" ? page.locator(`[role=option][data-value="${option}"]`) : page.getByRole("option", { name: option.label, exact: true });
+  await item.click();
+  await page.getByRole("listbox").waitFor({ state: "hidden" });
+}
+
+/** The lines a drop-down list drawn by the page offers, read by opening it and closing it again. */
+export async function optionsOf(trigger: Locator): Promise<string[]> {
+  await trigger.click();
+  const page = trigger.page();
+  await page.getByRole("option").first().waitFor();
+  const texts = await page.getByRole("option").evaluateAll((items) => items.map((item) => item.firstElementChild?.textContent ?? ""));
+  await page.keyboard.press("Escape");
+  await page.getByRole("listbox").waitFor({ state: "hidden" });
+  return texts;
+}

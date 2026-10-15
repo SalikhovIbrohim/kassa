@@ -24,7 +24,7 @@ import { alertVariants } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NativeSelect } from "@/components/ui/native-select";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -367,59 +367,67 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
             </Label>
             <Label>
               Валюта
-              <NativeSelect name="currency" value={draft.currency} onChange={(e) => change({ currency: e.target.value as Draft["currency"] })}>
-                <option value="">Все</option>
-                {KASSA_CURRENCIES[kassa].map((code) => (
-                  <option key={code} value={code}>
-                    {CURRENCY_NAME[code]}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select
+                name="currency"
+                value={draft.currency}
+                onChange={(next) => change({ currency: next as Draft["currency"] })}
+                options={[{ value: "", label: "Все" }, ...KASSA_CURRENCIES[kassa].map((code) => ({ value: code, label: CURRENCY_NAME[code] }))]}
+              />
             </Label>
             <Label>
               Тип
-              <NativeSelect name="type" value={draft.type} onChange={(e) => change({ type: e.target.value as Draft["type"] })}>
-                <option value="">Все</option>
-                <option value="income">Приход</option>
-                <option value="expense">Расход</option>
-              </NativeSelect>
+              <Select
+                name="type"
+                value={draft.type}
+                onChange={(next) => change({ type: next as Draft["type"] })}
+                options={[
+                  { value: "", label: "Все" },
+                  { value: "income", label: "Приход" },
+                  { value: "expense", label: "Расход" },
+                ]}
+              />
             </Label>
             <Label>
               Категория
-              <NativeSelect name="category" value={draft.category} onChange={(e) => change({ category: e.target.value })}>
-                <option value="">Все</option>
-                {(["income", "expense"] as const).map((kind) => (
-                  <optgroup key={kind} label={kind === "income" ? "Приход" : "Расход"}>
-                    {categories
+              <Select
+                name="category"
+                value={draft.category}
+                onChange={(category) => change({ category })}
+                options={[
+                  { value: "", label: "Все" },
+                  ...(["income", "expense"] as const).flatMap((kind) =>
+                    categories
                       .filter((item) => item.kind === kind)
-                      .map((item) => (
-                        <option key={item.code} value={item.code}>
-                          {item.label}
-                          {item.archived ? " (в архиве)" : ""}
-                        </option>
-                      ))}
-                  </optgroup>
-                ))}
-              </NativeSelect>
+                      .map((item) => ({
+                        value: item.code,
+                        label: `${item.label}${item.archived ? " (в архиве)" : ""}`,
+                        group: kind === "income" ? "Приход" : "Расход",
+                      })),
+                  ),
+                ]}
+              />
             </Label>
             <Label>
               Кассир
-              <NativeSelect name="author" value={draft.author} onChange={(e) => change({ author: e.target.value })}>
-                <option value="">Все</option>
-                {cashiers.map((cashier) => (
-                  <option key={cashier.login} value={cashier.login}>
-                    {cashier.displayName}
-                  </option>
-                ))}
-              </NativeSelect>
+              <Select
+                name="author"
+                value={draft.author}
+                onChange={(author) => change({ author })}
+                options={[{ value: "", label: "Все" }, ...cashiers.map((cashier) => ({ value: cashier.login, label: cashier.displayName }))]}
+              />
             </Label>
             <Label className="whole-line-on-phone">
               Удалённые записи
-              <NativeSelect name="deleted" value={draft.deleted} onChange={(e) => change({ deleted: e.target.value as Draft["deleted"] })}>
-                <option value="">Скрывать</option>
-                <option value="include">Показывать</option>
-                <option value="only">Только удалённые</option>
-              </NativeSelect>
+              <Select
+                name="deleted"
+                value={draft.deleted}
+                onChange={(next) => change({ deleted: next as Draft["deleted"] })}
+                options={[
+                  { value: "", label: "Скрывать" },
+                  { value: "include", label: "Показывать" },
+                  { value: "only", label: "Только удалённые" },
+                ]}
+              />
             </Label>
             <ClientCodeField required={false} value={draft.clientCode} onChange={(clientCode) => change({ clientCode })} />
             <Button type="button" variant="outline" className="reset" onClick={() => setDraft(startingDraft(today))}>

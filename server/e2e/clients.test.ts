@@ -66,7 +66,7 @@ describe("the clients on the screen", () => {
 
     // «А70» brings «А707 Карим» up among the suggestions.
     await code.fill("А70");
-    await expect.poll(() => form.locator("datalist option").evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value))).toContain("А707 Карим");
+    await expect.poll(() => page.getByRole("listbox", { name: "Клиенты" }).getByRole("option").allInnerTexts()).toContain("А707 Карим");
     await form.getByRole("textbox", { name: "Сумма" }).fill("1000");
     await page.locator("input[name=rate]:visible").fill("80");
     await code.fill("a707");

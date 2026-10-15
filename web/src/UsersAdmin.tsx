@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label, LabelNote } from "@/components/ui/label";
-import { NativeSelect } from "@/components/ui/native-select";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -203,12 +203,13 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
   return (
     <Label>
       Роль
-      <NativeSelect name="role" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as Role)}>
-        <option value="cashier">{ROLE_LABEL.cashier}</option>
-        <option value="head_cashier">{ROLE_LABEL.head_cashier}</option>
-        <option value="viewer">{ROLE_LABEL.viewer}</option>
-        <option value="admin">{ROLE_LABEL.admin}</option>
-      </NativeSelect>
+      <Select
+        name="role"
+        value={value}
+        disabled={disabled}
+        onChange={(next) => onChange(next as Role)}
+        options={(["cashier", "head_cashier", "viewer", "admin"] as const).map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
+      />
       <span className="text-sm font-normal text-muted-foreground">{disabled ? "Свою роль админ не меняет." : ROLE_HINT[value]}</span>
     </Label>
   );

@@ -2,7 +2,7 @@ import type { Category, CategoryKind } from "./api";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { NativeSelect } from "@/components/ui/native-select";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -38,19 +38,13 @@ export function CategoryField({ list, kind, label, value, onChange, onReload, ke
   return (
     <Label>
       {label}
-      <NativeSelect name="category" required value={value ?? ""} onChange={(event) => onChange(event.target.value)}>
-        {value === null && (
-          <option value="" disabled>
-            Выберите…
-          </option>
-        )}
-        {options.map((item) => (
-          <option key={item.code} value={item.code}>
-            {item.label}
-            {item.archived ? " (в архиве)" : ""}
-          </option>
-        ))}
-      </NativeSelect>
+      <Select
+        name="category"
+        required
+        value={value ?? ""}
+        onChange={onChange}
+        options={options.map((item) => ({ value: item.code, label: `${item.label}${item.archived ? " (в архиве)" : ""}` }))}
+      />
     </Label>
   );
 }

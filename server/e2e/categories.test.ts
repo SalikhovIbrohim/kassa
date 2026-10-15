@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu, choose, optionsOf, selectField } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -37,7 +37,7 @@ describe("the lists of categories", () => {
     return phone;
   }
 
-  const options = (page: Page) => page.locator("select[name=category]:visible option");
+  const options = (page: Page) => optionsOf(selectField(page, "category"));
 
   /** "+ Новая" opens a window: income or expense, the name, the ticks. */
   async function addCategory(page: Page, kind: "Приход" | "Расход", label: string, ticks: string[] = []) {
@@ -82,18 +82,18 @@ describe("the lists of categories", () => {
     // The cashier sees the lists as they are now.
     const { page } = await signedIn(started, "ivan", "correct horse");
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
-    const expenseOptions = await options(page).allInnerTexts();
+    const expenseOptions = await options(page);
     expect(expenseOptions).toContain("Ремонт склада");
     expect(expenseOptions).toContain("Оплата фура");
     expect(expenseOptions).not.toContain("Билеты");
 
     await page.getByRole("tab", { name: "Приход", exact: true }).click();
-    const incomeOptions = await options(page).allInnerTexts();
+    const incomeOptions = await options(page);
     expect(incomeOptions).toEqual(["Оплата от клиента", "Взяли долг", "Приход от субаренды", "Сотрудник вернул долг", "Прочее", "Аренда мест"]);
 
     // A payment of a client names the client; a debt does not, and the field is gone.
     await seeVisible(page.locator("input[name=clientCode]"));
-    await page.locator("select[name=category]:visible").selectOption({ label: "Взяли долг" });
+    await choose(selectField(page, "category"), { label: "Взяли долг" });
     await seeGone(page.locator("input[name=clientCode]"));
     await page.getByRole("textbox", { name: "Сумма" }).fill("79000");
     await page.locator("input[name=rate]:visible").fill("79");
@@ -123,17 +123,17 @@ describe("the lists of categories", () => {
     await expect.poll(() => expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).isChecked()).toBe(true);
 
     // The city is chosen right in the row and kept.
-    await expenseList.getByRole("combobox", { name: "Город: Таможня" }).selectOption("moscow");
+    await choose(expenseList.getByRole("combobox", { name: "Город: Таможня" }), "moscow");
     await owner.page.reload();
     await openSection(owner.page, "Категории");
-    await expect.poll(() => expenseList.getByRole("combobox", { name: "Город: Таможня" }).inputValue()).toBe("moscow");
+    await seeText(expenseList.getByRole("combobox", { name: "Город: Таможня" }), "Москва");
     // No more arrows: the order is changed by dragging.
     expect(await expenseList.getByRole("button", { name: /^Выше:/ }).count()).toBe(0);
 
     // A new income category made by mistake becomes an expense one, at the end of that list.
     await addCategory(owner.page, "Приход", "Стоянка");
     await seeText(incomeList, "Стоянка");
-    await incomeList.getByRole("combobox", { name: "Тип: Стоянка" }).selectOption("expense");
+    await choose(incomeList.getByRole("combobox", { name: "Тип: Стоянка" }), "expense");
     await seeText(expenseList.locator("tr[data-category]").last(), "Стоянка");
     // The payment of a client keeps its type.
     expect(await incomeList.getByRole("combobox", { name: "Тип: Оплата от клиента" }).isDisabled()).toBe(true);
@@ -183,7 +183,7 @@ describe("the lists of categories", () => {
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await page.getByRole("textbox", { name: "Сумма" }).fill("500");
     await seeGone(page.locator("input[name=tripNumber]"));
-    await page.locator("select[name=category]:visible").selectOption({ label: "Перевозчику" });
+    await choose(selectField(page, "category"), { label: "Перевозчику" });
 
     // Without the trip and the counterparty the entry stays on the phone, unsaved.
     await page.getByRole("button", { name: "Записать расход" }).click();

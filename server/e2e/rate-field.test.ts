@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, openSection, cashMenu } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, openSection, cashMenu, choose, selectField } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -70,7 +70,7 @@ describe("the rate field", () => {
     // An expense: its rate may stay empty.
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
     await amountField(page).fill("1000");
-    await page.locator("select[name=category]:visible").selectOption({ label: "Топливо и дорога" });
+    await choose(selectField(page, "category"), { label: "Топливо и дорога" });
     await seeValue(rateField(page), "");
     await page.getByRole("button", { name: "Записать расход" }).click();
     await seeText(page.locator(".success:visible"), "Записано: Топливо и дорога");

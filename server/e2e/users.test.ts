@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu, choose } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -64,8 +64,8 @@ describe("the accounts on the admin's screen", () => {
     await list.getByRole("button", { name: "Изменить: Азиз" }).click();
     const edit = list.getByRole("form", { name: "Изменить Азиз" });
     await edit.getByRole("textbox", { name: "Логин" }).fill("aziz2");
-    await edit.getByRole("combobox", { name: "Роль" }).selectOption("head_cashier");
-    await edit.getByRole("combobox", { name: /Город/ }).selectOption("andijan");
+    await choose(edit.getByRole("combobox", { name: "Роль" }), "head_cashier");
+    await choose(edit.getByRole("combobox", { name: /Город/ }), "andijan");
     await edit.getByRole("textbox", { name: /Новый пароль/ }).fill("second password");
     await edit.getByRole("button", { name: "Сохранить" }).click();
     await seeText(list.locator('[data-user="aziz2"]'), "Главный кассир");

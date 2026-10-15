@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { get, loginAs, patchJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newLaptop, newPhone, seeText } from "./browser.js";
+import { launchChromium, newLaptop, newPhone, seeText, choose, selectField } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -59,7 +59,7 @@ describe("two cash desks", () => {
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
     const form = page.locator("form:visible").first();
     expect(await form.getByText("Рубли", { exact: true }).count()).toBe(0);
-    await form.locator("select[name=category]").selectOption("fuel_road");
+    await choose(selectField(form, "category"), "fuel_road");
     await form.getByRole("textbox", { name: "Сумма" }).fill("20");
     await form.getByRole("button", { name: "Записать расход" }).click();
 

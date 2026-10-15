@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NativeSelect } from "@/components/ui/native-select";
+import { Select } from "@/components/ui/select";
 import { CitySelect } from "./CitySelect";
 
 type Props = {
@@ -30,6 +30,10 @@ type Props = {
 };
 
 const TITLE: Record<CategoryKind, string> = { income: "Приход", expense: "Расход" };
+const KIND_OPTIONS = [
+  { value: "income", label: "Приход" },
+  { value: "expense", label: "Расход" },
+];
 
 const WHY_NOT: Record<Extract<CategoryChangeResult, { ok: false }>["reason"], string> = {
   "session-expired": "Нужно войти заново.",
@@ -290,16 +294,14 @@ function CategoryTable({
                       </span>
                     </td>
                     <td className="border-b px-3 py-2">
-                      <NativeSelect
+                      <Select
                         aria-label={`Тип: ${item.label}`}
                         className="h-9 bg-card/70 text-sm"
                         value={kind}
                         disabled={busy || item.code === "client_payment" || !item.countsAsCost}
-                        onChange={(event) => void onChange(item.code, { kind: event.target.value as CategoryKind })}
-                      >
-                        <option value="income">Приход</option>
-                        <option value="expense">Расход</option>
-                      </NativeSelect>
+                        onChange={(next) => void onChange(item.code, { kind: next as CategoryKind })}
+                        options={KIND_OPTIONS}
+                      />
                     </td>
                     <td className="border-b px-3 py-2">
                       <CitySelect

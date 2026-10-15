@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { get, loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, leaveCashDesk } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, leaveCashDesk, choose, selectField } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -103,7 +103,7 @@ describe("making entries without a connection", () => {
     seeVisible(page.getByRole("status").filter({ hasText: "Сохранено на телефоне, на сервер не ушло" }));
 
   /** Picks a category in the drop-down list of the form that is on the screen. */
-  const pickCategory = (page: Page, label: string) => page.locator("select[name=category]:visible").selectOption({ label });
+  const pickCategory = (page: Page, label: string) => choose(selectField(page, "category"), { label });
 
   async function enterExpense(page: Page, amount: string, category = "Топливо и дорога") {
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
@@ -490,7 +490,7 @@ describe("making entries without a connection", () => {
     await page.getByRole("tab", { name: "Расход", exact: true }).click();
 
     await seeValue(amountField(page), "250");
-    expect(await page.locator("select[name=category]:visible").inputValue()).toBe("fuel_road");
+    await seeText(selectField(page, "category"), "Топливо и дорога");
   });
 
   it("starts a form with the currency of the last entry also when the server cannot be asked", async () => {
