@@ -64,8 +64,8 @@ describe("the clients on the screen", () => {
     const form = page.locator("form:visible").first();
     const code = form.locator("input[name=clientCode]");
 
-    // «А70» brings «А707 Карим» up among the suggestions.
-    await code.fill("А70");
+    // «70», the letter left out, brings «А707 Карим» up among the suggestions.
+    await code.fill("70");
     await expect.poll(() => page.getByRole("listbox", { name: "Клиенты" }).getByRole("option").allInnerTexts()).toContain("А707 Карим");
     await form.getByRole("textbox", { name: "Сумма" }).fill("1000");
     await page.locator("input[name=rate]:visible").fill("80");

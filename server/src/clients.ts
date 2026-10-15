@@ -13,11 +13,11 @@ type ClientRow = { code: string; name: string; phone: string | null; note: strin
 const toClient = (row: ClientRow): Client => ({ code: row.code, name: row.name, phone: row.phone, note: row.note, active: row.active });
 
 /**
- * The code of a client in what a person typed: "а707", "A-707", "А707 Карим", "А34-2" give А707 and А34-2 (Cyrillic А,
- * the digits as they are); anything else, none. What follows the code (a name, say) is left aside.
+ * The code of a client in what a person typed: "а707", "A-707", "707", "А707 Карим", "А34-2", "34-2" give А707 and А34-2
+ * (Cyrillic А, the digits as they are; the letter may be left out, every code has it); anything else, none. What follows the code (a name, say) is left aside.
  */
 export function clientCodeIn(text: string): string | null {
-  const found = /^\s*[AaАа]\s*-?\s*(\d{1,5})(-\d{1,3})?(?=\s|$)/.exec(text);
+  const found = /^\s*(?:[AaАа]\s*-?\s*)?(\d{1,5})(-\d{1,3})?(?=\s|$)/.exec(text);
   return found ? `А${found[1]}${found[2] ?? ""}` : null;
 }
 

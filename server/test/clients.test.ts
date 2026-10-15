@@ -66,6 +66,8 @@ describe("the clients", () => {
     await load(started, mudir, [{ code: "А707", name: "Карим" }, { code: "А70", name: "Самад" }, { code: "А170", name: "Зариф" }, { code: "А2", name: "Самад ака" }]);
     expect(await search(started, ivan, "а70")).toEqual(["А70 Самад", "А707 Карим"]);
     expect(await search(started, ivan, "самад")).toEqual(["А2 Самад ака", "А70 Самад"]);
+    // The letter may be left out: "70" is А70 and what starts so.
+    expect(await search(started, ivan, "70")).toEqual(["А70 Самад", "А707 Карим"]);
   });
 
   it("lets the admin alone add a client, one to a code, change it and switch it off", async () => {
@@ -92,6 +94,8 @@ describe("the clients", () => {
     const saved = await postJson(started, "/api/operations", payment("a707"), ivan);
     expect(saved.status).toBe(201);
     expect((await saved.json()).operation.clientCode).toBe("А707 Карим");
+    const digits = await postJson(started, "/api/operations", payment("707"), ivan);
+    expect((await digits.json()).operation.clientCode).toBe("А707 Карим");
     const unknown = await postJson(started, "/api/operations", payment("А708"), ivan);
     expect([unknown.status, (await unknown.json()).error]).toEqual([400, "unknown_client"]);
   });
