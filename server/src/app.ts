@@ -1,3 +1,5 @@
+import { createJournalSheet, sheetEvents } from "./journal-sheet.js";
+import type { SheetSettings } from "./sheets-api.js";
 import { extname, relative, sep } from "node:path";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
@@ -53,6 +55,9 @@ export type AppOptions = {
   /** The 1C base the payments of clients are written to; without it nothing is written. */
   onec?: OneCSettings;
   onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number };
+  /** The Google spreadsheet the journal is copied to (see journal-sheet.ts). */
+  sheet?: SheetSettings;
+  sheetQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
 };
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
@@ -106,9 +111,18 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     baseBackoffSeconds: options.onecQueue?.baseBackoffSeconds,
     blockedRetrySeconds: options.onecQueue?.blockedRetrySeconds,
   });
-  const events = mergeEvents(groupEvents(outbox), onecEvents(onec, outbox));
+  // The copy of the journal in a Google spreadsheet: queued with the operation, written by a worker.
+  const sheet = createJournalSheet({
+    pool: database.pool,
+    settings: options.sheet,
+    log: app.log,
+    intervalMs: options.sheetQueue?.intervalMs,
+    baseBackoffSeconds: options.sheetQueue?.baseBackoffSeconds,
+  });
+  const events = mergeEvents(groupEvents(outbox), onecEvents(onec, outbox), sheetEvents(sheet));
 
   app.addHook("onClose", async () => {
+    await sheet.stop();
     await onec.stop();
     await outbox.stop();
     await database.close();
@@ -116,6 +130,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.addHook("onReady", async () => {
     outbox.start();
     onec.start();
+    sheet.start();
   });
 
   // API answers are personal and live: never let a browser or proxy keep them.
@@ -144,7 +159,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     events,
-    outbox: { nudge: () => (outbox.nudge(), onec.nudge()) },
+    outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });
 
   await registerCategoryAdmin(app, { pool: database.pool });
@@ -154,7 +169,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     events,
-    outbox: { nudge: () => (outbox.nudge(), onec.nudge()) },
+    outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });
 
   await registerJournal(app, {

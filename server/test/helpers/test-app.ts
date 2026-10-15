@@ -3,6 +3,7 @@ import pg from "pg";
 import { buildApp, type LoginProtectionOptions } from "../../src/app.js";
 import { migrate } from "../../src/migrate.js";
 import type { OneCSettings } from "../../src/onec-api.js";
+import type { SheetSettings } from "../../src/sheets-api.js";
 import * as adminUsers from "../../src/admin/users.js";
 import * as adminBalances from "../../src/admin/opening-balances.js";
 
@@ -84,6 +85,9 @@ type StartOptions = {
   /** The 1C base to write the payments of clients to (a fake one, see fake-onec.ts). */
   onec?: OneCSettings;
   onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number };
+  /** The Google spreadsheet to copy the journal to (a fake Google, see fake-google.ts). */
+  sheet?: SheetSettings;
+  sheetQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
 };
 
 /**
@@ -156,6 +160,8 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       telegramQueue: options.telegramQueue,
       onec: options.onec,
       onecQueue: options.onecQueue,
+      sheet: options.sheet,
+      sheetQueue: options.sheetQueue,
       loginProtection: options.loginProtection,
       logger: options.logStream ? { stream: options.logStream } : undefined,
       now: () => clock,

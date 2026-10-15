@@ -1,8 +1,10 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { clientCodeOf } from "./onec-pko.js";
 import type { OneCSettings } from "./onec-api.js";
+import { cashDayStart } from "./cash-day.js";
+import { readServiceAccountKey, type SheetSettings } from "./sheets-api.js";
 
 export type Config = {
   host: string;
@@ -29,6 +31,8 @@ export type Config = {
   telegramApiUrl: string;
   /** The 1C base the payments of clients are written to. Unset: nothing is written. */
   onec: OneCSettings | undefined;
+  /** The Google spreadsheet the journal is copied to. Unset: nothing is copied. */
+  sheet: SheetSettings | undefined;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -95,6 +99,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     telegramExpenseThreadId: threadOf("TELEGRAM_THREAD_EXPENSE"),
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
     onec,
+    sheet: loadSheet(env),
+  };
+}
+
+/**
+ * The copy of the journal in a Google spreadsheet: `GOOGLE_SHEET_ID` (the id in the address of the spreadsheet) and
+ * `GOOGLE_SHEETS_KEY_FILE` (the JSON key of the service account it is shared with). Optional: `GOOGLE_SHEET_TAB`
+ * (default «Журнал») and `GOOGLE_SHEET_FROM` (a day, 2026-10-14: only the entries from then on).
+ */
+export function loadSheet(env: NodeJS.ProcessEnv): SheetSettings | undefined {
+  const spreadsheetId = env.GOOGLE_SHEET_ID?.trim();
+  const keyFile = env.GOOGLE_SHEETS_KEY_FILE?.trim();
+  if (!spreadsheetId && !keyFile) return undefined;
+  if (!spreadsheetId) throw new Error("GOOGLE_SHEET_ID is required with GOOGLE_SHEETS_KEY_FILE: the id in the address of the spreadsheet");
+  if (!keyFile) throw new Error("GOOGLE_SHEETS_KEY_FILE is required with GOOGLE_SHEET_ID: the JSON key of the service account");
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(spreadsheetId)) throw new Error(`GOOGLE_SHEET_ID must be the id from the address of the spreadsheet (between /d/ and /edit), got "${spreadsheetId}"`);
+  let text: string;
+  try {
+    text = readFileSync(keyFile, "utf8");
+  } catch {
+    throw new Error(`GOOGLE_SHEETS_KEY_FILE: the file ${keyFile} cannot be read`);
+  }
+  const from = env.GOOGLE_SHEET_FROM?.trim();
+  if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error(`GOOGLE_SHEET_FROM must be a day like 2026-10-14, got "${from}"`);
+  return {
+    ...readServiceAccountKey(text),
+    spreadsheetId,
+    tab: env.GOOGLE_SHEET_TAB?.trim() || "Журнал",
+    from: from ? cashDayStart(from) : undefined,
+    apiUrl: (env.GOOGLE_SHEETS_API_URL?.trim() || "https://sheets.googleapis.com").replace(/\/+$/, ""),
   };
 }
 
