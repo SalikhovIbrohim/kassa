@@ -234,6 +234,8 @@ Telegram у ваших людей работает через VPN, поэтом�
 7. Из адреса таблицы возьмите её номер: в `https://docs.google.com/spreadsheets/d/1AbC...xyz/edit` это `1AbC...xyz`.
 8. Положите ключ на сервер как `C:\kassa\config\google-key.json` и впишите настройки (PowerShell от администратора):
    ```powershell
+   # Сначала перевод строки: если файл кончается без него, новая строка приклеится к последней.
+   Add-Content C:\kassa\config\kassa.env ""
    Add-Content C:\kassa\config\kassa.env "GOOGLE_SHEET_ID=1AbC...xyz"
    Add-Content C:\kassa\config\kassa.env "GOOGLE_SHEETS_KEY_FILE=C:\kassa\config\google-key.json"
    Add-Content C:\kassa\config\kassa.env "GOOGLE_SHEET_FROM=2026-10-14"
