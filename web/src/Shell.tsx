@@ -1,7 +1,8 @@
 import { useState, type ReactNode, type Ref } from "react";
 import type { Balance } from "./api";
 import type { BalancesState } from "./Balances";
-import { CURRENCIES, CURRENCY_NAME, formatMoney, type Currency } from "./money";
+import { CURRENCY_NAME, formatMoney, type Currency } from "./money";
+import { KASSA_CURRENCIES, KASSA_LABEL, KASSAS, useKassa } from "./kassa";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -34,6 +35,7 @@ type Props = {
 export function Shell(props: Props) {
   const { groups, active, onOpen, mode, children } = props;
   const [menuOpen, setMenuOpen] = useState(false);
+  const { kassa, choosable, setKassa } = useKassa();
   const title = groups.flatMap((group) => group.items).find((item) => item.key === active)?.label ?? "";
 
   // The menu of a phone lives over the page: it closes before anything else happens.
@@ -55,6 +57,22 @@ export function Shell(props: Props) {
             ) : (
               <button key={side} type="button" className="min-h-[34px] rounded-[10px] text-[13px] font-semibold text-foreground/80 hover:bg-card/60" onClick={close(mode.onSwitch)}>
                 {side === "cash" ? "Касса" : "Управление"}
+              </button>
+            ),
+          )}
+        </div>
+      )}
+      {/* A person of everywhere chooses the cash desk: what the screens show and where the entries go. */}
+      {choosable && (
+        <div className="mb-2 grid grid-cols-2 gap-1 rounded-[14px] bg-muted p-1" role="group" aria-label="Касса">
+          {KASSAS.map((item) =>
+            item === kassa ? (
+              <span key={item} className="flex min-h-[34px] items-center justify-center rounded-[10px] bg-card text-[13px] font-semibold text-primary shadow-sm" aria-current="true">
+                {KASSA_LABEL[item]}
+              </span>
+            ) : (
+              <button key={item} type="button" className="min-h-[34px] rounded-[10px] text-[13px] font-semibold text-foreground/80 hover:bg-card/60" onClick={close(() => setKassa(item))}>
+                {KASSA_LABEL[item]}
               </button>
             ),
           )}
@@ -116,6 +134,7 @@ export function Shell(props: Props) {
               ☰
             </Button>
             <h2 className="truncate text-xl font-bold">{title}</h2>
+            {choosable && <Badge className="kassa-name shrink-0">{KASSA_LABEL[kassa]}</Badge>}
           </div>
           <div className="flex items-center gap-5">
             <HeaderBalances balances={props.balances} onRetry={props.onRetryBalances} />
@@ -141,6 +160,7 @@ function HeaderBalances({ balances, onRetry }: { balances: BalancesState; onRetr
       </Button>
     );
   }
+  const { kassa } = useKassa();
   const known = Array.isArray(balances) ? (balances as Balance[]) : undefined;
   const shown = (currency: Currency) => {
     const balance = known?.find((item) => item.currency === currency);
@@ -151,7 +171,7 @@ function HeaderBalances({ balances, onRetry }: { balances: BalancesState; onRetr
   };
   return (
     <section aria-label="Остатки" className="grid text-right leading-tight tabular-nums min-[960px]:flex min-[960px]:items-baseline min-[960px]:gap-5">
-      {CURRENCIES.map((currency) => {
+      {KASSA_CURRENCIES[kassa].map((currency) => {
         const { text, negative } = shown(currency);
         return (
           <span key={currency} className="flex items-baseline justify-end gap-2" data-currency={currency}>

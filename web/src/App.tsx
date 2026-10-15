@@ -1,3 +1,4 @@
+import { KASSA_CURRENCIES, KassaProvider, useKassa } from "./kassa";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchBalances,
@@ -159,7 +160,11 @@ export function App() {
     );
   }
 
-  return <SignedIn user={state.user} onLoggedOut={showLoggedOut} />;
+  return (
+    <KassaProvider city={state.user.city}>
+      <SignedIn user={state.user} onLoggedOut={showLoggedOut} />
+    </KassaProvider>
+  );
 }
 
 function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }) {
@@ -171,11 +176,13 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // Numbers the answers we are waiting for: only the newest one may update the screen,
   // so a slow older answer cannot replace a fresher balance.
   const newest = useRef(0);
+  // The cash desk shown: its balances in the header, its journal, its forms.
+  const { kassa } = useKassa();
 
   const loadBalances = useCallback(() => {
     const mine = ++newest.current;
     setBalances(null);
-    fetchBalances().then(
+    fetchBalances(kassa).then(
       (loaded) => {
         if (mine === newest.current) setBalances(loaded);
       },
@@ -186,12 +193,21 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         else setBalances(caught instanceof NetworkError ? "offline" : undefined);
       },
     );
-  }, [onLoggedOut]);
+  }, [onLoggedOut, kassa]);
 
-  const showSavedBalances = useCallback((fresh: Balance[]) => {
-    newest.current++;
-    setBalances(fresh);
-  }, []);
+  const showSavedBalances = useCallback(
+    (fresh: Balance[]) => {
+      // The answer of a save has the balances of the desk of that entry: an entry of the other desk (one that waited on
+      // the phone, say) says nothing about the desk shown, which is read again instead.
+      if (fresh.map((item) => item.currency).join() !== KASSA_CURRENCIES[kassa].join()) {
+        loadBalances();
+        return;
+      }
+      newest.current++;
+      setBalances(fresh);
+    },
+    [kassa, loadBalances],
+  );
 
   useEffect(loadBalances, [loadBalances]);
 

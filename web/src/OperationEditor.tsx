@@ -1,3 +1,4 @@
+import { KASSA_CURRENCIES } from "./kassa";
 import { useRef, useState, type FormEvent } from "react";
 import {
   DEFAULT_INCOME_CATEGORY,
@@ -167,7 +168,8 @@ export function OperationEditor({
         Изменить запись
       </h3>
 
-      <CurrencyPicker value={currency} onChange={setCurrency} />
+      {/* Andijan keeps dollars only: its entries stay in dollars. */}
+      {KASSA_CURRENCIES[operation.kassa ?? "moscow"].length > 1 && <CurrencyPicker value={currency} onChange={setCurrency} />}
 
       <Label>
         Сумма

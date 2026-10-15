@@ -1,3 +1,4 @@
+import { useKassa } from "./kassa";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchReconciliations, SessionExpiredError, type Reconciliation } from "./api";
 import { formatMoscowShort } from "./days";
@@ -23,13 +24,15 @@ type Load =
 export function ReconciliationsList({ onSessionExpired, onRefresh, active = true }: Props) {
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [reloadCount, setReloadCount] = useState(0);
+  // The counts of the cash desk chosen.
+  const { kassa } = useKassa();
   // Numbers the requests, so only the newest answer may update the screen.
   const newest = useRef(0);
 
   useEffect(() => {
     if (!active) return;
     const mine = ++newest.current;
-    fetchReconciliations().then(
+    fetchReconciliations(undefined, kassa).then(
       (page) => {
         if (mine === newest.current) setLoad({ kind: "ready", ...page, refreshFailed: false, moreFailed: false, loadingMore: false });
       },
@@ -42,7 +45,7 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
         setLoad((current) => (current.kind === "ready" ? { ...current, refreshFailed: true } : { kind: "failed" }));
       },
     );
-  }, [active, reloadCount, onSessionExpired]);
+  }, [active, reloadCount, onSessionExpired, kassa]);
 
   const refresh = useCallback(() => {
     setReloadCount((count) => count + 1);
@@ -54,7 +57,7 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
     const { nextBefore } = load;
     setLoad({ ...load, loadingMore: true, moreFailed: false });
     try {
-      const page = await fetchReconciliations(nextBefore);
+      const page = await fetchReconciliations(nextBefore, kassa);
       setLoad((current) =>
         current.kind === "ready"
           ? { ...current, reconciliations: [...current.reconciliations, ...page.reconciliations], nextBefore: page.nextBefore, loadingMore: false }

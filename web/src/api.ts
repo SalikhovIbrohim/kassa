@@ -5,6 +5,8 @@ export type User = {
   login: string;
   displayName: string;
   role: Role;
+  /** The city of the person, which is the cash desk they work in; none: both (they choose). */
+  city?: Kassa | null;
   /** A Telegram account is linked to this login, so that the Mini App signs in by itself. */
   telegramLinked?: boolean;
 };
@@ -119,12 +121,15 @@ export async function logOut(): Promise<boolean> {
 // ---- Operations and balances ----
 
 import type { Currency } from "./money";
+import type { Kassa } from "./kassa";
 
 export type Balance = { currency: Currency; amountMinor: number };
 
 export type Operation = {
   id: string;
   type: "income" | "expense";
+  /** The cash desk it belongs to (an older server says nothing: Moscow). */
+  kassa?: Kassa;
   amountMinor: number;
   currency: Currency;
   /** Rubles for one dollar, times 10 000: the rate of a ruble entry. Null for dollars, and for a ruble expense without one. */
@@ -192,8 +197,8 @@ export function operationTitle(type: "income" | "expense", category: string | nu
   return category !== null && category !== DEFAULT_INCOME_CATEGORY ? (labels.get(category) ?? "Приход") : "Приход";
 }
 
-export async function fetchBalances(): Promise<Balance[]> {
-  const response = await request("/api/balances");
+export async function fetchBalances(kassa?: Kassa): Promise<Balance[]> {
+  const response = await request(kassa ? `/api/balances?${new URLSearchParams({ kassa })}` : "/api/balances");
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/balances`);
   return ((await response.json()) as { balances: Balance[] }).balances;
@@ -276,6 +281,8 @@ export async function fetchCategories(): Promise<Category[]> {
 type EntryBase = {
   /** Made once per entry and kept across retries, so a retry can never count twice. */
   id: string;
+  /** The cash desk it goes to; an entry of an older version has none, and goes to the desk of its cashier. */
+  kassa?: Kassa;
   amountMinor: number;
   currency: Currency;
   /** Rubles for one dollar, times 10 000. An income in rubles must have it, an expense in rubles may; never for dollars. */
@@ -370,6 +377,8 @@ export type JournalFilters = {
   category?: string;
   clientCode?: string;
   author?: string;
+  /** One cash desk; left out, the person's own, or both for a person of everywhere. */
+  kassa?: Kassa;
   /** Viewer only: show deleted operations too, or only them. Left out, they are hidden. */
   deleted?: "include" | "only";
 };
@@ -433,8 +442,8 @@ export type DollarTotals = {
 export type Totals = { from: string; to: string; currencies: CurrencyTotals[]; usd: DollarTotals };
 
 /** The totals of a period (Moscow days, both included), each currency on its own. */
-export async function fetchTotals(from: string, to: string): Promise<Totals> {
-  const response = await request(`/api/summary?${new URLSearchParams({ from, to })}`);
+export async function fetchTotals(from: string, to: string, kassa?: Kassa): Promise<Totals> {
+  const response = await request(`/api/summary?${new URLSearchParams({ from, to, ...(kassa ? { kassa } : {}) })}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/summary`);
   const body = (await response.json()) as Totals;
@@ -552,6 +561,8 @@ export async function fetchHistory(id: string): Promise<OperationHistory> {
 /** A count of the cash as it is read: who made it, when, and per currency what the book said, what was counted, the difference. */
 export type Reconciliation = {
   id: string;
+  /** The cash desk that was counted (an older server says nothing: Moscow). */
+  kassa?: Kassa;
   madeAt: string;
   madeBy: { login: string; displayName: string };
   currencies: Array<{
@@ -582,11 +593,11 @@ export type ReconcileResult =
  * The admin counts the cash: one amount per currency (what was counted, not what the book says). The id is made once per
  * count and kept across retries, so that a lost answer cannot make the count twice. Throws when the server cannot be reached.
  */
-export async function reconcileCash(id: string, counted: Balance[], cardMinor: number): Promise<ReconcileResult> {
+export async function reconcileCash(id: string, counted: Balance[], cardMinor: number | undefined, kassa?: Kassa): Promise<ReconcileResult> {
   const response = await request("/api/reconciliations", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ id, counted, cardMinor }),
+    body: JSON.stringify({ id, counted, cardMinor, kassa }),
   });
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (response.ok) {
@@ -602,8 +613,9 @@ export async function reconcileCash(id: string, counted: Balance[], cardMinor: n
 export type ReconciliationsPage = { reconciliations: Reconciliation[]; nextBefore: string | null };
 
 /** The counts of the cash, newest first (the owner and the admin). `before` asks for the page after the one that ended there. */
-export async function fetchReconciliations(before?: string): Promise<ReconciliationsPage> {
-  const response = await request(`/api/reconciliations${before ? `?${new URLSearchParams({ before })}` : ""}`);
+export async function fetchReconciliations(before?: string, kassa?: Kassa): Promise<ReconciliationsPage> {
+  const query = new URLSearchParams({ ...(before ? { before } : {}), ...(kassa ? { kassa } : {}) });
+  const response = await request(`/api/reconciliations${query.toString() ? `?${query}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/reconciliations`);
   const body = (await response.json()) as { reconciliations?: unknown[]; nextBefore?: unknown };

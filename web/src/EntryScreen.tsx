@@ -7,6 +7,7 @@ import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
 import { ReconcileBar } from "./ReconcileBar";
 import { useCategories } from "./useCategories";
+import { KASSA_CURRENCIES, useKassa } from "./kassa";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Props = {
@@ -54,9 +55,11 @@ export function EntryScreen({ login, canReconcile, isAdmin = false, section, onS
     );
   }, []);
 
+  // A cash desk keeps only its own currencies (Andijan: dollars): a currency it does not keep is not offered.
+  const kept = KASSA_CURRENCIES[useKassa().kassa];
   const shared = {
     entryId,
-    currency,
+    currency: kept.includes(currency) ? currency : kept[0]!,
     onCurrencyChange: (next: Currency) => {
       currencyTouched.current = true;
       setCurrency(next);

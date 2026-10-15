@@ -1,3 +1,4 @@
+import { KASSA_CURRENCIES, useKassa } from "./kassa";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   operationTitle,
@@ -16,7 +17,7 @@ import { DeleteConfirm } from "./DeleteConfirm";
 import { HistoryPanel } from "./HistoryPanel";
 import { OperationEditor } from "./OperationEditor";
 import { formatDay, formatMoscowClock, formatMoscowShort, cashDayToday, shiftDay } from "./days";
-import { CURRENCIES, CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
+import { CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
@@ -106,6 +107,7 @@ function toFilters(draft: Draft): JournalFilters {
 export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = cashDayToday();
+  const { kassa } = useKassa();
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
   const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
@@ -174,7 +176,8 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
 
   useEffect(() => {
     const mine = ++newest.current;
-    const filters = toFilters(applied);
+    // The cash desk chosen (or the person's own): the journal is of one desk at a time.
+    const filters = { ...toFilters(applied), kassa };
     setLoad((previous) =>
       previous.kind === "ready" ? { ...previous, stale: true, refreshFailed: false } : { kind: "loading" },
     );
@@ -204,7 +207,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
         );
       },
     );
-  }, [applied, reloadCount, onSessionExpired]);
+  }, [applied, reloadCount, onSessionExpired, kassa]);
 
   async function loadMore() {
     if (load.kind !== "ready" || !load.nextCursor || load.loadingMore || load.stale) return;
@@ -366,7 +369,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
               Валюта
               <NativeSelect name="currency" value={draft.currency} onChange={(e) => change({ currency: e.target.value as Draft["currency"] })}>
                 <option value="">Все</option>
-                {CURRENCIES.map((code) => (
+                {KASSA_CURRENCIES[kassa].map((code) => (
                   <option key={code} value={code}>
                     {CURRENCY_NAME[code]}
                   </option>

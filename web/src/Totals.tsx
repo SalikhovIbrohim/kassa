@@ -1,3 +1,4 @@
+import { useKassa } from "./kassa";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchCategories,
@@ -68,6 +69,8 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
   // What is asked for: both days chosen and in order. Anything else is said, not sent.
   const problem = from === "" || to === "" ? "Выберите обе даты." : from > to ? "Начало периода позже конца." : null;
 
+  // The totals of the cash desk chosen.
+  const { kassa } = useKassa();
   useEffect(() => {
     fetchCategories().then(setCategories, (caught: unknown) => {
       if (caught instanceof SessionExpiredError) onSessionExpired();
@@ -78,7 +81,7 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
     if (!active || problem) return;
     const request = ++newest.current;
     setLoad((current) => (current.kind === "ready" ? { ...current, stale: true, refreshFailed: false } : { kind: "loading" }));
-    fetchTotals(from, to).then(
+    fetchTotals(from, to, kassa).then(
       (data) => {
         if (request === newest.current) setLoad({ kind: "ready", from, to, data, stale: false, refreshFailed: false });
       },
@@ -91,7 +94,7 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
         setLoad((current) => (current.kind === "ready" ? { ...current, stale: false, refreshFailed: true } : { kind: "failed" }));
       },
     );
-  }, [active, from, to, problem, reloadCount, onSessionExpired]);
+  }, [active, from, to, problem, reloadCount, onSessionExpired, kassa]);
 
   const refresh = useCallback(() => {
     setReloadCount((count) => count + 1);

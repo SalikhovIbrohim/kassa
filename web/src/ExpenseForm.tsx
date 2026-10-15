@@ -1,3 +1,4 @@
+import { KASSA_CURRENCIES, useKassa } from "./kassa";
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import type { Balance, Category, Operation } from "./api";
 import { CategoryField } from "./CategoryField";
@@ -54,6 +55,7 @@ export function ExpenseForm({
   const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
+  const { kassa } = useKassa();
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
   const chosen = categories?.find((item) => item.code === category && item.kind === "expense");
 
@@ -109,6 +111,7 @@ export function ExpenseForm({
     const saved = await entry.send((id) => ({
       type: "expense",
       id,
+      kassa,
       amountMinor,
       currency,
       ...(rateE4 === null ? {} : { rateE4 }),
@@ -172,7 +175,8 @@ export function ExpenseForm({
         inside
       />
 
-      <CurrencyPicker value={currency} onChange={onCurrencyChange} />
+      {/* Andijan keeps dollars only: nothing to choose. */}
+      {KASSA_CURRENCIES[kassa].length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
 
       <Label>
         <span className="sr-only">Сумма</span>
