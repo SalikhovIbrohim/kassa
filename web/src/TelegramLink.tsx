@@ -6,11 +6,11 @@ import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 
 /**
- * Inside Telegram, for a login whose Telegram is not linked yet: one button that links it, after which the Mini App
- * opens without a password. The launch data exists only inside Telegram, so this is the only place to do it.
+ * Inside Telegram, for a login whose Telegram is not linked yet: one button in the menu that links it, after which the
+ * Mini App opens without a password. The launch data exists only inside Telegram, so this is the only place to do it.
  */
-export function TelegramLink() {
-  const [state, setState] = useState<"ask" | "busy" | "linked">("ask");
+export function TelegramLink({ onLinked }: { onLinked: () => void }) {
+  const [state, setState] = useState<"ask" | "busy">("ask");
   const [problem, setProblem] = useState<string | null>(null);
   const launch = telegramLaunchData();
   if (!launch) return null;
@@ -21,7 +21,7 @@ export function TelegramLink() {
     try {
       const result = await linkTelegram(launch!);
       if (result === "linked") {
-        setState("linked");
+        onLinked();
         return;
       }
       setProblem(
@@ -37,22 +37,14 @@ export function TelegramLink() {
     setState("ask");
   }
 
-  if (state === "linked") {
-    return (
-      <p className="telegram-link" role="status">
-        Telegram привязан: в следующий раз Касса откроется без пароля.
-      </p>
-    );
-  }
-
   return (
-    <section className="telegram-link" aria-label="Telegram">
-      <span>Этот Telegram не привязан к вашему входу. Привяжите, и пароль больше не понадобится.</span>
-      <Button type="button" size="sm" disabled={state === "busy"} onClick={() => void link()}>
+    <section className="grid gap-2" aria-label="Telegram">
+      <span className="text-xs text-muted-foreground">Telegram не привязан: после привязки пароль не понадобится.</span>
+      <Button type="button" size="sm" variant="outline" className="w-full" disabled={state === "busy"} onClick={() => void link()}>
         {state === "busy" ? "Привязываем…" : "Привязать Telegram"}
       </Button>
       {problem && (
-        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+        <p className={cn(alertVariants({ variant: "destructive" }), "error text-sm")} role="alert">
           {problem}
         </p>
       )}

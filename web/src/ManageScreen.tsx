@@ -32,6 +32,8 @@ type Props = {
   onCashDesk?: () => void;
   /** What the page has to say above any section: the confirmation before leaving, an error, the Telegram link. */
   notices?: ReactNode;
+  /** Something of the menu itself (see `Shell`). */
+  menuExtra?: ReactNode;
   onSessionExpired: () => void;
   onRefresh: () => void;
 };
@@ -62,6 +64,7 @@ export function ManageScreen(props: Props) {
   return (
     <Shell
       className="manage"
+      menuExtra={props.menuExtra}
       groups={groups}
       active={section}
       onOpen={open}

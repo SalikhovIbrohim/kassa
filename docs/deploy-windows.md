@@ -169,7 +169,7 @@ Select-String C:\kassa\logs\KassaProxy.err.log -Pattern 'certificate obtained'
    Add-Content C:\kassa\config\kassa.env "TELEGRAM_BOT_TOKEN=ВАШ_ТОКЕН"
    Restart-Service KassaApp
    ```
-4. Откройте бота в Telegram, нажмите кнопку, войдите логином и паролем и нажмите «Привязать Telegram». В следующий раз Касса откроется без пароля.
+4. Откройте бота в Telegram, нажмите кнопку, войдите логином и паролем, откройте меню ☰ и нажмите «Привязать Telegram». В следующий раз Касса откроется без пароля.
 
 Telegram у ваших людей работает через VPN, поэтому вход по паролю остаётся основным.
 

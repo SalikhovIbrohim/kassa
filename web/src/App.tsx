@@ -170,6 +170,9 @@ export function App() {
 function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
+  // Linking Telegram is offered in the menu until it is done; then a line says so, once.
+  const [telegramLinked, setTelegramLinked] = useState(user.telegramLinked ?? false);
+  const [justLinked, setJustLinked] = useState(false);
   // null: loading, undefined: failed to load, "offline": no connection.
   const [balances, setBalances] = useState<BalancesState>(null);
 
@@ -287,9 +290,23 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     leaveButton.current?.focus();
   }
 
+  const menuExtra =
+    inTelegram() && !telegramLinked ? (
+      <TelegramLink
+        onLinked={() => {
+          setTelegramLinked(true);
+          setJustLinked(true);
+        }}
+      />
+    ) : undefined;
+
   const notices = (
     <>
-      {inTelegram() && !user.telegramLinked && <TelegramLink />}
+      {justLinked && (
+        <p className="telegram-link" role="status">
+          Telegram привязан: в следующий раз Касса откроется без пароля.
+        </p>
+      )}
 
       {confirmingLeave && (
         <div
@@ -350,6 +367,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       leaveButton={leaveButton}
       onCashDesk={onCashDesk}
       notices={notices}
+      menuExtra={menuExtra}
       onSessionExpired={onLoggedOut}
       onRefresh={loadBalances}
     />
@@ -362,6 +380,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       <div hidden={side === "manage"}>
         <Shell
           className="cash"
+          menuExtra={menuExtra}
           groups={[
             {
               title: null,

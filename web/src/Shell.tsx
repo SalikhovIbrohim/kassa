@@ -24,6 +24,8 @@ type Props = {
   onRetryBalances: () => void;
   onLeave: () => void;
   leaveButton?: Ref<HTMLButtonElement>;
+  /** Something of the menu itself, over who is signed in (linking Telegram, say). */
+  menuExtra?: ReactNode;
   children: ReactNode;
 };
 
@@ -100,7 +102,8 @@ export function Shell(props: Props) {
           </div>
         ))}
       </nav>
-      <div className="mt-auto flex items-center justify-between gap-2 border-t p-3">
+      {props.menuExtra && <div className="mt-auto border-t px-3 pt-3">{props.menuExtra}</div>}
+      <div className={cn("flex items-center justify-between gap-2 border-t p-3", !props.menuExtra && "mt-auto", props.menuExtra && "border-t-0")}>
         <span className="grid gap-1">
           {/* The classes "who" and "role" are hooks for the tests of the browser. */}
           <span className="who font-semibold">{props.displayName}</span>

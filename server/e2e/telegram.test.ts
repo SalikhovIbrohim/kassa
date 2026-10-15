@@ -47,8 +47,16 @@ describe("the app inside Telegram", () => {
     await page.getByLabel("Пароль").fill("correct horse");
     await page.getByRole("button", { name: "Войти" }).click();
     await page.locator("[data-signed-in]:visible").first().waitFor();
+    // Linking is offered in the menu, not over the form.
+    const burger = page.getByRole("button", { name: "Меню", exact: true });
+    if (await burger.isVisible()) {
+      expect(await page.getByRole("button", { name: "Привязать Telegram" }).isVisible()).toBe(false);
+      await burger.click();
+    }
     await page.getByRole("button", { name: "Привязать Telegram" }).click();
     await seeText(page.getByRole("status").filter({ hasText: "Telegram привязан" }), "без пароля");
+    expect(await page.getByRole("button", { name: "Привязать Telegram" }).count()).toBe(0);
+    if (await page.getByRole("dialog", { name: "Меню" }).isVisible()) await page.keyboard.press("Escape");
 
     await leaveCashDesk(page);
     await page.getByLabel("Логин").waitFor();
