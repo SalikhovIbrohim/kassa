@@ -33,6 +33,8 @@ export type Config = {
   onec: OneCSettings | undefined;
   /** The Google spreadsheet the journal is copied to. Unset: nothing is copied. */
   sheet: SheetSettings | undefined;
+  /** Why the copy to the spreadsheet is off although it is set up (a key that cannot be read): said in the log at start. */
+  sheetProblem: string | undefined;
 };
 
 // server/src/config.ts and server/dist/config.js both sit two levels below the repo root.
@@ -99,8 +101,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     telegramExpenseThreadId: threadOf("TELEGRAM_THREAD_EXPENSE"),
     telegramApiUrl: (env.TELEGRAM_API_URL?.trim() || "https://api.telegram.org").replace(/\/+$/, ""),
     onec,
-    sheet: loadSheet(env),
+    ...sheetOrProblem(env),
   };
+}
+
+/**
+ * The copy to the spreadsheet is a side job: settings of it that are wrong turn it off, with the reason in the log,
+ * and never keep the cash desk from starting.
+ */
+function sheetOrProblem(env: NodeJS.ProcessEnv): { sheet: SheetSettings | undefined; sheetProblem: string | undefined } {
+  try {
+    return { sheet: loadSheet(env), sheetProblem: undefined };
+  } catch (error) {
+    return { sheet: undefined, sheetProblem: (error as Error).message };
+  }
 }
 
 /**
@@ -119,7 +133,7 @@ export function loadSheet(env: NodeJS.ProcessEnv): SheetSettings | undefined {
   try {
     text = readFileSync(keyFile, "utf8");
   } catch {
-    throw new Error(`GOOGLE_SHEETS_KEY_FILE: the file ${keyFile} cannot be read`);
+    throw new Error(`GOOGLE_SHEETS_KEY_FILE: the file ${keyFile} cannot be read (is it there, and may the service read it? icacls "${keyFile}" /grant "NT SERVICE\\KassaApp:R")`);
   }
   const from = env.GOOGLE_SHEET_FROM?.trim();
   if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error(`GOOGLE_SHEET_FROM must be a day like 2026-10-14, got "${from}"`);

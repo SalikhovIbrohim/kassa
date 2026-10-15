@@ -10,6 +10,8 @@ if (applied.length > 0) {
   console.log(`Applied migrations: ${applied.join(", ")}`);
 }
 
+if (config.sheetProblem) console.error(`The journal is not copied to the Google spreadsheet: ${config.sheetProblem}`);
+
 const app = await buildApp({
   databaseUrl: config.databaseUrl,
   webDistDir: config.webDistDir,
