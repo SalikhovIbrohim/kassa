@@ -68,9 +68,10 @@ describe("the clients", () => {
     expect(await search(started, ivan, "самад")).toEqual(["А2 Самад ака", "А70 Самад"]);
   });
 
-  it("lets the admin and the head cashier add a client, one to a code; the admin alone changes and switches off", async () => {
+  it("lets the admin alone add a client, one to a code, change it and switch it off", async () => {
     const { started, mudir, anvar, ivan, owner } = await desk();
-    expect((await postJson(started, "/api/admin/clients", { code: "А900", name: "Вали" }, anvar)).status).toBe(201);
+    expect((await postJson(started, "/api/admin/clients", { code: "А900", name: "Вали" }, mudir)).status).toBe(201);
+    expect((await postJson(started, "/api/admin/clients", { code: "А902" }, anvar)).status).toBe(403);
     expect(await (await postJson(started, "/api/admin/clients", { code: "a900", name: "Другой" }, mudir)).json()).toEqual({ error: "client_exists" });
     expect((await postJson(started, "/api/admin/clients", { code: "Б12" }, mudir)).status).toBe(400);
     expect((await postJson(started, "/api/admin/clients", { code: "А901" }, ivan)).status).toBe(403);

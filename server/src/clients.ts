@@ -49,9 +49,8 @@ const MAX_IMPORT = 5000;
 const blankToNull = (text: string | null | undefined) => (text === undefined || text === null ? null : cleanText(text) || null);
 
 /**
- * The directory of clients. Everybody reads it (the entry forms look clients up in it); the admin and the head cashier
- * add clients (the head cashier from the entry form, when a new client brings money); the admin changes them, switches
- * them off, and loads a whole list at once.
+ * The directory of clients. Everybody reads it (the entry forms look clients up in it); the admin alone adds clients,
+ * changes them, switches them off, and loads a whole list at once.
  */
 export async function registerClients(app: FastifyInstance, options: ClientsOptions) {
   const { pool } = options;
@@ -96,7 +95,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
   app.post<{ Body: { code: string; name?: string; phone?: string | null; note?: string | null } }>(
     "/api/admin/clients",
     {
-      onRequest: [app.authenticate, app.requireRole("admin", "head_cashier")],
+      onRequest: [app.authenticate, app.requireRole("admin")],
       schema: {
         body: {
           type: "object",

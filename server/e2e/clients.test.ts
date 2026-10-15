@@ -7,7 +7,7 @@ import { cashMenu, launchChromium, newLaptop, newPhone, openSection, seeText } f
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** The directory of clients: kept by the admin in «Управление», offered in the income form, added from it by the head cashier. */
+/** The directory of clients: kept by the admin in «Управление», offered in the income form. */
 describe("the clients on the screen", () => {
   let browser: Browser;
   let app: TestApp | undefined;
@@ -38,7 +38,7 @@ describe("the clients on the screen", () => {
   const clientsOf = async (started: TestApp, cookie: string) =>
     ((await (await get(started, "/api/operations", cookie)).json()).operations as Array<{ clientCode: string | null }>).map((operation) => operation.clientCode);
 
-  it("are added by the admin, offered as the code is typed, and a payment names the client the directory's way", async () => {
+  it("are added by the admin in «Клиенты», offered as the code is typed, and a payment names the client the directory's way", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
     await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
@@ -73,21 +73,12 @@ describe("the clients on the screen", () => {
     await form.getByRole("button", { name: "Записать приход" }).click();
     await seeText(page.locator(".success:visible"), /Записано: приход/);
 
-    // A client not in the list: the head cashier adds them from the form, the code typed already in the window.
-    await code.fill("А900");
-    await form.getByRole("textbox", { name: "Сумма" }).fill("500");
-    await page.locator("input[name=rate]:visible").fill("80");
-    await form.getByRole("button", { name: "+ Новый клиент" }).click();
-    const added = page.getByRole("dialog", { name: "Новый клиент" });
-    expect(await added.getByRole("textbox", { name: /Код/ }).inputValue()).toBe("А900");
-    await added.getByRole("textbox", { name: "Имя" }).fill("Вали");
-    await added.getByRole("button", { name: "Добавить" }).click();
-    await expect.poll(() => code.inputValue()).toBe("А900 Вали");
-    await form.getByRole("button", { name: "Записать приход" }).click();
-    await expect.poll(async () => (await clientsOf(started, await loginAs(started, "mudir", "admin password"))).sort()).toEqual(["А707 Карим", "А900 Вали"]);
+    // Clients are added in «Клиенты» only: the form has no button for it.
+    expect(await form.getByRole("button", { name: /Новый/ }).count()).toBe(0);
+    await expect.poll(async () => clientsOf(started, await loginAs(started, "mudir", "admin password"))).toEqual(["А707 Карим"]);
   }, 120_000);
 
-  it("tells the cashier a client is not in the directory, and offers him no button to add one", async () => {
+  it("tells the cashier a client is not in the directory, and offers no button to add one", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
     await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
@@ -100,7 +91,7 @@ describe("the clients on the screen", () => {
     const page = phone.page;
     await signIn(page, started, "ivan", "correct horse");
     const form = page.locator("form:visible").first();
-    expect(await form.getByRole("button", { name: "+ Новый клиент" }).count()).toBe(0);
+    expect(await form.getByRole("button", { name: /Новый/ }).count()).toBe(0);
     await form.getByRole("textbox", { name: "Сумма" }).fill("1000");
     await page.locator("input[name=rate]:visible").fill("80");
     await form.locator("input[name=clientCode]").fill("А708");

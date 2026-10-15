@@ -799,7 +799,7 @@ async function clientResult(response: Response): Promise<ClientResult> {
   return { ok: false, reason: "rejected" };
 }
 
-/** A new client (the admin, and the head cashier from the entry form). */
+/** A new client (the admin, in «Клиенты»). */
 export async function createClient(input: { code: string; name: string; phone?: string; note?: string }): Promise<ClientResult> {
   const response = await request("/api/admin/clients", {
     method: "POST",

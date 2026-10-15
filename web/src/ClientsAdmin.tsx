@@ -17,9 +17,9 @@ type Props = {
   active?: boolean;
 };
 
-export const CLIENT_WHY_NOT: Record<Extract<ClientResult, { ok: false }>["reason"], string> = {
+const CLIENT_WHY_NOT: Record<Extract<ClientResult, { ok: false }>["reason"], string> = {
   "session-expired": "Нужно войти заново.",
-  forbidden: "Клиентов ведут админ и главный кассир.",
+  forbidden: "Клиентов ведёт админ.",
   "not-found": "Такого клиента уже нет. Нажмите «Обновить».",
   exists: "Клиент с таким кодом уже есть: код у каждого клиента свой.",
   "bad-code": "Код клиента: буква А и цифры, например А707 или А34-2.",
@@ -239,24 +239,17 @@ function EditClient({ client, busy, onCancel, onSave, onToggle }: { client: Clie
   );
 }
 
-/**
- * «+ Новый»: a window with the code, the name, the phone of a new client. Also in the entry form, for the admin and the
- * head cashier, when a client brings money who is not in the list yet: `label` is then the text of the button.
- */
-export function NewClient({
+/** «+ Новый»: a window with the code, the name, the phone of a new client. */
+function NewClient({
   busy,
   error,
   onOpen,
   onCreate,
-  label = "+ Новый",
-  startCode = "",
 }: {
   busy: boolean;
   error: string | null;
   onOpen: () => void;
   onCreate: (input: { code: string; name: string; phone?: string }) => Promise<boolean>;
-  label?: string;
-  startCode?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -278,17 +271,13 @@ export function NewClient({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (next) {
-          onOpen();
-          // What was typed in the field of the form, if it looks like a code, is where the new client starts.
-          setCode(/^\s*[AaАа]\s*-?\s*\d/.test(startCode) ? startCode.trim().split(/\s+/)[0]! : "");
-        }
+        if (next) onOpen();
         setOpen(next);
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" size="sm" variant={label === "+ Новый" ? "default" : "outline"}>
-          {label}
+        <Button type="button" size="sm">
+          + Новый
         </Button>
       </DialogTrigger>
       <DialogContent>
