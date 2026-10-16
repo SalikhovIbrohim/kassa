@@ -1,5 +1,5 @@
 import { KASSA_CURRENCIES, useKassa } from "./kassa";
-import { Fragment, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AmountInput } from "./AmountInput";
 import { Label } from "@/components/ui/label";
 import { reconcileCash, SessionExpiredError, type Balance, type Reconciliation } from "./api";
@@ -25,13 +25,10 @@ type Props = {
  */
 export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   const [asking, setAsking] = useState(false);
-  // The cash desk counted: its currencies; rubles on the cards only where there are rubles (Moscow).
+  // The cash desk counted: the cash of each of its currencies (what lies on cards is not asked).
   const { kassa } = useKassa();
   const currencies = KASSA_CURRENCIES[kassa];
-  const withCard = currencies.includes("RUB");
   const [counts, setCounts] = useState<Record<Currency, string>>({ RUB: "", USD: "" });
-  // The rubles on the cards: the rubles are one, so they count with the cash; kept apart only to say how they are split.
-  const [card, setCard] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Reconciliation | null>(null);
@@ -40,8 +37,8 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
   // What waits on the phone is not in the book yet: a count made now would not agree with it.
   const unsent = useQueueState().entries.filter((entry) => entry.login === login).length;
 
-  function idFor(counted: Balance[], cardMinor: number | undefined): string {
-    const key = JSON.stringify([kassa, counted, cardMinor]);
+  function idFor(counted: Balance[]): string {
+    const key = JSON.stringify([kassa, counted]);
     if (attempt.current?.key !== key) attempt.current = { key, id: crypto.randomUUID() };
     return attempt.current.id;
   }
@@ -50,22 +47,20 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
     event.preventDefault();
     if (busy) return;
     const parsed = currencies.map((currency) => ({ currency, amountMinor: parseCountInput(counts[currency]) }));
-    const cardMinor = withCard ? parseCountInput(card) : undefined;
-    if (parsed.some((item) => item.amountMinor === null) || cardMinor === null) {
-      setError(withCard ? "Введите, сколько насчитали, по каждой валюте и сколько на карте. Если денег нет, введите 0." : "Введите, сколько насчитали. Если денег нет, введите 0.");
+    if (parsed.some((item) => item.amountMinor === null)) {
+      setError(currencies.length > 1 ? "Введите, сколько насчитали, по каждой валюте. Если денег нет, введите 0." : "Введите, сколько насчитали. Если денег нет, введите 0.");
       return;
     }
     const counted = parsed as Balance[];
     setBusy(true);
     setError(null);
     try {
-      const made = await reconcileCash(idFor(counted, cardMinor), counted, cardMinor, kassa);
+      const made = await reconcileCash(idFor(counted), counted, undefined, kassa);
       if (made.ok) {
         attempt.current = null;
         setResult(made.reconciliation);
         setAsking(false);
         setCounts({ RUB: "", USD: "" });
-        setCard("");
         onBalances(made.balances);
       } else {
         setError(problemText(made.reason));
@@ -94,8 +89,8 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
         <form className="reconcile-form" onSubmit={submit} noValidate>
           <p>
             <strong>Сверка кассы.</strong>{" "}
-            {withCard
-              ? "Пересчитайте деньги и введите, сколько рублей наличными, сколько рублей на карте и сколько долларов. Рубли наличными и на карте считаются вместе. Разница с книгой запишется на вас."
+            {currencies.length > 1
+              ? "Пересчитайте наличные и введите, сколько рублей и сколько долларов. Разница с книгой запишется на вас."
               : "Пересчитайте доллары в кассе и введите, сколько насчитали. Разница с книгой запишется на вас."}
           </p>
           {unsent > 0 && (
@@ -104,23 +99,15 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
             </p>
           )}
           {currencies.map((currency) => (
-            <Fragment key={currency}>
-              <Label>
-                {currency === "RUB" ? "Рубли наличными" : CURRENCY_NAME[currency]}
-                <AmountInput
-                  name={`count-${currency}`}
-                  autoComplete="off"
-                  value={counts[currency]}
-                  onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
-                />
-              </Label>
-              {currency === "RUB" && withCard && (
-                <Label>
-                  Рубли на карте
-                  <AmountInput name="count-card" autoComplete="off" value={card} onChange={setCard} />
-                </Label>
-              )}
-            </Fragment>
+            <Label key={currency}>
+              {CURRENCY_NAME[currency]} наличными
+              <AmountInput
+                name={`count-${currency}`}
+                autoComplete="off"
+                value={counts[currency]}
+                onChange={(text) => setCounts((previous) => ({ ...previous, [currency]: text }))}
+              />
+            </Label>
           ))}
           {error && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -164,8 +151,7 @@ function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: (
       <ul>
         {report.currencies.map((item) => (
           <li key={item.currency}>
-            {CURRENCY_NAME[item.currency]}: по книге {formatMoney(item.calculatedMinor, item.currency)}, насчитано {formatMoney(item.actualMinor, item.currency)}
-            {item.currency === "RUB" && report.cardMinor != null && <> (наличными {formatMoney(item.actualMinor - report.cardMinor, "RUB")}, на карте {formatMoney(report.cardMinor, "RUB")})</>}.{" "}
+            {CURRENCY_NAME[item.currency]}: по книге {formatMoney(item.calculatedMinor, item.currency)}, насчитано {formatMoney(item.actualMinor, item.currency)}.{" "}
             <strong className={item.differenceMinor < 0 ? "shortage" : item.differenceMinor > 0 ? "surplus" : "agrees"}>
               {item.differenceMinor === 0 ? "Сошлось." : `${item.differenceMinor < 0 ? "Недостача" : "Излишек"} ${formatMoney(Math.abs(item.differenceMinor), item.currency)}.`}
             </strong>
