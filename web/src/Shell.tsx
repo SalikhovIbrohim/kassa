@@ -80,7 +80,8 @@ export function Shell(props: Props) {
           )}
         </div>
       )}
-      <nav aria-label="Разделы" className="grid gap-0.5">
+      {/* One section alone (the admin's cash desk: its journal is in «Управление») is nothing to choose from. */}
+      <nav aria-label="Разделы" className="grid gap-0.5" hidden={groups.flatMap((group) => group.items).length < 2}>
         {groups.map((group) => (
           <div key={group.title ?? "main"} className="grid gap-0.5">
             {group.title && <div className="px-3 pt-[18px] pb-1.5 text-[11px] font-semibold tracking-[.06em] text-muted-foreground uppercase">{group.title}</div>}
