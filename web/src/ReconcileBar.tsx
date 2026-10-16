@@ -90,8 +90,8 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
           <p>
             <strong>Сверка кассы.</strong>{" "}
             {currencies.length > 1
-              ? "Пересчитайте наличные и введите, сколько рублей и сколько долларов. Разница с книгой запишется на вас."
-              : "Пересчитайте доллары в кассе и введите, сколько насчитали. Разница с книгой запишется на вас."}
+              ? "Пересчитайте деньги в кассе и введите остаток рублей и долларов. Разница с книгой запишется на вас."
+              : "Пересчитайте деньги в кассе и введите остаток долларов. Разница с книгой запишется на вас."}
           </p>
           {unsent > 0 && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -100,7 +100,7 @@ export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
           )}
           {currencies.map((currency) => (
             <Label key={currency}>
-              {CURRENCY_NAME[currency]} наличными
+              {currency === "RUB" ? "Остаток рублей" : "Остаток долларов"}
               <AmountInput
                 name={`count-${currency}`}
                 autoComplete="off"
