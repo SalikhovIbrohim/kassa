@@ -437,7 +437,8 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
         </details>
       )}
 
-      <p className="period">{shownPeriod}</p>
+      {/* The cashier sees the day in the date field right above: said once is enough. */}
+      {mode !== "cashier" && <p className="period">{shownPeriod}</p>}
 
       {notice && (
         <p className={cn(alertVariants({ variant: "info" }), "notice")} role="status">
@@ -489,7 +490,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
           )}
           {load.operations.length === 0 ? (
             <p className="hint">
-              {mode === "cashier" ? `За ${formatDay(applied.from)} записей нет.` : "По этим условиям записей нет."}
+              {mode === "cashier" ? "Записей нет." : "По этим условиям записей нет."}
             </p>
           ) : (
             <table className="journal-table" aria-label="Журнал операций" aria-busy={load.stale}>

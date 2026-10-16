@@ -6,7 +6,7 @@ import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
 import { AmountInput } from "./AmountInput";
-import { formatMoney, formatMoscowTime, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
+import { formatMoney, formatRateInput, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
 import { rememberedRate } from "./remembered-rate";
 import { TripFields, parseTripNumber } from "./TripFields";
@@ -176,8 +176,7 @@ export function IncomeForm({
           <p className={cn(alertVariants({ variant: "success" }), "success")}>
             Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}
             {savedCategory ? ` (${savedCategory})` : ""}
-            {entry.saved.clientCode ? `, клиент ${entry.saved.clientCode}` : ""}.{" "}
-            <span className="when text-muted-foreground">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+            {entry.saved.clientCode ? `, клиент ${entry.saved.clientCode}` : ""}.
           </p>
         )}
       </EntryStatus>

@@ -6,7 +6,7 @@ import { ClientCodeField } from "./ClientCodeField";
 import { CurrencyPicker } from "./CurrencyPicker";
 import { EntryStatus } from "./EntryStatus";
 import { AmountInput } from "./AmountInput";
-import { formatMoney, formatMoscowTime, parseAmountInput, parseRateInput, type Currency } from "./money";
+import { formatMoney, parseAmountInput, parseRateInput, type Currency } from "./money";
 import { RateField } from "./RateField";
 import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
@@ -145,8 +145,7 @@ export function ExpenseForm({
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "expense" && (
           <p className={cn(alertVariants({ variant: "success" }), "success")}>
-            Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.{" "}
-            <span className="when text-muted-foreground">{formatMoscowTime(entry.saved.createdAt)} (МСК)</span>
+            Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.
           </p>
         )}
       </EntryStatus>
