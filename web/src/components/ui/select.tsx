@@ -29,7 +29,9 @@ function Select({ value, onChange, options, name, required, disabled, placeholde
   const known = options.some((option) => option.value === value);
   return (
     <SelectPrimitive.Root
-      value={known ? value || EMPTY : undefined}
+      // "" (not undefined) when the value is none of the options: the list goes back to its placeholder instead of
+      // keeping, uncontrolled, the line chosen last.
+      value={known ? value || EMPTY : ""}
       onValueChange={(next) => onChange(next === EMPTY ? "" : next)}
       name={name}
       required={required}

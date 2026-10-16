@@ -45,7 +45,7 @@ describe("two cash desks", () => {
       await page.getByRole("button", { name: "Войти" }).click();
       await page.locator("[data-signed-in]:visible").first().waitFor();
     };
-    return { started, signIn };
+    return { started, signIn, mudir };
   }
 
   const balances = (page: Page) => page.getByRole("region", { name: "Остатки" }).first();
@@ -83,5 +83,26 @@ describe("two cash desks", () => {
 
     await page.getByRole("group", { name: "Касса" }).first().getByRole("button", { name: "Москва" }).click();
     await seeText(balances(page), /1\s000,00\s₽/);
+  }, 90_000);
+
+  it("keeps the category after an expense, with its trip field, so the next one of the kind is typed at once", async () => {
+    const { started, signIn, mudir } = await desk();
+    await patchJson(started, "/api/admin/categories/customs", { requiresTrip: true }, mudir);
+    const { context, page } = await newPhone(browser);
+    contexts.push(context);
+    await signIn(page, "ali", "andijan cashier");
+    await page.getByRole("tab", { name: "Расход", exact: true }).click();
+    const form = page.locator("form:visible").first();
+    await choose(selectField(form, "category"), "customs");
+
+    for (const trip of ["101", "102"]) {
+      await form.locator("input[name=tripNumber]").fill(trip);
+      await form.getByRole("textbox", { name: "Сумма" }).fill("1");
+      await form.getByRole("button", { name: "Записать расход" }).click();
+      await expect.poll(() => form.locator("input[name=tripNumber]").inputValue()).toBe("");
+      await seeText(page.locator(".success:visible"), "Таможня");
+      await seeText(selectField(form, "category"), "Таможня");
+    }
+    await expect.poll(async () => ((await (await get(started, "/api/operations?kassa=andijan", mudir)).json()).operations as Array<{ tripNumber: number | null }>).map((operation) => operation.tripNumber).sort()).toEqual([101, 102]);
   }, 90_000);
 });

@@ -130,7 +130,7 @@ export function ExpenseForm({
       setCounterparty("");
       setEmployee("");
       setComment("");
-      setCategory(null);
+      // The category stays, as in the income form: the next expense is often of the same kind.
       amountInput.current?.focus();
     }
   }
