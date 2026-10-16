@@ -290,7 +290,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
       if (neighbour) requestFocus(neighbour.id);
       else heading.current?.focus();
     }
-    // A cashier no longer sees it. (The viewer never deletes.)
+    // It leaves the list (the admin, in «Управление», sees it again among the deleted ones when he asks for them).
     setLoad((previous) =>
       previous.kind === "ready"
         ? { ...previous, operations: previous.operations.filter((item) => item.id !== deleted.id) }
@@ -517,7 +517,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                   {/* On a computer both share one column, so that every row stays one line. */}
                   <th scope="col" className="max-[959px]:hidden">Подробности</th>
                   <th scope="col" className="actions">
-                    <span className="sr-only">{mode === "cashier" ? "Действия" : "История"}</span>
+                    <span className="sr-only">{mode === "cashier" || isAdmin ? "Действия" : "История"}</span>
                   </th>
                 </tr>
               </thead>
@@ -532,7 +532,10 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                         operation={operation}
                         mode={mode}
                         withDate={mode === "viewer"}
-                        canChange={mode === "cashier" && (isAdmin || (login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase() && withinOwnDay(operation)))}
+                        canChange={
+                          operation.deletedAt === null &&
+                          (isAdmin || (mode === "cashier" && login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase() && withinOwnDay(operation)))
+                        }
                         labels={labels}
                         description={description}
                         open={open}

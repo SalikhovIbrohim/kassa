@@ -384,7 +384,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           groups={[
             {
               title: null,
-              items: [
+              // The admin's journal is the one of «Управление» (any period, filters, history, and the pencil there).
+              items: user.role === "admin" ? [{ key: "entry", label: "Касса" }] : [
                 { key: "entry", label: "Касса" },
                 { key: "journal", label: "Журнал" },
               ],

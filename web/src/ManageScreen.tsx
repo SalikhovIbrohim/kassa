@@ -78,7 +78,8 @@ export function ManageScreen(props: Props) {
     >
       {props.notices}
       <div hidden={section !== "journal"}>
-        <Journal mode="viewer" onSessionExpired={onSessionExpired} onRefresh={onRefresh} />
+        {/* The admin's one journal: the owner's view, with the admin's right to correct and delete any entry. */}
+        <Journal mode="viewer" login={admin} isAdmin={admin !== undefined} onSessionExpired={onSessionExpired} onRefresh={onRefresh} onBalances={onRefresh} />
       </div>
       <div hidden={section !== "totals"}>
         {opened.has("totals") && <Totals onSessionExpired={onSessionExpired} onRefresh={onRefresh} active={section === "totals"} />}
