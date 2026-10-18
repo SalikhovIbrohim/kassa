@@ -149,7 +149,7 @@ export function leftText(report: ReconciliationReport): string {
   const rubles = report.currencies.some((item) => item.currency === "RUB");
   return [
     "Кассада колган пул",
-    ...(rubles ? [`${groupAmount(counted("RUB") - (report.cardMinor ?? 0))}₽. Наличка`] : []),
+    ...(rubles ? [`${groupAmount(counted("RUB") - (report.cardMinor ?? 0))}₽. Рубль`] : []),
     ...(report.cardMinor === null ? [] : [`${groupAmount(report.cardMinor)}₽. Карталарда`]),
     `${groupAmount(counted("USD"))}$. Доллар`,
   ].join("\n");

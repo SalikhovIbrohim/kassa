@@ -82,7 +82,7 @@ describe("messages for the Telegram group", () => {
     expect((await postJson(started, "/api/reconciliations", body, anvar)).status).toBe(201);
     const [message] = await telegram.untilMessages(1);
     expect(message!.threadId).toBeUndefined();
-    expect(message!.text).toBe("Кассада колган пул\n208.000₽. Наличка\n19.200,50₽. Карталарда\n5.300$. Доллар");
+    expect(message!.text).toBe("Кассада колган пул\n208.000₽. Рубль\n19.200,50₽. Карталарда\n5.300$. Доллар");
 
     expect((await postJson(started, "/api/reconciliations", body, anvar)).status).toBe(200);
     await settle();
