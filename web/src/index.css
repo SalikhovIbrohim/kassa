@@ -11,6 +11,9 @@
 @import "./screens.css" layer(screens);
 
 :root {
+  /* What the bars of the phone and of Telegram take at the top and the bottom of the screen. */
+  --app-safe-top: calc(max(env(safe-area-inset-top, 0px), var(--tg-safe-top, 0px)) + var(--tg-content-top, 0px));
+  --app-safe-bottom: max(env(safe-area-inset-bottom, 0px), calc(var(--tg-safe-bottom, 0px) + var(--tg-content-bottom, 0px)));
   /* The colors of the prototype (design/kassa.html): black and white glass on a grey gradient. The names are shadcn's. */
   --radius: 1.375rem;
   --background: #f7f8f9;
@@ -237,6 +240,60 @@
 }
 
 @layer components {
+  /* A phone: the page starts under the phone's bar (and, in Telegram full screen, under Telegram's buttons: telegram.ts
+     sets --tg-*), and ends above the tab bar. A computer gives its own paddings in the class names. */
+  .app-page {
+    padding-top: calc(var(--app-safe-top) + 12px);
+    padding-bottom: calc(var(--app-safe-bottom) + 104px);
+  }
+  /* Inside Telegram its own back button takes the place of the page's. */
+  .tg-app .phone-back {
+    display: none;
+  }
+  /* Telegram full screen: the name of the page in the row of Telegram's buttons, and the page fading out under them. */
+  .tg-title,
+  .tg-fade {
+    display: none;
+  }
+  .tg-fullscreen .tg-title {
+    position: fixed;
+    top: var(--tg-safe-top, 0px);
+    left: 50%;
+    z-index: 25;
+    display: flex;
+    height: var(--tg-content-top, 0px);
+    max-width: calc(100% - 236px);
+    transform: translateX(-50%);
+    align-items: center;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 650;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+  .tg-fullscreen .tg-fade {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 20;
+    display: block;
+    height: calc(var(--app-safe-top) + 4px);
+    background: linear-gradient(180deg, var(--fade) 55%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    mask-image: linear-gradient(#000 60%, transparent);
+    pointer-events: none;
+  }
+  @media (min-width: 960px) {
+    .tg-fullscreen .tg-title,
+    .tg-fullscreen .tg-fade {
+      display: none;
+    }
+  }
+  .tabbar-wrap {
+    padding-bottom: calc(var(--app-safe-bottom) + 8px);
+  }
+
   /* The amount of a balance scales with the width of its card and the number of characters, so that a six- or seven-figure
      balance stays on one line on a phone (see Balances.tsx). */
   .balance-amount {

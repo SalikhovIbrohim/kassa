@@ -2,40 +2,30 @@ import { useEffect, useRef, useState } from "react";
 import { fetchDefaultCurrency, type Balance, type Operation } from "./api";
 import { ExpenseForm } from "./ExpenseForm";
 import { IncomeForm } from "./IncomeForm";
-import { Journal } from "./Journal";
 import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
-import { ReconcileBar } from "./ReconcileBar";
 import { useCategories } from "./useCategories";
 import { KASSA_CURRENCIES, useKassa } from "./kassa";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type Props = {
-  /** The cashier signed in. */
-  login: string;
-  /** The head cashier also counts the cash against the book ("Сверить кассу"); nobody else does. */
-  canReconcile: boolean;
-  /** The admin may correct any entry, at any time (the group is told). */
-  isAdmin?: boolean;
-  /** A form or the journal; the journal is opened from the menu ☰, the forms are the two tabs. */
+  /** The form shown: both stay alive, the other only hidden. */
   section: Section;
-  onSectionChange: (section: Section) => void;
+  /** What the cashier last corrected or deleted in the journal, for the "saved" banners. */
+  changed: Operation | null;
   onSaved: (balances: Balance[]) => void;
   onBalancesStale: () => void;
   onSessionExpired: () => void;
 };
 
-export type Section = "income" | "expense" | "journal";
+export type Section = "income" | "expense";
 
-/** The cashier's working screen: income, expense (sharing the currency choice) and the journal. */
-export function EntryScreen({ login, canReconcile, isAdmin = false, section, onSectionChange: setSection, onSaved, onBalancesStale, onSessionExpired }: Props) {
+/** The forms of the cash desk: income and expense, sharing the currency choice. */
+export function EntryScreen({ section, changed, onSaved, onBalancesStale, onSessionExpired }: Props) {
   const { list: categories, reload: reloadCategories } = useCategories(onSessionExpired);
   // Both forms stay alive, only hidden, while the other form or the journal is open: a cashier who
   // peeks at the journal, or at the other form, in the middle of an entry must find their typing where
   // they left it (an expense that the server refused for lack of money is exactly when they go and enter
   // the income first).
-  // What the cashier last corrected or deleted in the journal, for the "saved" banners.
-  const [changed, setChanged] = useState<Operation | null>(null);
   // The currency of the last entry is known without the server: a form opened offline starts with it.
   const [currency, setCurrency] = useState<Currency>(() => rememberedCurrency() ?? "RUB");
   // Set when the cashier picks a currency or types anything: from then on the server's idea of it is not to
@@ -73,35 +63,13 @@ export function EntryScreen({ login, canReconcile, isAdmin = false, section, onS
   };
 
   return (
-    <Tabs value={section} onValueChange={(next) => setSection(next as Section)}>
-      {/* The tabs belong to the forms: the journal is a section of its own, opened from the menu. */}
-      <TabsList className="grid grid-cols-2" hidden={section === "journal"}>
-        <TabsTrigger value="income">Приход</TabsTrigger>
-        <TabsTrigger value="expense">Расход</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="income" forceMount onInputCapture={() => (currencyTouched.current = true)}>
+    <>
+      <div hidden={section !== "income"} onInputCapture={() => (currencyTouched.current = true)}>
         <IncomeForm {...shared} active={section === "income"} />
-      </TabsContent>
-      <TabsContent value="expense" forceMount onInputCapture={() => (currencyTouched.current = true)}>
+      </div>
+      <div hidden={section !== "expense"} onInputCapture={() => (currencyTouched.current = true)}>
         <ExpenseForm {...shared} active={section === "expense"} />
-      </TabsContent>
-      <TabsContent value="journal" forceMount className="grid gap-4">
-        {/* Counting the cash is not done with every entry, so it lives with the journal and takes no room on the forms.
-            It stays mounted while hidden: a count typed in survives a look at another tab. */}
-        {canReconcile && <ReconcileBar login={login} onBalances={onSaved} onSessionExpired={onSessionExpired} />}
-        {section === "journal" && (
-          <Journal
-            mode="cashier"
-            login={login}
-            isAdmin={isAdmin}
-            onSessionExpired={onSessionExpired}
-            onRefresh={onBalancesStale}
-            onBalances={onSaved}
-            onOperationChanged={setChanged}
-          />
-        )}
-      </TabsContent>
-    </Tabs>
+      </div>
+    </>
   );
 }

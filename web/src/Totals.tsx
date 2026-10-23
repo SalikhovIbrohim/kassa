@@ -1,4 +1,4 @@
-import { useKassa } from "./kassa";
+import { scopeKassa, useKassa } from "./kassa";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchCategories,
@@ -70,7 +70,8 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
   const problem = from === "" || to === "" ? "Выберите обе даты." : from > to ? "Начало периода позже конца." : null;
 
   // The totals of the cash desk chosen.
-  const { kassa } = useKassa();
+  const { scope } = useKassa();
+  const kassa = scopeKassa(scope);
   useEffect(() => {
     fetchCategories().then(setCategories, (caught: unknown) => {
       if (caught instanceof SessionExpiredError) onSessionExpired();
@@ -202,7 +203,7 @@ function CurrencyCard({ totals, label }: { totals: CurrencyTotals; label: (code:
   const { currency } = totals;
   const rows = totals.expenseByCategory.filter((row) => row.amountMinor > 0);
   return (
-    <section className="total-card rounded-xl border bg-card shadow-sm" aria-label={CURRENCY_NAME[currency]}>
+    <section className="total-card glass-card rounded-xl" aria-label={CURRENCY_NAME[currency]}>
       <h3>{CURRENCY_NAME[currency]}</h3>
       <dl>
         <div className="total-row">
@@ -256,7 +257,7 @@ function DollarCard({ usd }: { usd: DollarTotals }) {
       </p>
     );
   return (
-    <section className="total-card dollars rounded-xl border bg-card shadow-sm" aria-label="В долларах">
+    <section className="total-card dollars glass-card rounded-xl" aria-label="В долларах">
       <h3>В долларах</h3>
       <dl>
         <div className={usd.incomeMinor === 0 ? "total-row income zero" : "total-row income"}>

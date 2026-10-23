@@ -2,12 +2,12 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { backToCashDesk, launchChromium, newLaptop, newPhone, openSection, seeGone, seeText, seeVisible, cashMenu } from "./browser.js";
+import { backToCashDesk, launchChromium, newLaptop, newPhone, openSection, seeGone, seeText, seeVisible } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** «Управление»: a menu on the left on a computer, behind ☰ on a phone; the balances and «Выйти» in the header. */
-describe("the frame of «Управление»", () => {
+/** The frame: a menu on the left on a computer with the section and «Выйти» in the header; a tab bar on a phone. */
+describe("the frame of the app", () => {
   let browser: Browser;
   let app: TestApp | undefined;
   const contexts: BrowserContext[] = [];
@@ -67,34 +67,54 @@ describe("the frame of «Управление»", () => {
     expect(await sections.getByRole("button", { name: "Итоги", exact: true }).getAttribute("aria-current")).toBe("page");
   }, 90_000);
 
-  it("on a computer the admin goes between the cash desk and «Управление», and keeps the people there", async () => {
+  it("on a computer the admin goes between the forms and the other sections, and keeps where he was in each", async () => {
     const started = await desk();
     const page = await signedIn(await newLaptop(browser), started, "mudir", "admin password");
 
-    await cashMenu(page, "Управление");
     await openSection(page, "Люди");
     await seeText(heading(page), "Люди");
     await seeVisible(page.getByRole("region", { name: "Пользователи" }));
 
     await backToCashDesk(page);
-    await seeVisible(page.getByRole("tab", { name: "Приход", exact: true }));
-    await cashMenu(page, "Управление");
-    // Where he was is where he comes back to.
+    await seeText(heading(page), "Приход");
+    await seeVisible(page.getByLabel("Сумма").locator("visible=true").first());
+    // No tab bar on a computer: the menu on the left has every section.
+    expect(await page.getByRole("tablist", { name: "Основные разделы" }).isVisible()).toBe(false);
+    await openSection(page, "Люди");
     await seeText(heading(page), "Люди");
   }, 90_000);
 
-  it("on a phone the menu hides behind ☰ and closes when a section is chosen", async () => {
+  it("on a phone a tab bar at the bottom, «Настройки» last, from where the other sections open", async () => {
     const started = await desk();
     const page = await signedIn(await newPhone(browser), started, "owner", "long enough pass");
 
     await seeGone(page.getByRole("navigation", { name: "Разделы" }));
-    await openSection(page, "Сверки");
-    await seeText(heading(page), "Сверки");
-    await seeGone(page.getByRole("dialog"));
+    const tabs = page.getByRole("tablist", { name: "Основные разделы" });
+    await seeVisible(tabs);
+    expect(await tabs.getByRole("tab").allInnerTexts()).toEqual(["Журнал", "Итоги", "Сверки", "Клиенты", "Настройки"]);
+    expect(await tabs.getByRole("tab", { name: "Журнал" }).getAttribute("aria-selected")).toBe("true");
 
-    // «Выйти» lives in the menu on a phone.
-    await page.getByRole("button", { name: "Меню", exact: true }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Выйти", exact: true }).click();
+    // «Категории» is not on the tab bar: it opens from «Настройки», with the way back.
+    await openSection(page, "Категории");
+    await seeText(page.locator("h2:visible").first(), "Категории");
+    expect(await tabs.getByRole("tab", { name: "Настройки" }).getAttribute("aria-selected")).toBe("true");
+    await page.getByRole("button", { name: "Настройки", exact: true }).click();
+    await seeVisible(page.getByRole("navigation", { name: "Все разделы" }));
+
+    // The tab bar is the person's own: «Категории» instead of «Клиенты», kept on the phone.
+    await page.getByRole("button", { name: "Настроить нижнюю панель" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Убрать с панели: Клиенты" }).click();
+    await dialog.getByRole("button", { name: "На панель: Категории" }).click();
+    await dialog.getByRole("button", { name: "Сохранить" }).click();
+    await seeGone(dialog);
+    await page.reload();
+    await seeVisible(tabs.getByRole("tab", { name: "Категории", exact: true }));
+    expect(await tabs.getByRole("tab", { name: "Клиенты", exact: true }).count()).toBe(0);
+
+    // «Выйти» lives in «Настройки» on a phone.
+    await tabs.getByRole("tab", { name: "Настройки" }).click();
+    await page.getByRole("button", { name: "Выйти", exact: true }).click();
     await seeVisible(page.getByRole("button", { name: "Войти" }));
   }, 90_000);
 });

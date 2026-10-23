@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { KASSA_SHORT, scopeCurrencies, scopeKassa, useKassa } from "./kassa";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   operationTitle,
@@ -107,7 +107,8 @@ function toFilters(draft: Draft): JournalFilters {
 export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = cashDayToday();
-  const { kassa } = useKassa();
+  const { scope } = useKassa();
+  const kassa = scopeKassa(scope);
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
   const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
@@ -371,7 +372,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                 name="currency"
                 value={draft.currency}
                 onChange={(next) => change({ currency: next as Draft["currency"] })}
-                options={[{ value: "", label: "Все" }, ...KASSA_CURRENCIES[kassa].map((code) => ({ value: code, label: CURRENCY_NAME[code] }))]}
+                options={[{ value: "", label: "Все" }, ...scopeCurrencies(scope).map((code) => ({ value: code, label: CURRENCY_NAME[code] }))]}
               />
             </Label>
             <Label>
@@ -529,6 +530,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                   return (
                     <Fragment key={operation.id}>
                       <OperationRow
+                        markKassa={scope === "both"}
                         operation={operation}
                         mode={mode}
                         withDate={mode === "viewer"}
@@ -625,8 +627,11 @@ function OperationRow({
   onToggle,
   focusRequest,
   onFocusDone,
+  markKassa,
 }: {
   operation: Operation;
+  /** Both desks are shown: each entry says which one it is of (МСК, АНД). */
+  markKassa: boolean;
   mode: Props["mode"];
   /** The day is shown with the time (a period of several days). */
   withDate: boolean;
@@ -666,6 +671,11 @@ function OperationRow({
       className={[operation.type, deleted ? "deleted" : ""].filter(Boolean).join(" ")}
     >
       <td className="c-time">
+        {markKassa && (
+          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={operation.kassa === "andijan" ? "Андижан" : "Москва"}>
+            {KASSA_SHORT[operation.kassa ?? "moscow"]}
+          </span>
+        )}
         <time dateTime={operation.createdAt}>
           {withDate ? formatMoscowShort(operation.createdAt) : formatMoscowClock(operation.createdAt)}
         </time>

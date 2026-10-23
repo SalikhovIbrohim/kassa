@@ -41,48 +41,45 @@ export async function newPhone(browser: Browser): Promise<{ context: BrowserCont
   return { context, page };
 }
 
-/** A laptop: a wide screen with a mouse, where «Управление» has its menu on the left. */
+/** A laptop: a wide screen with a mouse, with the menu of sections on the left. */
 export async function newLaptop(browser: Browser): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "ru-RU", timezoneId: "Asia/Tashkent" });
   const page = await context.newPage();
   return { context, page };
 }
 
-/** The cash desk and «Управление» share one menu: a section, the admin's switch («Управление», «Касса»). */
-export async function cashMenu(page: Page, label: string): Promise<void> {
-  if (label === "Управление" || label === "Касса") {
-    const burger = page.getByRole("button", { name: "Меню", exact: true });
-    if (await burger.isVisible()) await burger.click();
-    await page.getByRole("group", { name: "Режим" }).getByRole("button", { name: label, exact: true }).click();
+/**
+ * Opens a section. A computer has every section in the menu on the left; a phone has four on the tab bar and the others
+ * in «Настройки» (the list «Все разделы»).
+ */
+export async function openSection(page: Page, label: string): Promise<void> {
+  await page.locator("[data-signed-in]:visible").first().waitFor();
+  const menu = page.getByRole("navigation", { name: "Разделы" });
+  if (await menu.isVisible()) {
+    await menu.getByRole("button", { name: label, exact: true }).click();
     return;
   }
-  await openSection(page, label);
+  const bar = page.getByRole("tablist", { name: "Основные разделы" });
+  const tab = bar.getByRole("tab", { name: label, exact: true });
+  if ((await tab.count()) > 0) {
+    await tab.click();
+    return;
+  }
+  await bar.getByRole("tab", { name: "Настройки", exact: true }).click();
+  await page.getByRole("navigation", { name: "Все разделы" }).getByRole("button", { name: label, exact: true }).click();
 }
 
-/** Leaves: «Выйти» is in the menu on a phone, in the header on a computer. */
+/** Leaves: «Выйти» is in the header on a computer, in «Настройки» on a phone. */
 export async function leaveCashDesk(page: Page): Promise<void> {
   await page.locator("[data-signed-in]:visible").first().waitFor();
-  const burger = page.getByRole("button", { name: "Меню", exact: true });
-  if (await burger.isVisible()) {
-    await burger.click();
-    await page.getByRole("dialog").getByRole("button", { name: "Выйти", exact: true }).click();
-  } else {
-    await page.getByRole("button", { name: "Выйти", exact: true }).click();
-  }
+  const settings = page.getByRole("tablist", { name: "Основные разделы" }).getByRole("tab", { name: "Настройки", exact: true });
+  if (await settings.isVisible()) await settings.click();
+  await page.getByRole("button", { name: "Выйти", exact: true }).locator("visible=true").first().click();
 }
 
-/** Opens a section of «Управление» from its menu: on a phone the menu first comes out from behind ☰. */
-export async function openSection(page: Page, label: string): Promise<void> {
-  const burger = page.getByRole("button", { name: "Меню", exact: true });
-  if (await burger.isVisible()) await burger.click();
-  await page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: label, exact: true }).click();
-}
-
-/** The admin goes from «Управление» back to the cash desk (the switch at the top of the menu). */
+/** Back to the forms of the cash desk. */
 export async function backToCashDesk(page: Page): Promise<void> {
-  const burger = page.getByRole("button", { name: "Меню", exact: true });
-  if (await burger.isVisible()) await burger.click();
-  await page.getByRole("group", { name: "Режим" }).getByRole("button", { name: "Касса", exact: true }).click();
+  await openSection(page, "Приход");
 }
 
 const WAIT = { timeout: 20_000, interval: 100 };

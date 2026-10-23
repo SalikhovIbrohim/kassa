@@ -201,8 +201,9 @@ export function IncomeForm({
       {/* Andijan keeps dollars only: nothing to choose. */}
       {KASSA_CURRENCIES[kassa].length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
 
-      <Label>
+      <Label className="relative">
         <span className="sr-only">Сумма</span>
+        {/* The amount is the field of the form: a little bigger and bolder than the others, the currency in it. */}
         <AmountInput
           ref={amountInput}
           name="amount"
@@ -212,7 +213,11 @@ export function IncomeForm({
           required
           value={amount}
           onChange={setAmount}
+          className="h-14 pr-12 text-[21px] font-semibold tracking-tight placeholder:text-base placeholder:font-normal placeholder:tracking-normal"
         />
+        <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-base font-semibold text-muted-foreground">
+          {currency === "RUB" ? "₽" : "$"}
+        </span>
       </Label>
 
       {currency === "RUB" && <RateField value={rate} onChange={setRate} required inside />}

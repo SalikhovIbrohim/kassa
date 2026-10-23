@@ -19,13 +19,35 @@ function stored(): ThemeChoice {
   }
 }
 
-const systemDark = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+// Inside Telegram «Авто» follows Telegram's own theme, which the person set there; elsewhere the system's.
+let telegramScheme: "light" | "dark" | null = null;
+const listeners = new Set<(dark: boolean) => void>();
 
-/** Puts the theme on the page: the class "dark" on <html>, and the color of the browser's bar. */
+const systemDark = () =>
+  telegramScheme !== null ? telegramScheme === "dark" : typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+
+/** The colors of the page's background, for Telegram's bars. */
+export const THEME_BACKGROUND = BAR_COLOR;
+
+/** Puts the theme on the page: the class "dark" on <html>, and the color of the browser's bar (and of Telegram's). */
 function apply(choice: ThemeChoice) {
   const dark = choice === "dark" || (choice === "system" && systemDark());
   document.documentElement.classList.toggle("dark", dark);
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? BAR_COLOR.dark : BAR_COLOR.light);
+  listeners.forEach((listener) => listener(dark));
+}
+
+/** Called with every theme put on the page (and at once with the current one): Telegram colors its bars by it. */
+export function onThemeApplied(listener: (dark: boolean) => void): () => void {
+  listeners.add(listener);
+  listener(document.documentElement.classList.contains("dark"));
+  return () => listeners.delete(listener);
+}
+
+/** Telegram says which theme it is in (at the start, and when it changes): «Авто» follows it. */
+export function setTelegramScheme(scheme: "light" | "dark") {
+  telegramScheme = scheme;
+  if (stored() === "system") apply("system");
 }
 
 /** Called once before the first screen is drawn, so that a dark theme does not flash white first. */

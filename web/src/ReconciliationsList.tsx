@@ -1,4 +1,4 @@
-import { useKassa } from "./kassa";
+import { scopeKassa, useKassa } from "./kassa";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchReconciliations, SessionExpiredError, type Reconciliation } from "./api";
 import { formatMoscowShort } from "./days";
@@ -25,7 +25,8 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [reloadCount, setReloadCount] = useState(0);
   // The counts of the cash desk chosen.
-  const { kassa } = useKassa();
+  const { scope } = useKassa();
+  const kassa = scopeKassa(scope);
   // Numbers the requests, so only the newest answer may update the screen.
   const newest = useRef(0);
 
@@ -123,7 +124,7 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
 
 function ReconciliationCard({ reconciliation }: { reconciliation: Reconciliation }) {
   return (
-    <li className="reconciliation-card rounded-xl border bg-card shadow-sm" data-reconciliation={reconciliation.id}>
+    <li className="reconciliation-card glass-card rounded-xl" data-reconciliation={reconciliation.id}>
       <p className="reconciliation-card-head">
         <strong>{reconciliation.madeBy.displayName}</strong>
       </p>

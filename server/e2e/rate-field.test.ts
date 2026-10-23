@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, openSection, cashMenu, choose, selectField } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeValue, seeVisible, openSection, choose, selectField } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -76,7 +76,7 @@ describe("the rate field", () => {
     await seeText(page.locator(".success:visible"), "Записано: Топливо и дорога");
 
     // The journal says what the income is in dollars.
-    await cashMenu(page, "Журнал");
+    await openSection(page, "Журнал");
     await seeText(page.getByRole("table", { name: "Журнал операций" }), "RATE-1");
     await seeText(page.locator('.usd-note[data-usd="100000"]'), /≈\s*1\s000,00\s\$ · курс 79,00/);
     // The expense has no rate of its own: it is counted at the average rate of the day, here the 79 of the income.

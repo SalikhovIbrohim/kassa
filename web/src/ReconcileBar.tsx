@@ -16,6 +16,8 @@ type Props = {
   /** Called with the balances after a count: what was counted is what the book says now. */
   onBalances: (balances: Balance[]) => void;
   onSessionExpired: () => void;
+  /** Opened as a section of its own («Сверка»): the form is there at once, not behind a button. */
+  startAsking?: boolean;
 };
 
 /**
@@ -23,8 +25,8 @@ type Props = {
  * brought to what was counted, the difference being written down in the admin's name. Whenever they like, not tied to
  * anything: the cashiers have nothing to open or close.
  */
-export function ReconcileBar({ login, onBalances, onSessionExpired }: Props) {
-  const [asking, setAsking] = useState(false);
+export function ReconcileBar({ login, onBalances, onSessionExpired, startAsking = false }: Props) {
+  const [asking, setAsking] = useState(startAsking);
   // The cash desk counted: the cash of each of its currencies (what lies on cards is not asked).
   const { kassa } = useKassa();
   const currencies = KASSA_CURRENCIES[kassa];

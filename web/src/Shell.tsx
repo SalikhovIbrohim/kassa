@@ -1,215 +1,198 @@
-import { useState, type ReactNode, type Ref } from "react";
-import type { Balance } from "./api";
-import type { BalancesState } from "./Balances";
-import { CURRENCY_NAME, formatMoney, type Currency } from "./money";
-import { KASSA_CURRENCIES, KASSA_LABEL, KASSAS, useKassa } from "./kassa";
-import { Badge } from "@/components/ui/badge";
+import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { GROUPS, Icon, SECTIONS, type SectionKey } from "./sections";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { THEME_CHOICES, THEME_LABEL, useTheme } from "./theme";
-
-export type ShellGroup = { title: string | null; items: Array<{ key: string; label: string }> };
 
 type Props = {
-  /** A class for the screen ("manage", "cash"): what its sections are styled by. */
-  className?: string;
-  groups: ShellGroup[];
-  active: string;
-  onOpen: (key: string) => void;
-  /** The admin's switch at the top of the menu: which screen this is, and the way to the other one. */
-  mode?: { current: "cash" | "manage"; onSwitch: () => void };
+  /** The sections this person has, in the order of the menu. */
+  sections: readonly SectionKey[];
+  /** The buttons of the tab bar of a phone (four chosen, then «Настройки»). */
+  tabs: readonly SectionKey[];
+  active: SectionKey;
+  onOpen: (key: SectionKey) => void;
+  /** A section opened from «Настройки» on a phone, not on the tab bar: the way back to it. */
+  onBack?: () => void;
+  /** The forms have no big title: on a phone their name is in the row of Telegram's buttons. */
+  compact?: boolean;
   displayName: string;
   roleLabel: string;
-  balances: BalancesState;
-  onRetryBalances: () => void;
+  /** The right of the header of a computer: the balances. */
+  headerExtra?: ReactNode;
   onLeave: () => void;
   leaveButton?: Ref<HTMLButtonElement>;
-  /** Something of the menu itself, over who is signed in (linking Telegram, say). */
-  menuExtra?: ReactNode;
   children: ReactNode;
 };
 
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+
 /**
- * One frame for every screen, the cash desk and «Управление» alike: on a computer a menu on the left (Касса, the
- * admin's switch, the sections, who is signed in) and a header with the section, the balances and «Выйти»; on a
- * phone the same menu comes out from the left behind ☰, «Выйти» in it, and the header keeps the balances.
+ * One frame for every screen, as in the prototype. On a phone the page runs edge to edge (under the bars of Telegram in
+ * full screen) and a capsule of glass at the bottom holds five buttons, a lens under the chosen one. On a computer a
+ * menu of glass on the left (the sections in groups, who is signed in) and a header with the section, the balances and
+ * «Выйти».
  */
 export function Shell(props: Props) {
-  const { groups, active, onOpen, mode, children } = props;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const { kassa, choosable, setKassa } = useKassa();
-  const title = groups.flatMap((group) => group.items).find((item) => item.key === active)?.label ?? "";
-
-  // The menu of a phone lives over the page: it closes before anything else happens.
-  const close = (action: () => void) => () => {
-    setMenuOpen(false);
-    action();
-  };
-
-  const menu = (phone: boolean) => (
-    <>
-      <h1 className="mb-3 ml-3 text-[1.6rem] leading-tight font-bold text-primary">Касса</h1>
-      {mode && (
-        <div className="mb-2 grid grid-cols-2 gap-1 rounded-[14px] bg-muted p-1" role="group" aria-label="Режим">
-          {(["cash", "manage"] as const).map((side) =>
-            side === mode.current ? (
-              <span key={side} className="flex min-h-[34px] items-center justify-center rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-sm" aria-current="true">
-                {side === "cash" ? "Касса" : "Управление"}
-              </span>
-            ) : (
-              <button key={side} type="button" className="min-h-[34px] rounded-[10px] text-[13px] font-semibold text-foreground/80 hover:bg-card/60" onClick={close(mode.onSwitch)}>
-                {side === "cash" ? "Касса" : "Управление"}
-              </button>
-            ),
-          )}
-        </div>
-      )}
-      {/* A person of everywhere chooses the cash desk: what the screens show and where the entries go. */}
-      {choosable && (
-        <div className="mb-2 grid grid-cols-2 gap-1 rounded-[14px] bg-muted p-1" role="group" aria-label="Касса">
-          {KASSAS.map((item) =>
-            item === kassa ? (
-              <span key={item} className="flex min-h-[34px] items-center justify-center rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-sm" aria-current="true">
-                {KASSA_LABEL[item]}
-              </span>
-            ) : (
-              <button key={item} type="button" className="min-h-[34px] rounded-[10px] text-[13px] font-semibold text-foreground/80 hover:bg-card/60" onClick={close(() => setKassa(item))}>
-                {KASSA_LABEL[item]}
-              </button>
-            ),
-          )}
-        </div>
-      )}
-      {/* One section alone (the admin's cash desk: its journal is in «Управление») is nothing to choose from. */}
-      <nav aria-label="Разделы" className="grid gap-0.5" hidden={groups.flatMap((group) => group.items).length < 2}>
-        {groups.map((group) => (
-          <div key={group.title ?? "main"} className="grid gap-0.5">
-            {group.title && <div className="px-3 pt-[18px] pb-1.5 text-[11px] font-semibold tracking-[.06em] text-muted-foreground uppercase">{group.title}</div>}
-            {group.items.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                aria-current={item.key === active ? "page" : undefined}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-[10px] px-3 text-left text-sm font-semibold text-foreground/80 hover:bg-muted",
-                  phone ? "h-11" : "h-10",
-                  item.key === active && "bg-primary text-primary-foreground shadow-sm hover:bg-primary",
-                )}
-                onClick={close(() => onOpen(item.key))}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        ))}
-      </nav>
-      {/* The settings of this device, at the foot of the menu until the menu has a tab «Настройки» of its own. */}
-      <ThemeSwitch />
-      {props.menuExtra && <div className="border-t px-3 pt-3">{props.menuExtra}</div>}
-      <div className={cn("flex items-center justify-between gap-2 border-t p-3", props.menuExtra && "border-t-0")}>
-        <span className="grid gap-1">
-          {/* The classes "who" and "role" are hooks for the tests of the browser. */}
-          <span className="who font-semibold">{props.displayName}</span>
-          <Badge className="role w-fit">{props.roleLabel}</Badge>
-        </span>
-        {phone && (
-          <Button type="button" variant="outline" size="sm" onClick={close(props.onLeave)}>
-            Выйти
-          </Button>
-        )}
-      </div>
-    </>
-  );
+  const { sections, tabs, active, onOpen, onBack, compact = false, children } = props;
+  const title = SECTIONS[active].label;
+  // The tab under the lens: the section itself, or «Настройки» for a section opened from there.
+  const activeTab = tabs.includes(active) ? active : "settings";
 
   return (
-    <div className={cn(props.className, "min-h-dvh bg-background min-[960px]:grid min-[960px]:grid-cols-[232px_minmax(0,1fr)]")} data-signed-in>
-      <aside className="sticky top-0 hidden h-dvh flex-col overflow-y-auto border-r bg-card px-3 py-4 min-[960px]:flex">{menu(false)}</aside>
-
-      <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-        <DialogContent side="left" className="h-dvh w-[280px] max-w-[85vw] gap-0 rounded-r-[28px] px-3 py-4">
-          <DialogTitle className="sr-only">Меню</DialogTitle>
-          <DialogDescription className="sr-only">Разделы</DialogDescription>
-          {menu(true)}
-        </DialogContent>
-      </Dialog>
+    <div className="min-h-dvh min-[960px]:grid min-[960px]:grid-cols-[264px_minmax(0,1fr)]" data-signed-in data-section={active}>
+      <aside className="glass-card sticky top-4 m-4 mr-0 hidden h-[calc(100dvh-2rem)] flex-col overflow-y-auto rounded-xl px-3 py-4 min-[960px]:flex">
+        <div className="mb-3 flex items-center gap-2.5 px-2">
+          <span aria-hidden="true" className="grid size-10 flex-none place-items-center rounded-[12px] bg-primary text-[19px] font-extrabold text-primary-foreground shadow-[inset_0_1px_0_var(--primary-highlight)]">
+            К
+          </span>
+          <span className="grid leading-tight">
+            <h1 className="text-[17px] font-bold">Касса</h1>
+            <small className="text-[12px] text-muted-foreground">Книга наличных</small>
+          </span>
+        </div>
+        <nav aria-label="Разделы" className="grid gap-0.5">
+          {GROUPS.map((group, index) => {
+            const keys = group.keys.filter((key) => sections.includes(key));
+            if (keys.length === 0) return null;
+            return (
+              <div key={group.title ?? index} className="grid gap-0.5">
+                {group.title ? (
+                  <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-[.06em] text-muted-foreground uppercase">{group.title}</div>
+                ) : (
+                  <div className="h-2" />
+                )}
+                {keys.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-current={key === active ? "page" : undefined}
+                    className={cn(
+                      "flex h-11 items-center gap-3 rounded-[14px] px-3 text-left text-[15px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                      key === active && "bg-primary text-primary-foreground shadow-[inset_0_1px_0_var(--primary-highlight)] hover:bg-primary hover:text-primary-foreground",
+                    )}
+                    onClick={() => onOpen(key)}
+                  >
+                    <Icon name={SECTIONS[key].icon as never} size={20} />
+                    {SECTIONS[key].label}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+        </nav>
+        <div className="mt-auto flex items-center gap-3 border-t px-2 pt-3">
+          <span aria-hidden="true" className="grid size-[38px] flex-none place-items-center rounded-full bg-accent text-[13.5px] font-semibold text-muted-foreground">
+            {initials(props.displayName)}
+          </span>
+          {/* The classes "who" and "role" are hooks for the tests of the browser. */}
+          <span className="grid min-w-0 leading-tight">
+            <span className="who truncate font-semibold">{props.displayName}</span>
+            <span className="role truncate text-[12.5px] text-muted-foreground">{props.roleLabel}</span>
+          </span>
+        </div>
+      </aside>
 
       <div className="flex min-w-0 flex-col">
-        <header className="sticky top-0 z-10 flex min-h-16 items-center justify-between gap-3 border-b bg-card px-4 py-2 min-[960px]:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            <Button type="button" variant="ghost" size="icon" className="size-10 text-xl min-[960px]:hidden" aria-label="Меню" onClick={() => setMenuOpen(true)}>
-              ☰
-            </Button>
-            <h2 className="truncate text-xl font-bold">{title}</h2>
-            {choosable && <Badge className="kassa-name shrink-0">{KASSA_LABEL[kassa]}</Badge>}
-          </div>
-          <div className="flex items-center gap-5">
-            <HeaderBalances balances={props.balances} onRetry={props.onRetryBalances} />
-            <span className="hidden h-6 w-px bg-border min-[960px]:block" />
-            <Button ref={props.leaveButton} type="button" variant="outline" size="sm" className="hidden min-[960px]:inline-flex" onClick={props.onLeave}>
+        {/* A computer: the section, the balances, «Выйти». */}
+        <header className="sticky top-0 z-10 hidden min-h-16 items-center justify-between gap-4 px-6 pt-4 min-[960px]:flex">
+          <h2 className="truncate text-2xl font-bold tracking-tight">{title}</h2>
+          <div className="flex items-center gap-3">
+            {props.headerExtra}
+            <Button ref={props.leaveButton} type="button" variant="outline" size="sm" onClick={props.onLeave}>
+              <Icon name="logout" size={18} />
               Выйти
             </Button>
           </div>
         </header>
 
-        <div className="grid min-w-0 content-start gap-4 px-4 py-5 min-[960px]:px-6">{children}</div>
+        {/* A phone: the page under the bars of Telegram (or of the phone), above the tab bar. */}
+        <div className="app-page grid min-w-0 content-start gap-4 px-4 min-[960px]:px-6 min-[960px]:pt-4 min-[960px]:pb-8">
+          {onBack && (
+            <button type="button" className="phone-back -ml-1 flex w-fit items-center gap-1 text-[15px] font-semibold text-muted-foreground min-[960px]:hidden" onClick={onBack}>
+              <Icon name="chevronLeft" size={18} stroke={2.2} />
+              Настройки
+            </button>
+          )}
+          {!compact && (
+            <div className="flex items-center gap-3 min-[960px]:hidden">
+              <span aria-hidden="true" className="grid size-10 flex-none place-items-center rounded-[12px] bg-primary text-[19px] font-extrabold text-primary-foreground">
+                К
+              </span>
+              <h2 className="truncate text-[28px] leading-tight font-extrabold tracking-tight">{title}</h2>
+            </div>
+          )}
+          {compact && <h2 className="sr-only min-[960px]:hidden">{title}</h2>}
+          {children}
+        </div>
       </div>
+
+      <div className="tg-fade" aria-hidden="true" />
+      <div className="tg-title" aria-hidden="true">
+        {title}
+      </div>
+      <TabBar tabs={tabs} active={activeTab} onOpen={onOpen} />
     </div>
   );
 }
 
-/** The balances, small, in the header: in a row on a computer, one under the other on a phone. */
-function HeaderBalances({ balances, onRetry }: { balances: BalancesState; onRetry: () => void }) {
-  if (balances === undefined) {
-    return (
-      <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={onRetry}>
-        Остатки: повторить
-      </Button>
-    );
-  }
-  const { kassa } = useKassa();
-  const known = Array.isArray(balances) ? (balances as Balance[]) : undefined;
-  const shown = (currency: Currency) => {
-    const balance = known?.find((item) => item.currency === currency);
-    return {
-      text: balance ? formatMoney(balance.amountMinor, currency) : balances === "offline" ? "—" : "…",
-      negative: !!balance && balance.amountMinor < 0,
-    };
-  };
-  return (
-    <section aria-label="Остатки" className="grid text-right leading-tight tabular-nums min-[960px]:flex min-[960px]:items-baseline min-[960px]:gap-5">
-      {KASSA_CURRENCIES[kassa].map((currency) => {
-        const { text, negative } = shown(currency);
-        return (
-          <span key={currency} className="flex items-baseline justify-end gap-2" data-currency={currency}>
-            <span className="hidden text-[13px] text-muted-foreground min-[960px]:inline">{CURRENCY_NAME[currency]}</span>
-            <strong className={cn("text-[13px] font-semibold min-[960px]:text-[17px] min-[960px]:font-bold", negative && "text-destructive")}>{text}</strong>
-          </span>
-        );
-      })}
-    </section>
-  );
-}
+/**
+ * The tab bar of a phone: a capsule of glass over the bottom of the page, the lens sliding under the chosen button. Not
+ * on a computer, which has the menu on the left.
+ */
+function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active: SectionKey; onOpen: (key: SectionKey) => void }) {
+  const bar = useRef<HTMLDivElement>(null);
+  const [lens, setLens] = useState<{ left: number; width: number } | null>(null);
+  const [pressed, setPressed] = useState(false);
 
-/** Light, dark, or as the device is set: three buttons, the chosen one marked. */
-function ThemeSwitch() {
-  const [theme, setTheme] = useTheme();
+  useLayoutEffect(() => {
+    const place = () => {
+      const button = bar.current?.querySelector<HTMLElement>(`[data-tab="${active}"]`);
+      if (button) setLens({ left: button.offsetLeft, width: button.offsetWidth });
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [active, tabs]);
+
   return (
-    <div className="mt-auto grid gap-1.5 border-t px-3 pt-3 pb-1">
-      <span className="text-[11px] font-semibold tracking-[.06em] text-muted-foreground uppercase">Тема</span>
-      <div className="grid grid-cols-3 gap-1 rounded-full bg-muted p-1" role="group" aria-label="Тема">
-        {THEME_CHOICES.map((choice) => (
+    <div className="tabbar-wrap pointer-events-none fixed inset-x-0 bottom-0 z-30 min-[960px]:hidden">
+      <div
+        ref={bar}
+        role="tablist"
+        aria-label="Основные разделы"
+        className={cn("glass-bar pointer-events-auto relative mx-3 flex h-16 rounded-[32px] p-[5px] select-none", pressed && "[&_.lens]:scale-[1.07]")}
+        onPointerDown={() => setPressed(true)}
+        onPointerUp={() => setPressed(false)}
+        onPointerLeave={() => setPressed(false)}
+      >
+        {lens && (
+          <span
+            aria-hidden="true"
+            className="lens absolute top-[5px] bottom-[5px] left-0 rounded-[27px] transition-[transform,width,scale] duration-500 ease-[cubic-bezier(.34,1.45,.64,1)] motion-reduce:transition-none"
+            style={{ width: lens.width, transform: `translateX(${lens.left}px)`, background: "var(--lens)", boxShadow: "inset 0 1px 0 var(--lens-highlight), var(--lens-shadow)" }}
+          />
+        )}
+        {tabs.map((key) => (
           <button
-            key={choice}
+            key={key}
             type="button"
-            aria-pressed={choice === theme}
+            role="tab"
+            data-tab={key}
+            aria-selected={key === active}
             className={cn(
-              "min-h-[30px] rounded-full px-1 text-[12px] font-semibold text-muted-foreground",
-              choice === theme && "bg-primary text-primary-foreground shadow-sm",
+              "relative z-[1] flex min-w-0 flex-1 flex-col items-center justify-center gap-[3px] rounded-[27px] text-[10.5px] font-semibold tracking-[.01em] text-muted-foreground transition-colors",
+              key === active && "text-foreground",
             )}
-            onClick={() => setTheme(choice)}
+            onClick={() => onOpen(key)}
           >
-            {choice === "system" ? "Авто" : THEME_LABEL[choice]}
+            <Icon name={SECTIONS[key].icon as never} size={23} />
+            <span className="max-w-full truncate px-0.5">{SECTIONS[key].label}</span>
           </button>
         ))}
       </div>

@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, backToCashDesk, cashMenu } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, backToCashDesk } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
@@ -51,8 +51,9 @@ describe("the cash desk without shifts", () => {
     return { started, phoneOf };
   }
 
-  const bar = (page: Page) => page.getByRole("region", { name: "Сверка кассы", exact: true });
-  const showJournal = (page: Page) => cashMenu(page, "Журнал");
+  // The band in the journal and the page of the count both carry the name: the one on the screen.
+  const bar = (page: Page) => page.getByRole("region", { name: "Сверка кассы", exact: true }).locator("visible=true").first();
+  const showJournal = (page: Page) => openSection(page, "Журнал");
   const amountField = (page: Page) => page.getByRole("textbox", { name: "Сумма" });
   const countField = (page: Page, currency: "RUB" | "USD") => page.locator(`input[name=count-${currency}]`);
 
@@ -132,7 +133,7 @@ describe("the cash desk without shifts", () => {
     await seeText(bar(anvar.page), "Касса сверена");
     await seeText(bar(anvar.page), /Рубли: по книге 1\s654,00\s₽, насчитано 1\s640,00\s₽\. Недостача 14,00\s₽\./);
     await seeText(bar(anvar.page), /Доллары: по книге 50,00\s\$, насчитано 50,00\s\$\. Сошлось\./);
-    await seeText(anvar.page.getByRole("region", { name: "Остатки" }), /1\s640,00\s₽/);
+    await seeText(anvar.page.getByRole("region", { name: "Остатки" }).locator("visible=true").first(), /1\s640,00\s₽/);
     // It can be done again whenever the head cashier likes.
     await seeVisible(bar(anvar.page).getByRole("button", { name: "Сверить кассу" }));
   }, 90_000);
@@ -175,7 +176,7 @@ describe("the cash desk without shifts", () => {
     await seeText(owner.page.locator('[data-total="closing"]').first(), /990,00\s₽/);
   }, 90_000);
 
-  it("gives the admin the owner's screen as well, behind \"Управление\", but not the button that counts the cash", async () => {
+  it("gives the admin the owner's screen as well, but not the button that counts the cash", async () => {
     const { started, phoneOf } = await desk();
     const anvar = await phoneOf("anvar", "admin pass word");
     await countWith(anvar.page, "990", "50");
@@ -185,30 +186,27 @@ describe("the cash desk without shifts", () => {
     await postJson(started, "/api/operations", { id: randomUUID(), type: "income", amountMinor: 10_000, currency: "RUB", rateE4: 790_000, clientCode: "PETR-1" }, petr);
 
     const mudir = await phoneOf("mudir", "admin password");
-    await cashMenu(mudir.page, "Управление");
     await openSection(mudir.page, "Сверки");
     await seeText(mudir.page.locator(".reconciliation-card").first(), "Анвар");
     await openSection(mudir.page, "Итоги");
     await seeText(mudir.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);
     await openSection(mudir.page, "Категории");
-    await seeVisible(mudir.page.getByRole("banner").getByRole("heading", { name: "Категории" }));
+    await seeVisible(mudir.page.locator("h2:visible", { hasText: "Категории" }).first());
 
-    // His one journal is the one of «Управление»: there he corrects anybody's entry.
+    // His journal is the owner's, and there he corrects anybody's entry.
     await openSection(mudir.page, "Журнал");
     const row = mudir.page.getByRole("table", { name: "Журнал операций" }).locator("tr", { hasText: "PETR-1" });
     await row.getByRole("button", { name: /Изменить/ }).click();
     await mudir.page.locator("input[name=amount]:visible").fill("150");
     await mudir.page.getByRole("button", { name: "Сохранить" }).click();
     await seeText(mudir.page.getByRole("table", { name: "Журнал операций" }).locator("tr", { hasText: "PETR-1" }), /150,00\s₽/);
-    await seeText(mudir.page.getByRole("region", { name: "Остатки" }).first(), /1\s140,00\s₽/);
+    await seeText(mudir.page.getByRole("region", { name: "Остатки" }).locator("visible=true").first(), /1\s140,00\s₽/);
 
-    // At the cash desk he enters like a cashier, with no journal of its own; only the head cashier counts the cash.
+    // He enters like a cashier; only the head cashier counts the cash.
     await backToCashDesk(mudir.page);
-    await seeVisible(mudir.page.getByRole("tab", { name: "Приход", exact: true }));
-    const burger = mudir.page.getByRole("button", { name: "Меню", exact: true });
-    if (await burger.isVisible()) await burger.click();
-    expect(await mudir.page.getByRole("navigation", { name: "Разделы" }).getByRole("button", { name: "Журнал", exact: true }).count()).toBe(0);
+    await seeVisible(mudir.page.getByRole("button", { name: "Записать приход" }));
     expect(await mudir.page.getByRole("button", { name: "Сверить кассу" }).count()).toBe(0);
+    expect(await mudir.page.getByRole("button", { name: "Сверка", exact: true }).count()).toBe(0);
   }, 90_000);
 
   it("does not give the owner the pencil in the journal", async () => {

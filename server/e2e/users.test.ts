@@ -2,11 +2,11 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext } from "playwright-core";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, cashMenu, choose } from "./browser.js";
+import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, choose } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** The admin keeps the people of the cash desk in «Управление» → «Люди». */
+/** The admin keeps the people of the cash desk in «Люди». */
 describe("the accounts on the admin's screen", () => {
   let browser: Browser;
   let app: TestApp | undefined;
@@ -44,7 +44,6 @@ describe("the accounts on the admin's screen", () => {
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const { page } = await signedIn(started, "mudir", "admin password");
 
-    await cashMenu(page, "Управление");
     await openSection(page, "Люди");
     const list = page.getByRole("region", { name: "Пользователи" });
     await seeText(list.locator('[data-user="mudir"]'), "(это вы)");
@@ -96,8 +95,9 @@ describe("the accounts on the admin's screen", () => {
     app = started;
     await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
     const { page } = await signedIn(started, "owner", "long enough pass");
-    await page.getByRole("button", { name: "Меню", exact: true }).click();
-    const sections = page.getByRole("navigation", { name: "Разделы" });
+    // A phone: the sections off the tab bar are in «Настройки».
+    await page.getByRole("tablist", { name: "Основные разделы" }).getByRole("tab", { name: "Настройки", exact: true }).click();
+    const sections = page.getByRole("navigation", { name: "Все разделы" });
     await seeVisible(sections.getByRole("button", { name: "Категории", exact: true }));
     await seeGone(sections.getByRole("button", { name: "Люди", exact: true }));
   }, 60_000);

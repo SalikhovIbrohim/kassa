@@ -1,5 +1,5 @@
 import { KASSA_CURRENCIES, KassaProvider, useKassa } from "./kassa";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   fetchBalances,
   fetchCategories,
@@ -9,11 +9,11 @@ import {
   NetworkError,
   SessionExpiredError,
   type Balance,
+  type Operation,
   type Role,
   type User,
 } from "./api";
-import { BalanceNotes, type BalancesState } from "./Balances";
-import { Badge } from "@/components/ui/badge";
+import { BalanceNotes, BalanceStrip, ScopeBalances, ScopeSwitch, type BalancesState } from "./Balances";
 import { Button } from "@/components/ui/button";
 import { EntryScreen, type Section as CashSection } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
@@ -21,15 +21,22 @@ import { plural } from "./plural";
 import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
-import { ManageScreen } from "./ManageScreen";
+import { CategoriesAdmin } from "./CategoriesAdmin";
+import { ClientsAdmin } from "./ClientsAdmin";
+import { Journal } from "./Journal";
+import { ReconcileBar } from "./ReconcileBar";
+import { ReconciliationsList } from "./ReconciliationsList";
+import { Settings } from "./Settings";
+import { Totals } from "./Totals";
+import { UsersAdmin } from "./UsersAdmin";
+import { sectionsOf, useTabs, type SectionKey } from "./sections";
+import { toast } from "@/components/ui/toast";
 import { Shell } from "./Shell";
 import { TelegramLink } from "./TelegramLink";
-import { inTelegram, tellTelegramReady, telegramLaunchData } from "./telegram";
+import { inTelegram, startTelegram, telegramLaunchData, useTelegramBackButton, useTelegramClosingConfirmation } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
 import { alertVariants } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-
-type Side = "cash" | "manage";
 
 type State =
   | { kind: "loading" }
@@ -90,10 +97,8 @@ export function App() {
 
   useEffect(load, [load]);
 
-  // Inside Telegram: say that the app is ready, and take the whole height of the window.
-  useEffect(() => {
-    if (inTelegram()) tellTelegramReady();
-  }, []);
+  // Inside Telegram: the official script, the whole screen, the margins and the colors (see telegram.ts).
+  useEffect(startTelegram, []);
 
   // The entries kept on the phone are read once, whoever is or is not signed in.
   useEffect(() => {
@@ -250,17 +255,31 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   const blockedCount = mine.filter((entry) => entry.status === "blocked").length;
   const waitingCount = kept - blockedCount;
   const leaveButton = useRef<HTMLButtonElement>(null);
-  // The admin's two screens: the cash desk (as a cashier's) and «Управление» (as the owner's), the second made on first use.
-  const [side, setSide] = useState<Side>("cash");
-  const [manageOpened, setManageOpened] = useState(false);
-  // Where the cash desk is: a form, or the journal (which is opened from ☰).
-  const [cashSection, setCashSection] = useState<CashSection>("income");
-  const lastForm = useRef<"income" | "expense">("income");
-  if (cashSection !== "journal") lastForm.current = cashSection;
-  const show = (next: Side) => {
-    if (next === "manage") setManageOpened(true);
-    setSide(next);
-  };
+
+  // One menu for everybody: the sections of the role. On a phone four of them (the person's choice) and «Настройки»
+  // are the tab bar; the others open from «Настройки», with the way back.
+  const sections = sectionsOf(user.role);
+  const { tabs, chosen, setChosen } = useTabs(user.role);
+  const computer = useComputer();
+  const [section, setSection] = useState<SectionKey>(() => tabs[0]!);
+  // Every section is made on first use and then stays alive, only hidden: what was typed into a form, the filters of the
+  // journal and the period of the totals are still there when one comes back.
+  const [opened, setOpened] = useState<ReadonlySet<SectionKey>>(() => new Set([tabs[0]!]));
+  const lastForm = useRef<CashSection>("income");
+  if (section === "income" || section === "expense") lastForm.current = section;
+  const open = useCallback((key: SectionKey) => {
+    setOpened((previous) => (previous.has(key) ? previous : new Set(previous).add(key)));
+    setSection(key);
+    window.scrollTo({ top: 0 });
+  }, []);
+  const back = !computer && !tabs.includes(section) ? () => open("settings") : undefined;
+  useTelegramBackButton(back);
+  useTelegramClosingConfirmation(kept > 0);
+  // What the cashier last corrected or deleted in the journal, for the "saved" banners of the forms.
+  const [changed, setChanged] = useState<Operation | null>(null);
+  // The balances over the journal are read again after a correction in it.
+  const [journalBalances, setJournalBalances] = useState(0);
+  const refreshJournalBalances = useCallback(() => setJournalBalances((count) => count + 1), []);
 
   async function leave(sure = false) {
     setError(null);
@@ -290,7 +309,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     leaveButton.current?.focus();
   }
 
-  const menuExtra =
+  const telegram =
     inTelegram() && !telegramLinked ? (
       <TelegramLink
         onLinked={() => {
@@ -354,74 +373,159 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
     </>
   );
 
-  // The owner has only «Управление»; the admin has the cash desk and «Управление», both kept alive (what he was
-  // typing, and the filters he set, are there when he comes back), only one shown.
-  const manage = (onCashDesk?: () => void) => (
-    <ManageScreen
-      displayName={user.displayName}
-      roleLabel={ROLE_LABEL[user.role]}
-      admin={user.role === "admin" ? user.login : undefined}
-      balances={balances}
-      onRetryBalances={loadBalances}
-      onLeave={() => void leave()}
-      leaveButton={leaveButton}
-      onCashDesk={onCashDesk}
-      notices={notices}
-      menuExtra={menuExtra}
-      onSessionExpired={onLoggedOut}
-      onRefresh={loadBalances}
-    />
-  );
-
-  if (user.role === "viewer") return manage();
+  const form = section === "income" || section === "expense";
+  const cashierJournal = user.role === "cashier" || user.role === "head_cashier";
+  const page = (key: SectionKey, content: ReactNode) =>
+    opened.has(key) && (
+      <div key={key} hidden={section !== key} className="grid min-w-0 gap-4">
+        {content}
+      </div>
+    );
 
   return (
-    <>
-      <div hidden={side === "manage"}>
-        <Shell
-          className="cash"
-          menuExtra={menuExtra}
-          groups={[
-            {
-              title: null,
-              // The admin's journal is the one of «Управление» (any period, filters, history, and the pencil there).
-              items: user.role === "admin" ? [{ key: "entry", label: "Касса" }] : [
-                { key: "entry", label: "Касса" },
-                { key: "journal", label: "Журнал" },
-              ],
-            },
-          ]}
-          active={cashSection === "journal" ? "journal" : "entry"}
-          // «Касса» goes back to the form that was open last (Приход or Расход, the tabs above the form).
-          onOpen={(key) => setCashSection(key === "journal" ? "journal" : lastForm.current)}
-          mode={user.role === "admin" ? { current: "cash", onSwitch: () => show("manage") } : undefined}
+    <Shell
+      sections={sections}
+      tabs={tabs}
+      active={section}
+      onOpen={open}
+      onBack={back}
+      compact={form}
+      displayName={user.displayName}
+      roleLabel={ROLE_LABEL[user.role]}
+      onLeave={() => void leave()}
+      leaveButton={leaveButton}
+    >
+      {notices}
+      {(opened.has("income") || opened.has("expense")) && (
+        // The forms keep the width of a phone.
+        <div hidden={!form} className="mx-auto grid w-full max-w-[480px] gap-3">
+          <BalanceStrip balances={balances} onRetry={loadBalances} />
+          <BalanceNotes balances={balances} onRetry={loadBalances} unsent={kept} />
+          <EntryScreen
+            section={lastForm.current}
+            changed={changed}
+            onSaved={(fresh) => {
+              toast("Записано");
+              showSavedBalances(fresh);
+            }}
+            onBalancesStale={loadBalances}
+            onSessionExpired={onLoggedOut}
+          />
+          {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
+          <QueueBanner login={user.login} onSignIn={onLoggedOut} />
+        </div>
+      )}
+      {page(
+        "journal",
+        <>
+          <ScopeSwitch />
+          <ScopeBalances onSessionExpired={onLoggedOut} reload={journalBalances} />
+          {user.role === "head_cashier" && (
+            <section aria-label="Сверка кассы" className="glass-card flex flex-wrap items-center gap-3 rounded-lg px-4 py-3">
+              <span className="grid flex-1 leading-snug">
+                <strong>Сверка кассы</strong>
+                <span className="text-[13px] text-muted-foreground">Пересчитать наличные и свести с книгой</span>
+              </span>
+              <Button type="button" size="sm" onClick={() => open("reconcile")}>
+                Сверить кассу
+              </Button>
+            </section>
+          )}
+          {cashierJournal ? (
+            <Journal
+              mode="cashier"
+              login={user.login}
+              onSessionExpired={onLoggedOut}
+              onRefresh={() => {
+                loadBalances();
+                refreshJournalBalances();
+              }}
+              onBalances={(fresh) => {
+                showSavedBalances(fresh);
+                refreshJournalBalances();
+              }}
+              onOperationChanged={setChanged}
+            />
+          ) : (
+            // The admin's journal: the owner's view, with the admin's right to correct and delete any entry.
+            <Journal
+              mode="viewer"
+              login={user.role === "admin" ? user.login : undefined}
+              isAdmin={user.role === "admin"}
+              onSessionExpired={onLoggedOut}
+              onRefresh={() => {
+                loadBalances();
+                refreshJournalBalances();
+              }}
+              onBalances={() => {
+                loadBalances();
+                refreshJournalBalances();
+              }}
+              onOperationChanged={setChanged}
+            />
+          )}
+        </>,
+      )}
+      {page(
+        "reconcile",
+        <>
+          <ScopeBalances onSessionExpired={onLoggedOut} reload={journalBalances} />
+          <ReconcileBar
+            login={user.login}
+            startAsking
+            onBalances={(fresh) => {
+              showSavedBalances(fresh);
+              refreshJournalBalances();
+            }}
+            onSessionExpired={onLoggedOut}
+          />
+        </>,
+      )}
+      {page(
+        "totals",
+        <>
+          <ScopeSwitch />
+          <Totals onSessionExpired={onLoggedOut} onRefresh={loadBalances} active={section === "totals"} />
+        </>,
+      )}
+      {page(
+        "reconciliations",
+        <>
+          <ScopeSwitch />
+          <ReconciliationsList onSessionExpired={onLoggedOut} onRefresh={loadBalances} active={section === "reconciliations"} />
+        </>,
+      )}
+      {page("clients", <ClientsAdmin canEdit={user.role === "admin"} onSessionExpired={onLoggedOut} active={section === "clients"} />)}
+      {page("categories", <CategoriesAdmin onSessionExpired={onLoggedOut} active={section === "categories"} />)}
+      {page("users", <UsersAdmin me={user.login} onSessionExpired={onLoggedOut} active={section === "users"} />)}
+      {page(
+        "settings",
+        <Settings
           displayName={user.displayName}
           roleLabel={ROLE_LABEL[user.role]}
-          balances={balances}
-          onRetryBalances={loadBalances}
+          login={user.login}
+          sections={sections}
+          tabs={chosen}
+          onTabsChange={setChosen}
+          onOpen={open}
+          telegram={telegram}
           onLeave={() => void leave()}
-          leaveButton={side === "cash" ? leaveButton : undefined}
-        >
-          {/* The forms keep the width of a phone; the journal takes the room it is given. */}
-          <div className={cn("mx-auto grid w-full gap-4", cashSection !== "journal" && "max-w-[480px]")}>
-            {side === "cash" && notices}
-            <BalanceNotes balances={balances} onRetry={loadBalances} unsent={kept} />
-            <EntryScreen
-              login={user.login}
-              section={cashSection}
-              onSectionChange={setCashSection}
-              canReconcile={user.role === "head_cashier"}
-              isAdmin={user.role === "admin"}
-              onSaved={showSavedBalances}
-              onBalancesStale={loadBalances}
-              onSessionExpired={onLoggedOut}
-            />
-            {/* Below what the cashier is typing, so that it appearing and going away does not move the form. */}
-            <QueueBanner login={user.login} onSignIn={onLoggedOut} />
-          </div>
-        </Shell>
-      </div>
-      {manageOpened && <div hidden={side !== "manage"}>{manage(() => show("cash"))}</div>}
-    </>
+        />,
+      )}
+    </Shell>
   );
+}
+
+/** A computer (the menu on the left) or a phone (the tab bar): the width of the window says. */
+function useComputer(): boolean {
+  const query = "(min-width: 960px)";
+  const [computer, setComputer] = useState(() => typeof window !== "undefined" && window.matchMedia?.(query).matches === true);
+  useEffect(() => {
+    const media = window.matchMedia?.(query);
+    if (!media) return;
+    const changed = () => setComputer(media.matches);
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
+  return computer;
 }

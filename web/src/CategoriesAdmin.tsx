@@ -201,7 +201,7 @@ function CategoryTable({
 
   return (
     // Scrolled sideways only on a narrow screen: a box that scrolls would keep the header from sticking to the page.
-    <div className="rounded-xl border bg-card shadow-sm max-[959px]:overflow-x-auto">
+    <div className="glass-card overflow-hidden rounded-[26px] max-[959px]:overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse">
         <thead>
           <tr>

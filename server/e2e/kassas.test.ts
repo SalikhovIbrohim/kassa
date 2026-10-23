@@ -79,7 +79,7 @@ describe("two cash desks", () => {
     await page.getByRole("group", { name: "Касса" }).first().getByRole("button", { name: "Андижан" }).click();
     await seeText(balances(page), /0,00\s\$/);
     expect(await balances(page).textContent()).not.toContain("₽");
-    await seeText(page.locator(".kassa-name:visible"), "Андижан");
+    expect(await page.getByRole("group", { name: "Касса" }).first().getByRole("button", { name: "Андижан" }).getAttribute("aria-pressed")).toBe("true");
 
     await page.getByRole("group", { name: "Касса" }).first().getByRole("button", { name: "Москва" }).click();
     await seeText(balances(page), /1\s000,00\s₽/);

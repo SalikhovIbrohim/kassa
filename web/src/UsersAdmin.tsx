@@ -124,7 +124,7 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
       )}
 
       {users && (
-        <ul className="divide-y rounded-xl border bg-card shadow-sm">
+        <ul className="glass-card divide-y overflow-hidden rounded-[26px]">
           {users.map((user) => {
             const self = user.login.toLowerCase() === myLogin.toLowerCase();
             return (

@@ -134,7 +134,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           <p className="hint" data-count>
             {search.trim() ? `Найдено: ${shown.length} из ${clients!.length}` : `Всего клиентов: ${shown.length}`}
           </p>
-          <ul className="divide-y rounded-xl border bg-card shadow-sm">
+          <ul className="glass-card divide-y overflow-hidden rounded-[26px]">
             {shown.map((client) => (
               <li key={client.code} className={cn("flex flex-col gap-3 px-3 py-2 transition-colors", editing !== client.code && "hover:bg-muted/60")} data-client={client.code}>
                 {editing === client.code ? (

@@ -3,11 +3,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { get, loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { cashMenu, launchChromium, newLaptop, newPhone, openSection, seeText } from "./browser.js";
+import { launchChromium, newLaptop, newPhone, openSection, seeText } from "./browser.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** The directory of clients: kept by the admin in «Управление», offered in the income form. */
+/** The directory of clients: kept by the admin in «Клиенты», offered in the income form. */
 describe("the clients on the screen", () => {
   let browser: Browser;
   let app: TestApp | undefined;
@@ -47,7 +47,6 @@ describe("the clients on the screen", () => {
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
     await signIn(laptop.page, started, "mudir", "admin password");
-    await cashMenu(laptop.page, "Управление");
     await openSection(laptop.page, "Клиенты");
     await laptop.page.getByRole("button", { name: "+ Новый", exact: true }).click();
     const dialog = laptop.page.getByRole("dialog", { name: "Новый клиент" });
