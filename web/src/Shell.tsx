@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { GROUPS, Icon, SECTIONS, type SectionKey } from "./sections";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -141,6 +141,56 @@ export function Shell(props: Props) {
   );
 }
 
+/** A field that brings up the keyboard (not a checkbox, a radio or a button). */
+function typesText(element: Element | null): boolean {
+  if (element instanceof HTMLTextAreaElement) return true;
+  if (element instanceof HTMLElement && element.isContentEditable) return true;
+  if (!(element instanceof HTMLInputElement)) return false;
+  return !["checkbox", "radio", "button", "submit", "reset", "file", "range", "color", "hidden"].includes(element.type);
+}
+
+/**
+ * True while the keyboard of a phone is up: a text field has the focus and the screen got shorter. The screen is
+ * checked as well because on Android the keyboard can be closed (the back button) while the field keeps the focus.
+ */
+function useKeyboardUp(): boolean {
+  const [up, setUp] = useState(false);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    let tallest = viewport?.height ?? window.innerHeight;
+    let timer: number | undefined;
+    const check = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      tallest = Math.max(tallest, height);
+      const shorter = viewport ? height < tallest - 120 : true;
+      setUp(typesText(document.activeElement) && shorter);
+    };
+    // Going from one field to the next is a focusout and a focusin: checked once both have happened, so no flicker.
+    const later = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(check, 80);
+    };
+    const turned = () => {
+      tallest = 0;
+      later();
+    };
+    document.addEventListener("focusin", later);
+    document.addEventListener("focusout", later);
+    viewport?.addEventListener("resize", later);
+    window.addEventListener("resize", later);
+    window.addEventListener("orientationchange", turned);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("focusin", later);
+      document.removeEventListener("focusout", later);
+      viewport?.removeEventListener("resize", later);
+      window.removeEventListener("resize", later);
+      window.removeEventListener("orientationchange", turned);
+    };
+  }, []);
+  return up;
+}
+
 /**
  * The tab bar of a phone: a capsule of glass over the bottom of the page, the lens sliding under the chosen button. Not
  * on a computer, which has the menu on the left.
@@ -149,6 +199,8 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
   const bar = useRef<HTMLDivElement>(null);
   const [lens, setLens] = useState<{ left: number; width: number } | null>(null);
   const [pressed, setPressed] = useState(false);
+  // While the keyboard is up the bar steps aside: the field being typed in and the button under it stay in sight.
+  const keyboardUp = useKeyboardUp();
 
   useLayoutEffect(() => {
     const place = () => {
@@ -161,7 +213,13 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
   }, [active, tabs]);
 
   return (
-    <div className="tabbar-wrap pointer-events-none fixed inset-x-0 bottom-0 z-30 min-[960px]:hidden">
+    <div
+      className={cn(
+        "tabbar-wrap pointer-events-none fixed inset-x-0 bottom-0 z-30 transition-[translate,opacity,visibility] duration-200 motion-reduce:transition-none min-[960px]:hidden",
+        keyboardUp && "invisible translate-y-full opacity-0",
+      )}
+      data-keyboard-up={keyboardUp || undefined}
+    >
       <div
         ref={bar}
         role="tablist"

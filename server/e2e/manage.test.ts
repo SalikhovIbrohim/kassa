@@ -84,6 +84,27 @@ describe("the frame of the app", () => {
     await seeText(heading(page), "Люди");
   }, 90_000);
 
+  it("on a phone the tab bar steps aside while the keyboard is up, and comes back when it goes", async () => {
+    const started = await desk();
+    const page = await signedIn(await newPhone(browser), started, "mudir", "admin password");
+    const tabs = page.getByRole("tablist", { name: "Основные разделы" });
+    await seeVisible(tabs);
+
+    // The keyboard: a text field has the focus and the screen gets shorter.
+    await page.getByLabel("Сумма").locator("visible=true").first().focus();
+    await page.setViewportSize({ width: 390, height: 500 });
+    await expect.poll(() => tabs.isVisible()).toBe(false);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seeVisible(tabs);
+
+    // The keyboard closed while the field kept the focus (Android's back button) or the field let go: the bar is back.
+    await page.setViewportSize({ width: 390, height: 500 });
+    await expect.poll(() => tabs.isVisible()).toBe(false);
+    await page.getByLabel("Сумма").locator("visible=true").first().blur();
+    await seeVisible(tabs);
+  }, 90_000);
+
   it("on a phone a tab bar at the bottom, «Настройки» last, from where the other sections open", async () => {
     const started = await desk();
     const page = await signedIn(await newPhone(browser), started, "owner", "long enough pass");
