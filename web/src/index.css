@@ -35,7 +35,8 @@
   --accent-foreground: #0e0f12;
   --border: rgba(14, 15, 18, 0.075);
   --input: rgba(14, 15, 18, 0.045);
-  --input-edge: rgba(14, 15, 18, 0.07);
+  /* The edge of a field: seen without being looked for (a little darker than the prototype's, so the field shows). */
+  --input-edge: rgba(14, 15, 18, 0.14);
   --ring: #0e0f12;
   /* What the colors mean: an income and a count that agrees are green, an expense and a shortage red, a surplus and what
      has not been sent yet amber. */
@@ -85,7 +86,7 @@
   --accent-foreground: #f2f3f5;
   --border: rgba(255, 255, 255, 0.07);
   --input: rgba(255, 255, 255, 0.06);
-  --input-edge: rgba(255, 255, 255, 0.08);
+  --input-edge: rgba(255, 255, 255, 0.1);
   --ring: #ffffff;
   --success: #45d483;
   --success-bg: rgba(69, 212, 131, 0.12);
@@ -134,6 +135,7 @@
   --color-warning-bg: var(--warning-bg);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-input-edge: var(--input-edge);
   --color-ring: var(--ring);
   --color-sheet: var(--sheet);
   --color-scrim: var(--scrim);
@@ -145,6 +147,62 @@
   --radius-md: calc(var(--radius) - 6px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 6px);
+}
+
+/* The glass of the prototype: a card (a form, a list, a total) and a bar (the tab bar, the menu, a sheet). */
+@utility glass-card {
+  background-color: var(--card);
+  box-shadow: inset 0 0 0 1px var(--card-edge), inset 0 1px 0 var(--card-highlight), var(--shadow);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+}
+@utility glass-bar {
+  background-color: var(--bar);
+  box-shadow: var(--bar-shadow);
+  backdrop-filter: blur(26px) saturate(1.7);
+  -webkit-backdrop-filter: blur(26px) saturate(1.7);
+}
+@utility glass-sheet {
+  background-color: var(--sheet);
+  box-shadow: 0 -10px 40px rgba(10, 12, 16, 0.18), inset 0 1px 0 var(--card-highlight);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+}
+
+/* How a sheet, a window and a notice come in, as in the prototype. */
+@keyframes sheet-in {
+  from {
+    transform: translateY(105%);
+  }
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(-105%);
+  }
+}
+@keyframes window-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.96);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.92);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+  }
 }
 
 @layer base {

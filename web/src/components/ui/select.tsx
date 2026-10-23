@@ -42,7 +42,7 @@ function Select({ value, onChange, options, name, required, disabled, placeholde
         data-name={name}
         aria-label={ariaLabel}
         className={cn(
-          "flex h-12 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-card pr-3.5 pl-3.5 text-left text-base font-normal text-foreground shadow-xs transition-colors focus-visible:border-primary focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground",
+          "flex h-[50px] w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input-edge bg-input px-4 text-left text-base font-normal text-foreground transition-[border-color,box-shadow] outline-none focus-visible:border-foreground focus-visible:ring-[3px] focus-visible:ring-foreground/10 disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-faint-foreground",
           className,
         )}
       >
@@ -70,7 +70,7 @@ function Select({ value, onChange, options, name, required, disabled, placeholde
           position="popper"
           sideOffset={4}
           collisionPadding={8}
-          className="z-50 max-h-[min(var(--radix-select-content-available-height),50dvh)] w-[var(--radix-select-trigger-width)] min-w-40 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md"
+          className="z-50 max-h-[min(var(--radix-select-content-available-height),50dvh)] w-[var(--radix-select-trigger-width)] min-w-40 overflow-hidden rounded-[18px] border border-input-edge bg-popover text-popover-foreground shadow-card backdrop-blur-xl data-[state=open]:animate-[fade-in_.15s_ease-out]"
         >
           <SelectPrimitive.Viewport className="p-1">
             {options.map((option, index) => (
@@ -82,7 +82,7 @@ function Select({ value, onChange, options, name, required, disabled, placeholde
                 value={option.value || EMPTY}
                 disabled={option.disabled}
                 data-value={option.value}
-                className="relative flex min-h-11 cursor-default items-center rounded-sm py-2 pr-8 pl-3 text-base outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                className="relative flex min-h-11 cursor-default items-center rounded-[12px] py-2 pr-8 pl-3 text-base outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
               >
                 <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
                 <SelectPrimitive.ItemIndicator aria-hidden="true" className="absolute right-2.5 text-primary">✓</SelectPrimitive.ItemIndicator>

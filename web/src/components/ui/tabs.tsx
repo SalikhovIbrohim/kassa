@@ -6,12 +6,12 @@ function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive
   return <TabsPrimitive.Root data-slot="tabs" className={cn("flex flex-col gap-4", className)} {...props} />;
 }
 
-/** The row of tabs: a grey bar, the chosen tab filled with the main color. Give it `grid grid-cols-N` to share the width. */
+/** The row of tabs, a segment of the prototype: a grey capsule, the chosen tab filled black (white in the dark theme). Give it `grid grid-cols-N` to share the width. */
 function TabsList({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.List>) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
-      className={cn("inline-flex min-h-12 w-full items-center justify-center gap-1 rounded-xl bg-muted p-1 text-muted-foreground", className)}
+      className={cn("inline-flex w-full items-center justify-center gap-0.5 rounded-full border border-input-edge bg-muted p-[3px] text-muted-foreground", className)}
       {...props}
     />
   );
@@ -22,7 +22,7 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex min-h-10 flex-1 cursor-pointer items-center justify-center rounded-lg px-1 py-1 text-sm font-semibold whitespace-nowrap text-muted-foreground transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm",
+        "inline-flex h-[38px] flex-1 cursor-pointer items-center justify-center rounded-full px-3 text-[15px] font-semibold whitespace-nowrap text-muted-foreground transition-[background-color,color] duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-40 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-[0_2px_6px_rgba(10,12,16,0.16)]",
         className,
       )}
       {...props}

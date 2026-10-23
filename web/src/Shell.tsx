@@ -127,7 +127,7 @@ export function Shell(props: Props) {
       <aside className="sticky top-0 hidden h-dvh flex-col overflow-y-auto border-r bg-card px-3 py-4 min-[960px]:flex">{menu(false)}</aside>
 
       <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-        <DialogContent className="top-0 left-0 flex h-dvh max-h-dvh w-[280px] max-w-[85vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 border-r bg-sheet px-3 py-4 backdrop-blur-xl">
+        <DialogContent side="left" className="h-dvh w-[280px] max-w-[85vw] gap-0 rounded-r-[28px] px-3 py-4">
           <DialogTitle className="sr-only">Меню</DialogTitle>
           <DialogDescription className="sr-only">Разделы</DialogDescription>
           {menu(true)}
