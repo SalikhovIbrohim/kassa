@@ -154,14 +154,14 @@ const FLAGS: Array<{ key: "requiresClient" | "requiresTrip" | "requiresCounterpa
 
 /** A very light tint tells the incomes from the expenses without hurting the eyes. */
 const TINT: Record<CategoryKind, string> = {
-  income: "bg-emerald-600/[0.045]",
-  expense: "bg-rose-600/[0.04]",
+  income: "bg-success/[0.06]",
+  expense: "bg-destructive/[0.05]",
 };
 
 /** Under the mouse the row darkens a little in its own color, so the eye stays on the line being ticked. */
 const HOVER: Record<CategoryKind, string> = {
-  income: "transition-colors hover:bg-emerald-600/[0.13]",
-  expense: "transition-colors hover:bg-rose-600/[0.12]",
+  income: "transition-colors hover:bg-success/[0.14]",
+  expense: "transition-colors hover:bg-destructive/[0.12]",
 };
 
 /**

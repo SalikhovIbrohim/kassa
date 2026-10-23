@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { THEME_CHOICES, THEME_LABEL, useTheme } from "./theme";
 
 export type ShellGroup = { title: string | null; items: Array<{ key: string; label: string }> };
 
@@ -69,7 +70,7 @@ export function Shell(props: Props) {
         <div className="mb-2 grid grid-cols-2 gap-1 rounded-[14px] bg-muted p-1" role="group" aria-label="Касса">
           {KASSAS.map((item) =>
             item === kassa ? (
-              <span key={item} className="flex min-h-[34px] items-center justify-center rounded-[10px] bg-card text-[13px] font-semibold text-primary shadow-sm" aria-current="true">
+              <span key={item} className="flex min-h-[34px] items-center justify-center rounded-[10px] bg-primary text-[13px] font-semibold text-primary-foreground shadow-sm" aria-current="true">
                 {KASSA_LABEL[item]}
               </span>
             ) : (
@@ -103,8 +104,10 @@ export function Shell(props: Props) {
           </div>
         ))}
       </nav>
-      {props.menuExtra && <div className="mt-auto border-t px-3 pt-3">{props.menuExtra}</div>}
-      <div className={cn("flex items-center justify-between gap-2 border-t p-3", !props.menuExtra && "mt-auto", props.menuExtra && "border-t-0")}>
+      {/* The settings of this device, at the foot of the menu until the menu has a tab «Настройки» of its own. */}
+      <ThemeSwitch />
+      {props.menuExtra && <div className="border-t px-3 pt-3">{props.menuExtra}</div>}
+      <div className={cn("flex items-center justify-between gap-2 border-t p-3", props.menuExtra && "border-t-0")}>
         <span className="grid gap-1">
           {/* The classes "who" and "role" are hooks for the tests of the browser. */}
           <span className="who font-semibold">{props.displayName}</span>
@@ -124,7 +127,7 @@ export function Shell(props: Props) {
       <aside className="sticky top-0 hidden h-dvh flex-col overflow-y-auto border-r bg-card px-3 py-4 min-[960px]:flex">{menu(false)}</aside>
 
       <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
-        <DialogContent className="top-0 left-0 flex h-dvh max-h-dvh w-[280px] max-w-[85vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 border-r bg-card px-3 py-4">
+        <DialogContent className="top-0 left-0 flex h-dvh max-h-dvh w-[280px] max-w-[85vw] translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 border-r bg-sheet px-3 py-4 backdrop-blur-xl">
           <DialogTitle className="sr-only">Меню</DialogTitle>
           <DialogDescription className="sr-only">Разделы</DialogDescription>
           {menu(true)}
@@ -185,5 +188,31 @@ function HeaderBalances({ balances, onRetry }: { balances: BalancesState; onRetr
         );
       })}
     </section>
+  );
+}
+
+/** Light, dark, or as the device is set: three buttons, the chosen one marked. */
+function ThemeSwitch() {
+  const [theme, setTheme] = useTheme();
+  return (
+    <div className="mt-auto grid gap-1.5 border-t px-3 pt-3 pb-1">
+      <span className="text-[11px] font-semibold tracking-[.06em] text-muted-foreground uppercase">Тема</span>
+      <div className="grid grid-cols-3 gap-1 rounded-full bg-muted p-1" role="group" aria-label="Тема">
+        {THEME_CHOICES.map((choice) => (
+          <button
+            key={choice}
+            type="button"
+            aria-pressed={choice === theme}
+            className={cn(
+              "min-h-[30px] rounded-full px-1 text-[12px] font-semibold text-muted-foreground",
+              choice === theme && "bg-primary text-primary-foreground shadow-sm",
+            )}
+            onClick={() => setTheme(choice)}
+          >
+            {choice === "system" ? "Авто" : THEME_LABEL[choice]}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

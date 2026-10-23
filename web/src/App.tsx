@@ -310,7 +310,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
       {confirmingLeave && (
         <div
-          className="queue rounded-xl border-amber-200 bg-amber-50 text-amber-800"
+          className="queue rounded-xl border-warning/30 bg-warning-bg text-warning"
           role="alertdialog"
           aria-labelledby="leave-title"
           aria-describedby="leave-text"

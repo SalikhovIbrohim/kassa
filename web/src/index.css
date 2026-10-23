@@ -1,6 +1,6 @@
 /*
  * The look of the app: Tailwind CSS 4 with its reset, and components in the style of shadcn/ui (src/components/ui), in the
- * colors the app has always had, teal on slate. screens.css holds what is particular to the screens (the journal that is
+ * colors of the prototype design/kassa.html (black and white glass, a light and a dark theme). screens.css holds what is particular to the screens (the journal that is
  * cards on a phone and a table on a laptop, the totals, the list of entries that wait on the phone): it sits in its own
  * layer between the reset and the utilities, so a utility given to an element always wins over it.
  */
@@ -11,28 +11,106 @@
 @import "./screens.css" layer(screens);
 
 :root {
-  --radius: 0.75rem;
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  --primary: #0f766e;
+  /* The colors of the prototype (design/kassa.html): black and white glass on a grey gradient. The names are shadcn's. */
+  --radius: 1.375rem;
+  --background: #f7f8f9;
+  --background-image: radial-gradient(120% 55% at 50% -12%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0) 62%),
+    linear-gradient(180deg, #f7f8f9, #e5e7eb);
+  --foreground: #0e0f12;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-foreground: #0e0f12;
+  --card-edge: rgba(255, 255, 255, 1);
+  --card-highlight: rgba(255, 255, 255, 0.9);
+  --popover: rgba(248, 249, 250, 0.97);
+  --popover-foreground: #0e0f12;
+  --primary: #0e0f12;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --muted: #e2e8f0;
-  --muted-foreground: #475569;
-  --accent: #f0fdfa;
-  --accent-foreground: #115e59;
-  --destructive: #b91c1c;
-  --border: #e2e8f0;
-  --input: #94a3b8;
-  --ring: #5eead4;
+  --primary-highlight: rgba(255, 255, 255, 0.22);
+  --secondary: rgba(14, 15, 18, 0.045);
+  --secondary-foreground: #0e0f12;
+  --muted: rgba(14, 15, 18, 0.045);
+  --muted-foreground: #6b6e76;
+  --faint-foreground: #a0a3aa;
+  --accent: rgba(14, 15, 18, 0.085);
+  --accent-foreground: #0e0f12;
+  --border: rgba(14, 15, 18, 0.075);
+  --input: rgba(14, 15, 18, 0.045);
+  --input-edge: rgba(14, 15, 18, 0.07);
+  --ring: #0e0f12;
+  /* What the colors mean: an income and a count that agrees are green, an expense and a shortage red, a surplus and what
+     has not been sent yet amber. */
+  --success: #1e8a4c;
+  --success-bg: rgba(30, 138, 76, 0.09);
+  --destructive: #d0362c;
+  --destructive-bg: rgba(208, 54, 44, 0.08);
+  --warning: #b0650a;
+  --warning-bg: rgba(214, 138, 20, 0.12);
+  --shadow: 0 12px 30px rgba(20, 22, 30, 0.08);
+  --shadow-sm: 0 4px 14px rgba(20, 22, 30, 0.07);
+  /* The glass of the bars (the tab bar, the menu, the sheets) and the lens that marks the open tab. */
+  --bar: rgba(255, 255, 255, 0.84);
+  --bar-shadow: 0 12px 32px rgba(20, 22, 30, 0.14), 0 2px 6px rgba(20, 22, 30, 0.06);
+  --sheet: rgba(248, 249, 250, 0.95);
+  --scrim: rgba(14, 15, 18, 0.26);
+  --lens: linear-gradient(180deg, #ffffff, #f1f2f4);
+  --lens-highlight: #ffffff;
+  --lens-shadow: 0 3px 9px rgba(20, 22, 30, 0.13);
+  --fade: rgba(247, 248, 249, 0.94);
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  color-scheme: light;
 }
 
+/* The dark theme: the class is set on <html> by theme.ts (the person's choice, or the system's). */
+.dark {
+  --background: #15171b;
+  --background-image: radial-gradient(100% 50% at 50% -12%, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(135deg, #1d1f23 0%, #0e0f12 55%, #15171b 100%);
+  --foreground: #f2f3f5;
+  --card: rgba(255, 255, 255, 0.045);
+  --card-foreground: #f2f3f5;
+  --card-edge: rgba(255, 255, 255, 0.09);
+  --card-highlight: rgba(255, 255, 255, 0.12);
+  --popover: rgba(26, 28, 32, 0.97);
+  --popover-foreground: #f2f3f5;
+  --primary: #ffffff;
+  --primary-foreground: #0e0f12;
+  --primary-highlight: rgba(255, 255, 255, 0.5);
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #f2f3f5;
+  --muted: rgba(255, 255, 255, 0.06);
+  --muted-foreground: #8e9198;
+  --faint-foreground: #5f6269;
+  --accent: rgba(255, 255, 255, 0.11);
+  --accent-foreground: #f2f3f5;
+  --border: rgba(255, 255, 255, 0.07);
+  --input: rgba(255, 255, 255, 0.06);
+  --input-edge: rgba(255, 255, 255, 0.08);
+  --ring: #ffffff;
+  --success: #45d483;
+  --success-bg: rgba(69, 212, 131, 0.12);
+  --destructive: #ff6a5f;
+  --destructive-bg: rgba(255, 106, 95, 0.12);
+  --warning: #f2a93b;
+  --warning-bg: rgba(242, 169, 59, 0.14);
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --bar: rgba(36, 38, 43, 0.86);
+  --bar-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  --sheet: rgba(26, 28, 32, 0.95);
+  --scrim: rgba(0, 0, 0, 0.5);
+  --lens: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.08));
+  --lens-highlight: rgba(255, 255, 255, 0.22);
+  --lens-shadow: 0 3px 9px rgba(0, 0, 0, 0.35);
+  --fade: rgba(21, 23, 27, 0.94);
+  color-scheme: dark;
+}
+
+/* `dark:` in a class name follows the class, not the system: the person may choose. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
+  --font-sans: var(--font-sans);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -45,16 +123,28 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-bg: var(--destructive-bg);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
+  --color-sheet: var(--sheet);
+  --color-scrim: var(--scrim);
+  --shadow-card: var(--shadow);
+  --shadow-soft: var(--shadow-sm);
+  --shadow-bar: var(--bar-shadow);
+  /* 12, 16, 22 and 28 px: a chip, a field, a strip, a card, as in the prototype. */
+  --radius-sm: calc(var(--radius) - 10px);
+  --radius-md: calc(var(--radius) - 6px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 6px);
 }
 
 @layer base {
@@ -63,6 +153,21 @@
   h2,
   h3 {
     font-weight: 700;
+  }
+
+  /* The grey gradient of the prototype under everything, kept in place while the page scrolls. */
+  html {
+    background-color: var(--background);
+  }
+  body {
+    min-height: 100dvh;
+    background-color: var(--background);
+    background-image: var(--background-image);
+    background-attachment: fixed;
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* The border a component draws when it says "border" and nothing else. */

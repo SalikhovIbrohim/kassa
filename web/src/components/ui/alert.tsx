@@ -8,9 +8,9 @@ export const alertVariants = cva("m-0 rounded-lg border px-3.5 py-3 text-base [o
   variants: {
     variant: {
       info: "border-border bg-card text-foreground",
-      success: "border-green-200 bg-green-50 text-green-800",
-      warning: "border-amber-200 bg-amber-50 text-amber-800",
-      destructive: "border-red-200 bg-red-50 text-red-800",
+      success: "border-success/30 bg-success-bg text-success",
+      warning: "border-warning/30 bg-warning-bg text-warning",
+      destructive: "border-destructive/30 bg-destructive-bg text-destructive",
     },
   },
   defaultVariants: { variant: "info" },

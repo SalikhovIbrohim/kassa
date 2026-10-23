@@ -59,7 +59,7 @@ export function QueueBanner({ login, onSignIn }: Props) {
   }
 
   return (
-    <section id="queue" className="queue rounded-xl border-amber-200 bg-amber-50 text-amber-800" aria-label="Записи, которые ещё не дошли до сервера">
+    <section id="queue" className="queue rounded-xl border-warning/30 bg-warning-bg text-warning" aria-label="Записи, которые ещё не дошли до сервера">
       {mine.length > 0 && (
         <>
           <p className="queue-title">
