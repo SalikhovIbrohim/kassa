@@ -195,12 +195,12 @@ function CategoryTable({
     if (position !== from) void onChange(list[from]!.code, { position });
   }
 
-  // The header stays under the page's own header while the table scrolls, so every column keeps its name.
-  // (A line drawn with a shadow: a border of a sticky cell does not travel with it.)
-  const head = "sticky top-[calc(4rem+1px)] z-[5] bg-muted px-3 py-2.5 text-[13px] leading-tight font-semibold text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
+  // The header is an ordinary first row. It does not stick: inside the rounded card (a box that clips, and scrolls
+  // sideways on a phone) a sticky header stuck to the card, not to the page, and lay over the first category.
+  const head = "bg-muted px-3 py-2.5 text-[13px] leading-tight font-semibold text-muted-foreground shadow-[inset_0_-1px_0_var(--border)]";
 
   return (
-    // Scrolled sideways only on a narrow screen: a box that scrolls would keep the header from sticking to the page.
+    // Scrolled sideways on a narrow screen: the table needs its width.
     <div className="glass-card overflow-hidden rounded-[26px] max-[959px]:overflow-x-auto">
       <table className="w-full min-w-[760px] border-collapse">
         <thead>

@@ -70,7 +70,7 @@ export const SECTIONS: Record<SectionKey, SectionInfo> = {
   totals: { label: "Итоги", icon: "totals", roles: ["admin", "viewer"] },
   reconciliations: { label: "Сверки", icon: "reconciliations", roles: ["admin", "viewer"] },
   clients: { label: "Клиенты", icon: "clients", roles: ["admin", "viewer"] },
-  categories: { label: "Категории", icon: "categories", roles: ["admin", "viewer"] },
+  categories: { label: "Категории", icon: "categories", roles: ["admin"] },
   users: { label: "Люди", icon: "users", roles: ["admin"] },
   settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer"] },
 };

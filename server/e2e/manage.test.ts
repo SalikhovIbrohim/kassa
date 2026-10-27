@@ -107,13 +107,13 @@ describe("the frame of the app", () => {
 
   it("on a phone a tab bar at the bottom, «Настройки» last, from where the other sections open", async () => {
     const started = await desk();
-    const page = await signedIn(await newPhone(browser), started, "owner", "long enough pass");
+    const page = await signedIn(await newPhone(browser), started, "mudir", "admin password");
 
     await seeGone(page.getByRole("navigation", { name: "Разделы" }));
     const tabs = page.getByRole("tablist", { name: "Основные разделы" });
     await seeVisible(tabs);
-    expect(await tabs.getByRole("tab").allInnerTexts()).toEqual(["Журнал", "Итоги", "Сверки", "Клиенты", "Настройки"]);
-    expect(await tabs.getByRole("tab", { name: "Журнал" }).getAttribute("aria-selected")).toBe("true");
+    expect(await tabs.getByRole("tab").allInnerTexts()).toEqual(["Приход", "Журнал", "Итоги", "Клиенты", "Настройки"]);
+    expect(await tabs.getByRole("tab", { name: "Приход" }).getAttribute("aria-selected")).toBe("true");
 
     // «Категории» is not on the tab bar: it opens from «Настройки», with the way back.
     await openSection(page, "Категории");

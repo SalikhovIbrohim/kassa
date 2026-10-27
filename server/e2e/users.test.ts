@@ -98,7 +98,9 @@ describe("the accounts on the admin's screen", () => {
     // A phone: the sections off the tab bar are in «Настройки».
     await page.getByRole("tablist", { name: "Основные разделы" }).getByRole("tab", { name: "Настройки", exact: true }).click();
     const sections = page.getByRole("navigation", { name: "Все разделы" });
-    await seeVisible(sections.getByRole("button", { name: "Категории", exact: true }));
+    await seeVisible(sections.getByRole("button", { name: "Клиенты", exact: true }));
+    // The people and the lists of categories are the admin's.
     await seeGone(sections.getByRole("button", { name: "Люди", exact: true }));
+    await seeGone(sections.getByRole("button", { name: "Категории", exact: true }));
   }, 60_000);
 });

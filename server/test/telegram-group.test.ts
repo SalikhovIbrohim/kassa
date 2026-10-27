@@ -36,11 +36,11 @@ describe("messages for the Telegram group", () => {
     });
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Мухаммад Али" });
-    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
     return {
       started,
       ivan: await loginAs(started, "ivan", "correct horse"),
-      owner: await loginAs(started, "owner", "long enough pass"),
+      mudir: await loginAs(started, "mudir", "admin password"),
     };
   }
 
@@ -90,9 +90,7 @@ describe("messages for the Telegram group", () => {
   });
 
   it("tells the main topic when the admin changes an entry its cashier could no longer change, and not when a cashier corrects their own in time", async () => {
-    const { started, ivan } = await desk({ incomeThread: 3, expenseThread: 5 });
-    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
-    const mudir = await loginAs(started, "mudir", "admin password");
+    const { started, ivan, mudir } = await desk({ incomeThread: 3, expenseThread: 5 });
     started.setNow(new Date("2026-03-05T08:30:00Z"));
     const body = expense({ category: "other", amountMinor: 50_000 });
     expect(await post(started, ivan, body)).toBe(201);
@@ -169,14 +167,14 @@ describe("messages for the Telegram group", () => {
     expect(deleted!.text).toContain("Удалено: Расход «Таможня»");
   });
 
-  it("is silent about the incomes that are not payments of clients, until the owner ticks the category", async () => {
-    const { started, ivan, owner } = await desk();
+  it("is silent about the incomes that are not payments of clients, until the admin ticks the category", async () => {
+    const { started, ivan, mudir } = await desk();
 
     await post(started, ivan, payment({ category: "debt_taken", clientCode: undefined }));
     await settle();
     expect(telegram.messages).toEqual([]);
 
-    const ticked = await patchJson(started, "/api/admin/categories/debt_taken", { notifyGroup: true }, owner);
+    const ticked = await patchJson(started, "/api/admin/categories/debt_taken", { notifyGroup: true }, mudir);
     expect(ticked.status).toBe(200);
     expect((await ticked.json()).category).toMatchObject({ notifyGroup: true });
     await post(started, ivan, payment({ category: "debt_taken", clientCode: undefined }));
@@ -185,9 +183,9 @@ describe("messages for the Telegram group", () => {
     expect(message!.text).toContain("Приход «Взяли долг»");
   });
 
-  it("is silent about a category that the owner has unticked", async () => {
-    const { started, ivan, owner } = await desk();
-    await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, owner);
+  it("is silent about a category that the admin has unticked", async () => {
+    const { started, ivan, mudir } = await desk();
+    await patchJson(started, "/api/admin/categories/fuel_road", { notifyGroup: false }, mudir);
 
     await post(started, ivan, expense({ category: "fuel_road" }));
     await post(started, ivan, expense({ category: "customs" }));
@@ -199,8 +197,8 @@ describe("messages for the Telegram group", () => {
   });
 
   it("says that an entry is not told of any more when its category was changed to one that is not", async () => {
-    const { started, ivan, owner } = await desk();
-    await patchJson(started, "/api/admin/categories/other", { notifyGroup: false }, owner);
+    const { started, ivan, mudir } = await desk();
+    await patchJson(started, "/api/admin/categories/other", { notifyGroup: false }, mudir);
     const body = expense({ category: "fuel_road" });
     await post(started, ivan, body);
     await telegram.untilMessages(1);

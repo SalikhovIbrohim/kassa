@@ -6,7 +6,7 @@ import { launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, ch
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-/** The owner keeps the lists of categories, and the cashier's drop-down lists follow. */
+/** The admin keeps the lists of categories, and the cashier's drop-down lists follow. */
 describe("the lists of categories", () => {
   let browser: Browser;
   let app: TestApp | undefined;
@@ -50,22 +50,26 @@ describe("the lists of categories", () => {
     return dialog;
   }
 
-  it("are changed by the owner, and the cashier's forms ask for the category: a client only where the category names one", async () => {
+  it("are changed by the admin, and the cashier's forms ask for the category: a client only where the category names one", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Иван" });
-    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
-    const owner = await signedIn(started, "owner", "long enough pass");
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Админ" });
+    const mudir = await signedIn(started, "mudir", "admin password");
 
-    // The owner adds an expense category and an income category, and archives one.
-    await openSection(owner.page, "Категории");
-    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
-    await addCategory(owner.page, "Расход", "Ремонт склада");
-    await seeGone(owner.page.getByRole("dialog"));
+    // The admin adds an expense category and an income category, and archives one.
+    await openSection(mudir.page, "Категории");
+    // The names of the columns stand above the first category, not over it.
+    const header = await mudir.page.locator(".categories-admin thead").boundingBox();
+    const first = await mudir.page.locator(".categories-admin tbody tr").first().boundingBox();
+    expect(header!.y + header!.height).toBeLessThanOrEqual(first!.y + 1);
+    const expenseList = mudir.page.locator('tbody[data-kind="expense"]');
+    await addCategory(mudir.page, "Расход", "Ремонт склада");
+    await seeGone(mudir.page.getByRole("dialog"));
     await seeText(expenseList, "Ремонт склада");
 
-    const incomeList = owner.page.locator('tbody[data-kind="income"]');
-    await addCategory(owner.page, "Приход", "Аренда мест");
+    const incomeList = mudir.page.locator('tbody[data-kind="income"]');
+    await addCategory(mudir.page, "Приход", "Аренда мест");
     await seeText(incomeList, "Аренда мест");
 
     // The pencil opens the category; the archive is in there.
@@ -74,10 +78,10 @@ describe("the lists of categories", () => {
     await seeText(expenseList.locator('[data-category="tickets"]'), "в архиве");
 
     // The same label twice in a list is said no to.
-    const dialog = await addCategory(owner.page, "Расход", "обед склад");
+    const dialog = await addCategory(mudir.page, "Расход", "обед склад");
     await seeVisible(dialog.getByRole("alert").filter({ hasText: "Такая категория уже есть" }));
     await dialog.getByRole("button", { name: "Отмена" }).click();
-    await seeGone(owner.page.getByRole("dialog"));
+    await seeGone(mudir.page.getByRole("dialog"));
 
     // The cashier sees the lists as they are now.
     const { page } = await signedIn(started, "ivan", "correct horse");
@@ -109,29 +113,29 @@ describe("the lists of categories", () => {
   it("are one table: the ticks and the type change right in the row", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
-    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
-    const owner = await signedIn(started, "owner", "long enough pass");
-    await openSection(owner.page, "Категории");
-    const incomeList = owner.page.locator('tbody[data-kind="income"]');
-    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Админ" });
+    const mudir = await signedIn(started, "mudir", "admin password");
+    await openSection(mudir.page, "Категории");
+    const incomeList = mudir.page.locator('tbody[data-kind="income"]');
+    const expenseList = mudir.page.locator('tbody[data-kind="expense"]');
     await seeText(incomeList, "Взяли долг");
 
     // A tick is saved at once, and is there after the screen is loaded again.
     await expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).check();
-    await owner.page.reload();
-    await openSection(owner.page, "Категории");
+    await mudir.page.reload();
+    await openSection(mudir.page, "Категории");
     await expect.poll(() => expenseList.getByRole("checkbox", { name: "Нужен сотрудник: Зарплаты и выплаты" }).isChecked()).toBe(true);
 
     // The city is chosen right in the row and kept.
     await choose(expenseList.getByRole("combobox", { name: "Город: Таможня" }), "moscow");
-    await owner.page.reload();
-    await openSection(owner.page, "Категории");
+    await mudir.page.reload();
+    await openSection(mudir.page, "Категории");
     await seeText(expenseList.getByRole("combobox", { name: "Город: Таможня" }), "Москва");
     // No more arrows: the order is changed by dragging.
     expect(await expenseList.getByRole("button", { name: /^Выше:/ }).count()).toBe(0);
 
     // A new income category made by mistake becomes an expense one, at the end of that list.
-    await addCategory(owner.page, "Приход", "Стоянка");
+    await addCategory(mudir.page, "Приход", "Стоянка");
     await seeText(incomeList, "Стоянка");
     await choose(incomeList.getByRole("combobox", { name: "Тип: Стоянка" }), "expense");
     await seeText(expenseList.locator("tr[data-category]").last(), "Стоянка");
@@ -142,12 +146,12 @@ describe("the lists of categories", () => {
   it("are put in order by dragging a row with the mouse on a laptop", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
-    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
-    const owner = await signedIn(started, "owner", "long enough pass");
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Админ" });
+    const mudir = await signedIn(started, "mudir", "admin password");
     // Tall enough for the whole table: a drag that has to scroll is not what is tested here.
-    await owner.page.setViewportSize({ width: 1100, height: 1700 });
-    await openSection(owner.page, "Категории");
-    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
+    await mudir.page.setViewportSize({ width: 1100, height: 1700 });
+    await openSection(mudir.page, "Категории");
+    const expenseList = mudir.page.locator('tbody[data-kind="expense"]');
     const order = () => expenseList.locator("tr[data-category]").evaluateAll((rows) => rows.map((row) => row.getAttribute("data-category")));
     await expenseList.locator('[data-category="customs"]').waitFor();
     expect((await order()).slice(0, 2)).toEqual(["fuel_road", "salaries"]);
@@ -158,21 +162,21 @@ describe("the lists of categories", () => {
 
     await expect.poll(async () => (await order()).slice(0, 3)).toEqual(["customs", "fuel_road", "salaries"]);
     // The order is the server's, also after the screen is loaded again.
-    await owner.page.reload();
-    await openSection(owner.page, "Категории");
+    await mudir.page.reload();
+    await openSection(mudir.page, "Категории");
     await expect.poll(async () => (await order()).slice(0, 1)).toEqual(["customs"]);
   }, 90_000);
 
-  it("ask for the number of the trip and the counterparty where the owner ticked them, and the entry is not saved without them", async () => {
+  it("ask for the number of the trip and the counterparty where the admin ticked them, and the entry is not saved without them", async () => {
     const started = await startTestApp({ webDistDir });
     app = started;
     await started.admin.createUser({ login: "ivan", password: "correct horse", role: "cashier", displayName: "Иван" });
-    await started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
-    const owner = await signedIn(started, "owner", "long enough pass");
+    await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Админ" });
+    const mudir = await signedIn(started, "mudir", "admin password");
 
-    await openSection(owner.page, "Категории");
-    const expenseList = owner.page.locator('tbody[data-kind="expense"]');
-    await addCategory(owner.page, "Расход", "Перевозчику", ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]);
+    await openSection(mudir.page, "Категории");
+    const expenseList = mudir.page.locator('tbody[data-kind="expense"]');
+    await addCategory(mudir.page, "Расход", "Перевозчику", ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]);
     await seeText(expenseList, "Перевозчику");
     for (const tick of ["Нужен номер рейса", "Нужен контрагент", "Нужен сотрудник"]) {
       await expect.poll(() => expenseList.getByRole("checkbox", { name: `${tick}: Перевозчику` }).isChecked()).toBe(true);

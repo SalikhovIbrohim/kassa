@@ -23,13 +23,13 @@ function isDuplicateLabel(error: unknown): boolean {
 }
 
 /**
- * The owner's lists of categories: he adds one, renames it, says whether it names a client, moves it in the
- * list, and archives it when it is not wanted any more (never deletes: old entries keep reading it). Only the
- * viewer, who is the owner, and the admin, who stands above him, may; the cashiers only read the lists (see `/api/categories`).
+ * The lists of categories: the admin adds one, renames it, says whether it names a client, moves it in the
+ * list, and archives it when it is not wanted any more (never deletes: old entries keep reading it). Only the admin
+ * may; the owner and the cashiers only read the lists (see `/api/categories`).
  */
 export async function registerCategoryAdmin(app: FastifyInstance, options: CategoryAdminOptions) {
   const { pool } = options;
-  const owner = [app.authenticate, app.requireRole("viewer", "admin")];
+  const admin = [app.authenticate, app.requireRole("admin")];
 
   /** One change at a time, so that two taps cannot each see the same order and number two categories alike. */
   const lockCategories = (client: pg.ClientBase) => client.query("SELECT pg_advisory_xact_lock(hashtext('kassa.categories'))");
@@ -37,7 +37,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
   app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; city?: "andijan" | "moscow" | null } }>(
     "/api/admin/categories",
     {
-      onRequest: owner,
+      onRequest: admin,
       schema: {
         querystring: NO_QUERY,
         body: {
@@ -87,7 +87,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
   }>(
     "/api/admin/categories/:code",
     {
-      onRequest: owner,
+      onRequest: admin,
       schema: {
         querystring: NO_QUERY,
         params: { type: "object", required: ["code"], properties: { code: { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" } } },
