@@ -1,15 +1,19 @@
 import { KASSA_SHORT, scopeCurrencies, scopeKassa, useKassa } from "./kassa";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Icon } from "./sections";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   operationTitle,
   fetchCashiers,
   fetchCategories,
   fetchJournal,
+  changeOneC,
   SessionExpiredError,
   type Balance,
   type Cashier,
   type Category,
   type JournalFilters,
+  type OneCFilter,
+  type OneCState,
   type Operation,
 } from "./api";
 import { ClientCodeField } from "./ClientCodeField";
@@ -56,6 +60,8 @@ type Draft = {
   clientCode: string;
   author: string;
   deleted: "" | "include" | "only";
+  /** The admin's: what became of the entries in 1C. */
+  onec: "" | OneCFilter;
 };
 
 type Load =
@@ -88,7 +94,7 @@ function withinOwnDay(operation: Operation): boolean {
 }
 
 function startingDraft(today: string): Draft {
-  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "" };
+  return { from: today, to: today, currency: "", type: "", category: "", clientCode: "", author: "", deleted: "", onec: "" };
 }
 
 function toFilters(draft: Draft): JournalFilters {
@@ -101,6 +107,7 @@ function toFilters(draft: Draft): JournalFilters {
     clientCode: draft.clientCode.trim() || undefined,
     author: draft.author || undefined,
     deleted: draft.deleted || undefined,
+    onec: draft.onec || undefined,
   };
 }
 
@@ -258,6 +265,15 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
   };
 
   /** Closes the open panel without doing anything, and puts keyboard focus back on its row. */
+  /** A button of the column «1С» was pressed: the row says the new state at once. */
+  function oneCChanged(id: string, state: OneCState) {
+    setLoad((previous) =>
+      previous.kind === "ready"
+        ? { ...previous, operations: previous.operations.map((item) => (item.id === id ? { ...item, onec: state } : item)) }
+        : previous,
+    );
+  }
+
   function closePanel() {
     const open = panelNow.current;
     setPanel(null);
@@ -430,6 +446,23 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                 ]}
               />
             </Label>
+            {isAdmin && (
+              <Label className="whole-line-on-phone">
+                1С
+                <Select
+                  name="onec"
+                  value={draft.onec}
+                  onChange={(next) => change({ onec: next as Draft["onec"] })}
+                  options={[
+                    { value: "", label: "Все" },
+                    { value: "problem", label: "Ошибки и ждут" },
+                    { value: "waiting", label: "В очереди" },
+                    { value: "written", label: "Записаны" },
+                    { value: "none", label: "Не отправлялись" },
+                  ]}
+                />
+              </Label>
+            )}
             <ClientCodeField required={false} value={draft.clientCode} onChange={(clientCode) => change({ clientCode })} />
             <Button type="button" variant="outline" className="reset" onClick={() => setDraft(startingDraft(today))}>
               Сбросить
@@ -517,6 +550,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                   <th scope="col" className="min-[960px]:hidden">Комментарий</th>
                   {/* On a computer both share one column, so that every row stays one line. */}
                   <th scope="col" className="max-[959px]:hidden">Подробности</th>
+                  {isAdmin && <th scope="col">1С</th>}
                   <th scope="col" className="actions">
                     <span className="sr-only">{mode === "cashier" || isAdmin ? "Действия" : "История"}</span>
                   </th>
@@ -525,7 +559,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
               <tbody className={load.stale ? "stale" : undefined}>
                 {load.operations.map((operation) => {
                   const open = panel?.id === operation.id ? panel.kind : null;
-                  const columns = 9;
+                  const columns = isAdmin ? 10 : 9;
                   const description = describe(operation, labels);
                   return (
                     <Fragment key={operation.id}>
@@ -544,6 +578,7 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                         onToggle={(kind) => togglePanel(kind, operation.id)}
                         focusRequest={focusRequest?.id === operation.id ? focusRequest : null}
                         onFocusDone={focusDone}
+                        oneC={isAdmin ? <OneCCell operation={operation} onSessionExpired={onSessionExpired} onChanged={(state) => oneCChanged(operation.id, state)} /> : null}
                       />
                       {open && (
                         <tr className="panel">
@@ -628,6 +663,7 @@ function OperationRow({
   focusRequest,
   onFocusDone,
   markKassa,
+  oneC,
 }: {
   operation: Operation;
   /** Both desks are shown: each entry says which one it is of (МСК, АНД). */
@@ -644,6 +680,8 @@ function OperationRow({
   /** Set when keyboard focus should move to this row (after an action), so nobody loses their place. */
   focusRequest: { id: string; nonce: number } | null;
   onFocusDone: () => void;
+  /** The admin's column «1С»; null for everybody else. */
+  oneC: ReactNode;
 }) {
   const row = useRef<HTMLTableRowElement>(null);
   useEffect(() => {
@@ -720,26 +758,34 @@ function OperationRow({
         {details && operation.comment && " · "}
         {operation.comment && <span className="text-muted-foreground">{operation.comment}</span>}
       </td>
+      {oneC !== null && <td className="c-onec">{oneC}</td>}
       <td className={mode === "cashier" ? "c-actions corner" : "c-actions"}>
         {canChange && (
           <>
+            {/* On a computer two round icons, so that the row (with the admin's column «1С») fits; words on a phone's card. */}
             <Button
               type="button"
               variant="outline" size="sm"
+              className="min-[960px]:size-9 min-[960px]:p-0"
+              title="Изменить"
               aria-expanded={open === "edit"}
               aria-label={`Изменить: ${description}`}
               onClick={() => onToggle("edit")}
             >
-              Изменить
+              <Icon name="edit" size={17} className="max-[959px]:hidden" />
+              <span className="min-[960px]:hidden">Изменить</span>
             </Button>
             <Button
               type="button"
               variant="outline" size="sm"
+              className="min-[960px]:size-9 min-[960px]:p-0"
+              title="Удалить"
               aria-expanded={open === "delete"}
               aria-label={`Удалить: ${description}`}
               onClick={() => onToggle("delete")}
             >
-              Удалить
+              <Icon name="trash" size={17} className="max-[959px]:hidden" />
+              <span className="min-[960px]:hidden">Удалить</span>
             </Button>
           </>
         )}
@@ -795,5 +841,91 @@ function DollarNote({ operation }: { operation: Operation }) {
       {operation.rateSource === "own" && operation.rateE4 !== null && <> · курс {formatRate(operation.rateE4)}</>}
       {operation.rateSource === "day" && <> · средний курс дня</>}
     </small>
+  );
+}
+
+/** How each state of the queue of 1C reads in the column «1С», and its color. */
+const ONEC_LOOK: Record<OneCState["status"], { label: string; tone: string }> = {
+  written: { label: "Записан", tone: "bg-success-bg text-success" },
+  pending: { label: "В очереди", tone: "bg-muted text-muted-foreground" },
+  blocked: { label: "Ждёт", tone: "bg-warning-bg text-warning" },
+  failed: { label: "Ошибка", tone: "bg-destructive-bg text-destructive" },
+  skipped: { label: "Не записан", tone: "bg-muted text-muted-foreground" },
+  preview: { label: "Репетиция", tone: "bg-muted text-muted-foreground" },
+};
+
+/** A payment of a client of the Moscow desk: what goes to 1C (the server keeps the same rule, see onec.ts). */
+const isForOneC = (operation: Operation) =>
+  operation.type === "income" && (operation.category === null || operation.category === "client_payment") && (operation.kassa ?? "moscow") === "moscow";
+
+/**
+ * The admin's column «1С»: what became of the entry in 1C, why when it is not written, and the two things he can do
+ * about it: «Повторить» (back in the queue) and «Не записывать». Nothing in 1C is changed or deleted from here.
+ */
+function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Operation; onSessionExpired: () => void; onChanged: (state: OneCState) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const state = operation.onec ?? null;
+
+  if (state === null) {
+    if (!isForOneC(operation) || operation.deletedAt !== null) return null;
+    return (
+      <span className="onec-state text-muted-foreground" data-onec="none" title="Внесён, когда запись в 1С была выключена: в 1С его нет">
+        Не отправлялся
+      </span>
+    );
+  }
+
+  const look = ONEC_LOOK[state.status];
+  const canRetry = ["failed", "blocked", "skipped", "preview"].includes(state.status);
+  const canSkip = ["pending", "blocked", "failed", "preview"].includes(state.status);
+  const what = `${operation.clientCode ?? "приход"} ${formatMoney(operation.amountMinor, operation.currency)}`;
+
+  async function act(action: "retry" | "skip") {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await changeOneC(state!.id, action);
+      if (result.ok) {
+        onChanged(action === "retry" ? { ...state!, status: "pending", detail: null, attempts: 0 } : { ...state!, status: "skipped", detail: "пропущен вручную" });
+      } else {
+        setError(result.reason === "wrong-state" ? "Состояние уже другое: нажмите «Обновить»." : "Не получилось, попробуйте ещё раз.");
+      }
+    } catch (caught) {
+      if (caught instanceof SessionExpiredError) onSessionExpired();
+      else setError("Нет связи, попробуйте ещё раз.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="onec-state grid gap-1" data-onec={state.status}>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className={cn("rounded-full px-2 py-px text-[12px] font-semibold whitespace-nowrap", look.tone)}>{look.label}</span>
+        {state.docNumber && <span className="text-[13px] whitespace-nowrap">ПКО №{state.docNumber}</span>}
+        {state.status === "pending" && state.attempts > 0 && <span className="text-[12px] text-muted-foreground">попытка {state.attempts + 1}</span>}
+      </span>
+      {state.detail && state.status !== "written" && <span className="onec-detail text-[12.5px] leading-snug text-muted-foreground">{state.detail}</span>}
+      {(canRetry || canSkip) && (
+        <span className="flex flex-wrap gap-1.5">
+          {canRetry && (
+            <Button type="button" variant="outline" size="sm" className="h-8 px-3" disabled={busy} aria-label={`Повторить запись в 1С: ${what}`} onClick={() => void act("retry")}>
+              Повторить
+            </Button>
+          )}
+          {canSkip && (
+            <Button type="button" variant="outline" size="sm" className="h-8 px-3" disabled={busy} aria-label={`Не записывать в 1С: ${what}`} onClick={() => void act("skip")}>
+              Не записывать
+            </Button>
+          )}
+        </span>
+      )}
+      {error && (
+        <span className="text-[12.5px] text-destructive" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }

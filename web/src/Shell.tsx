@@ -100,7 +100,8 @@ export function Shell(props: Props) {
 
       <div className="flex min-w-0 flex-col">
         {/* A computer: the section, the balances, «Выйти». */}
-        <header className="sticky top-0 z-10 hidden min-h-16 items-center justify-between gap-4 px-6 pt-4 min-[960px]:flex">
+        {/* Sticky, so it needs a ground of its own: the page scrolls under a frosted strip, not through the words. */}
+        <header className="sticky top-0 z-10 hidden min-h-16 items-center justify-between gap-4 bg-background/75 px-6 pt-3 pb-3 backdrop-blur-xl min-[960px]:flex">
           <h2 className="truncate text-2xl font-bold tracking-tight">{title}</h2>
           <div className="flex items-center gap-3">
             {props.headerExtra}

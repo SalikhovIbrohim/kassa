@@ -24,9 +24,28 @@ type JournalQuery = {
   author?: string;
   kassa?: Kassa;
   deleted?: "exclude" | "include" | "only";
+  onec?: OneCFilter;
   limit?: string;
   cursor?: string;
 };
+
+/** The admin's filter on the column «1С»: written, waiting for its turn, waiting for a person or failed, never sent. */
+type OneCFilter = "written" | "waiting" | "problem" | "none";
+
+const ONEC_CONDITION: Record<OneCFilter, string> = {
+  written: "ob.status = 'written'",
+  waiting: "ob.status = 'pending'",
+  problem: "ob.status IN ('blocked', 'failed')",
+  none: "ob.id IS NULL",
+};
+
+type OneCRow = { onec_id: string | null; onec_status: string | null; onec_doc_number: string | null; onec_detail: string | null; onec_attempts: number | null };
+
+/** What became of an entry in 1C, for the admin: null when it never went into the queue of 1C. */
+function oneCOf(row: OneCRow) {
+  if (row.onec_id === null) return null;
+  return { id: Number(row.onec_id), status: row.onec_status, docNumber: row.onec_doc_number, detail: row.onec_detail, attempts: row.onec_attempts };
+}
 
 /**
  * Where the previous page ended: the newest-first order is (created_at, id). The time is
@@ -87,6 +106,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             kassa: kassaProperty,
             // Deleted operations: left out (the default), shown among the others, or only them.
             deleted: { type: "string", enum: ["exclude", "include", "only"] },
+            // The admin's: what became of the entries in 1C.
+            onec: { type: "string", enum: ["written", "waiting", "problem", "none"] },
             // Query strings arrive as text and this server does not guess types.
             limit: { type: "string", pattern: "^[0-9]{1,3}$" },
             cursor: { type: "string", minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9_-]+$" },
@@ -122,6 +143,10 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
         return reply.code(403).send({ error: "forbidden" });
       }
 
+      // The column «1С» is the admin's: he is the one who decides what to do with a payment 1C did not take.
+      const admin = user.role === "admin";
+      if (query.onec !== undefined && !admin) return reply.code(403).send({ error: "forbidden" });
+
       const conditions: string[] = [];
       const values: unknown[] = [];
       const add = (condition: (placeholder: string) => string, value: unknown) => {
@@ -143,16 +168,19 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       if (query.category !== undefined) add((p) => `o.category = ${p}`, query.category);
       // The whole code, compared on the lower-cased key: no pattern, so % and _ are just characters.
       if (query.clientCode !== undefined) add((p) => `o.client_code_key = ${p}`, query.clientCode.trim().toLowerCase());
+      if (query.onec !== undefined) conditions.push(ONEC_CONDITION[query.onec]);
       if (position) {
         values.push(position.createdAt, position.id);
         conditions.push(`(o.created_at, o.id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
       }
       values.push(limit + 1);
 
-      const found = await pool.query<OperationRow & { created_at_cursor: string }>(
+      const found = await pool.query<OperationRow & OneCRow & { created_at_cursor: string }>(
         `SELECT ${OPERATION_SELECT},
+                ${admin ? "ob.id AS onec_id, ob.status AS onec_status, ob.doc_number AS onec_doc_number, ob.detail AS onec_detail, ob.attempts AS onec_attempts," : ""}
                 to_char(o.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
            FROM ${OPERATION_FROM}
+           ${admin ? "LEFT JOIN onec_outbox ob ON ob.operation_id = o.id" : ""}
           WHERE ${conditions.join(" AND ")}
           ORDER BY o.created_at DESC, o.id DESC
           LIMIT $${values.length}`,
@@ -165,7 +193,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       return {
         from,
         to,
-        operations: page.map(toOperation),
+        operations: page.map((row) => (admin ? { ...toOperation(row), onec: oneCOf(row) } : toOperation(row))),
         nextCursor:
           found.rows.length > limit && last
             ? encodeCursor({ createdAt: last.created_at_cursor, id: last.id })

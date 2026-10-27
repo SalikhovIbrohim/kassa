@@ -11,6 +11,7 @@ import { createOneC, onecEvents } from "./onec.js";
 import type { OneCSettings } from "./onec-api.js";
 import { createDatabase } from "./db.js";
 import { registerJournal } from "./journal.js";
+import { registerOneCAdmin } from "./onec-admin.js";
 import { mergeEvents } from "./ledger.js";
 import { registerOperations } from "./operations.js";
 import { createOutbox } from "./outbox.js";
@@ -165,6 +166,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   await registerCategoryAdmin(app, { pool: database.pool });
+  await registerOneCAdmin(app, { pool: database.pool });
   await registerUserAdmin(app, { pool: database.pool });
   await registerClients(app, { pool: database.pool });
 

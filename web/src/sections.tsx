@@ -35,6 +35,8 @@ const ICONS = {
   up: "M12 19V5M6 11l6-6 6 6",
   down: "M12 5v14M6 13l6 6 6-6",
   plus: "M12 5v14M5 12h14",
+  edit: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4",
+  trash: "M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13",
   check: "M5 12.5l4.5 4.5L19 7",
   refresh: "M20 11a8 8 0 0 0-14.6-4.5M4 4v3.5h3.5M4 13a8 8 0 0 0 14.6 4.5M20 20v-3.5h-3.5",
 } as const;

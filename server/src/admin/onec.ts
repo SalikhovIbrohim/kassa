@@ -1,6 +1,7 @@
 import type pg from "pg";
 import { OneCError, createOneCClient, type Json, type OneCSettings } from "../onec-api.js";
 import { readReferences } from "../onec-pko.js";
+import { retryPayment, skipPayment } from "../onec-admin.js";
 import { AdminError } from "./users.js";
 
 /** The things a document refers to that must be there, with what each is told about in the base. */
@@ -105,33 +106,21 @@ const idOf = (text: string | undefined): number => {
  */
 export async function onecRetry(pool: pg.Pool, idText: string | undefined): Promise<string> {
   const id = idOf(idText);
-  const done = await pool.query(
-    `UPDATE onec_outbox SET status = 'pending', attempts = 0, alerted = false, next_attempt_at = now(), detail = NULL
-      WHERE id = $1 AND status IN ('failed', 'blocked', 'skipped', 'preview') RETURNING doc_number`,
-    [id],
-  );
-  if (done.rowCount === 0) {
-    const row = (await pool.query<{ status: string }>("SELECT status FROM onec_outbox WHERE id = $1", [id])).rows[0];
-    if (!row) throw new AdminError(`No payment ${id} in the queue of 1C`);
-    throw new AdminError(`Payment ${id} is "${row.status}": only a payment that failed, waits, was skipped or was only looked at can be tried again`);
+  const result = await retryPayment(pool, id);
+  if (!result.done) {
+    if (result.status === null) throw new AdminError(`No payment ${id} in the queue of 1C`);
+    throw new AdminError(`Payment ${id} is "${result.status}": only a payment that failed, waits, was skipped or was only looked at can be tried again`);
   }
-  const document = (done.rows[0] as { doc_number: string | null }).doc_number;
-  return `Payment ${id} is back in the queue${document ? ` (it goes on with the document ПКО №${document}, no second one is made)` : ""}. The running server takes it within a few seconds.`;
+  return `Payment ${id} is back in the queue${result.docNumber ? ` (it goes on with the document ПКО №${result.docNumber}, no second one is made)` : ""}. The running server takes it within a few seconds.`;
 }
 
 /** Stops writing a payment that is not written: it stays in the queue as skipped, and what is in 1C is left as it is. */
 export async function onecSkip(pool: pg.Pool, idText: string | undefined): Promise<string> {
   const id = idOf(idText);
-  const done = await pool.query(
-    `UPDATE onec_outbox SET status = 'skipped', detail = 'пропущен вручную (onec-skip)'
-      WHERE id = $1 AND status IN ('pending', 'blocked', 'failed', 'preview') RETURNING doc_number`,
-    [id],
-  );
-  if (done.rowCount === 0) {
-    const row = (await pool.query<{ status: string }>("SELECT status FROM onec_outbox WHERE id = $1", [id])).rows[0];
-    if (!row) throw new AdminError(`No payment ${id} in the queue of 1C`);
-    throw new AdminError(`Payment ${id} is "${row.status}": only a payment that is not written yet can be skipped`);
+  const result = await skipPayment(pool, id, "пропущен вручную (onec-skip)");
+  if (!result.done) {
+    if (result.status === null) throw new AdminError(`No payment ${id} in the queue of 1C`);
+    throw new AdminError(`Payment ${id} is "${result.status}": only a payment that is not written yet can be skipped`);
   }
-  const document = (done.rows[0] as { doc_number: string | null }).doc_number;
-  return `Payment ${id} will not be written to 1C.${document ? ` The document ПКО №${document} that was already made for it stays in 1C: look at it there.` : ""}`;
+  return `Payment ${id} will not be written to 1C.${result.docNumber ? ` The document ПКО №${result.docNumber} that was already made for it stays in 1C: look at it there.` : ""}`;
 }

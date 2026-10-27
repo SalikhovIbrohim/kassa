@@ -153,7 +153,20 @@ export type Operation = {
   /** Set when the operation was deleted: only the viewer ever receives such operations. */
   deletedAt: string | null;
   deletedBy: { login: string; displayName: string } | null;
+  /** The admin's journal only: what became of the entry in 1C; null when it never went into the queue of 1C. */
+  onec?: OneCState | null;
 };
+
+/**
+ * A payment of a client in the queue of 1C. pending: waits for its turn; written: the document is in 1C; blocked: waits
+ * for a person (no such client in 1C, no contract...), tried again every quarter of an hour; failed: given up; skipped:
+ * not to be written; preview: only rehearsed.
+ */
+export type OneCStatus = "pending" | "written" | "blocked" | "failed" | "skipped" | "preview";
+export type OneCState = { id: number; status: OneCStatus; docNumber: string | null; detail: string | null; attempts: number };
+
+/** The admin's filter on the column «1С». */
+export type OneCFilter = "written" | "waiting" | "problem" | "none";
 
 export type CategoryKind = "income" | "expense";
 
@@ -387,6 +400,8 @@ export type JournalFilters = {
   kassa?: Kassa;
   /** Viewer only: show deleted operations too, or only them. Left out, they are hidden. */
   deleted?: "include" | "only";
+  /** Admin only: what became of the entries in 1C. */
+  onec?: OneCFilter;
 };
 
 export type JournalPage = { operations: Operation[]; nextCursor: string | null };
@@ -683,6 +698,20 @@ export async function changeCategory(
     body: JSON.stringify(change),
   });
   return categoryChangeResult(response);
+}
+
+// ---- The admin's buttons in the column «1С» ----
+
+export type OneCActionResult = { ok: true } | { ok: false; reason: "wrong-state" | "not-found" | "failed" };
+
+/** «Повторить» (back in the queue) or «Не записывать» (given up) on a payment in the column «1С». Nothing in 1C is changed by it. */
+export async function changeOneC(id: number, action: "retry" | "skip"): Promise<OneCActionResult> {
+  const response = await request(`/api/admin/onec/${id}/${action}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.ok) return { ok: true };
+  if (response.status === 409) return { ok: false, reason: "wrong-state" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  return { ok: false, reason: "failed" };
 }
 
 // ---- The admin's accounts ----

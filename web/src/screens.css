@@ -343,9 +343,19 @@ h2 {
   text-decoration: line-through;
 }
 
-.c-actions {
+/* The admin's column «1С»: on a card, a line of its own above the buttons. */
+.c-onec {
   grid-column: 1 / -1;
   grid-row: 5;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.c-actions {
+  grid-column: 1 / -1;
+  grid-row: 6;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -564,7 +574,7 @@ h2 {
   /* Compact rows: one line each, and less air than a card. */
   .journal-table th,
   .journal-table td {
-    padding: 7px 12px;
+    padding: 7px 10px;
   }
 
   .journal-table td.c-what,
@@ -585,6 +595,16 @@ h2 {
   .journal-table td.c-out,
   .journal-table td.c-rate {
     width: 1%;
+  }
+
+  /* The state of 1C and its reason wrap within a column of their own; the buttons stay under it. */
+  .journal-table td.c-onec {
+    width: 1%;
+    min-width: 150px;
+    max-width: 220px;
+    margin: 0;
+    border-top: 0;
+    border-bottom: 1px solid var(--border);
   }
 
   .journal-table td.c-more {

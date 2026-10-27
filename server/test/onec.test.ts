@@ -6,7 +6,7 @@ import { checkOneC } from "../src/admin/onec.js";
 import { onecRetry, onecSkip, onecStatus } from "../src/admin/onec.js";
 import { AdminError } from "../src/admin/users.js";
 import type { OneCSettings } from "../src/onec-api.js";
-import { deleteRequest, loginAs, postJson, putJson } from "./helpers/http.js";
+import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
 import { startFakeOneC, KEYS, type FakeOneC } from "./helpers/fake-onec.js";
 import { startFakeTelegram, type FakeTelegram } from "./helpers/fake-telegram.js";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
@@ -619,6 +619,86 @@ describe("writing the payments of clients to 1C", () => {
       expect(message).toContain("will not be written");
       expect(await queued(started)).toEqual([expect.objectContaining({ status: "skipped" })]);
       expect(onec.documents).toEqual([]);
+    });
+  });
+
+  describe("the column «1С» of the admin's journal", () => {
+    type Shown = { id: string; clientCode: string | null; onec?: { id: number; status: string; docNumber: string | null; detail: string | null } | null };
+    const journal = async (started: TestApp, cookie: string, query = "") => {
+      const response = await get(started, `/api/operations${query}`, cookie);
+      return { status: response.status, operations: response.status === 200 ? ((await response.json()).operations as Shown[]) : [] };
+    };
+    async function withAdmin(options: Parameters<typeof desk>[0] = {}) {
+      const opened = await desk(options);
+      await opened.started.admin.createUser({ login: "mudir", password: "admin password", role: "admin", displayName: "Мудир" });
+      await opened.started.admin.createUser({ login: "owner", password: "long enough pass", role: "viewer", displayName: "Владелец" });
+      return {
+        ...opened,
+        mudir: await loginAs(opened.started, "mudir", "admin password"),
+        owner: await loginAs(opened.started, "owner", "long enough pass"),
+      };
+    }
+
+    it("says for each entry what became of it in 1C: written with its number, waiting with why, nothing for what is not for 1C", async () => {
+      onec.addClient("А406", "Жавид");
+      const { started, ivan, mudir, owner } = await withAdmin();
+      const written = payment();
+      const waiting = payment({ clientCode: "А999" });
+      const expense = { id: randomUUID(), type: "expense", amountMinor: 5_000, currency: "USD", category: "fuel_road" };
+      for (const body of [written, waiting, expense]) expect(await post(started, ivan, body)).toBe(201);
+      await until(started, "written");
+      await until(started, "blocked");
+
+      const { operations } = await journal(started, mudir);
+      const of = (id: unknown) => operations.find((item) => item.id === id)!;
+      expect(of(written.id).onec).toMatchObject({ status: "written", docNumber: onec.documents[0]!.Number });
+      expect(of(waiting.id).onec).toMatchObject({ status: "blocked", docNumber: null });
+      expect(of(waiting.id).onec!.detail).toContain("А999");
+      expect(of(expense.id).onec).toBeNull();
+
+      // Only the admin: the owner and the cashier see the journal as before, and may not filter on it.
+      for (const cookie of [owner, ivan]) {
+        const seen = await journal(started, cookie);
+        expect(seen.operations.length).toBe(3);
+        expect(seen.operations.every((item) => !("onec" in item))).toBe(true);
+        expect((await journal(started, cookie, "?onec=problem")).status).toBe(403);
+      }
+
+      // The filter: the ones that need a person, the written ones, the ones that never went to 1C.
+      expect((await journal(started, mudir, "?onec=problem")).operations.map((item) => item.id)).toEqual([waiting.id]);
+      expect((await journal(started, mudir, "?onec=written")).operations.map((item) => item.id)).toEqual([written.id]);
+      expect((await journal(started, mudir, "?onec=none")).operations.map((item) => item.id)).toEqual([expense.id]);
+    });
+
+    it("lets the admin give up on a payment and put it back, and it is written once the client is in 1C", async () => {
+      const { started, ivan, mudir, owner } = await withAdmin();
+      const body = payment();
+      expect(await post(started, ivan, body)).toBe(201);
+      await until(started, "blocked");
+      const id = (await journal(started, mudir)).operations[0]!.onec!.id;
+
+      for (const cookie of [ivan, owner]) {
+        expect((await postJson(started, `/api/admin/onec/${id}/skip`, {}, cookie)).status).toBe(403);
+        expect((await postJson(started, `/api/admin/onec/${id}/retry`, {}, cookie)).status).toBe(403);
+      }
+
+      const skipped = await postJson(started, `/api/admin/onec/${id}/skip`, {}, mudir);
+      expect(skipped.status).toBe(200);
+      expect((await journal(started, mudir)).operations[0]!.onec).toMatchObject({ status: "skipped", detail: "пропущен вручную (Мудир)" });
+      // Given up: the client turning up in 1C writes nothing.
+      onec.addClient("А406", "Жавид");
+      await settle();
+      expect(writes()).toHaveLength(0);
+
+      expect((await postJson(started, `/api/admin/onec/${id}/retry`, {}, mudir)).status).toBe(200);
+      await until(started, "written");
+      expect(onec.documents).toHaveLength(1);
+
+      // A written payment is never written again nor given up; a payment that is not there is not found.
+      expect(await (await postJson(started, `/api/admin/onec/${id}/retry`, {}, mudir)).json()).toEqual({ error: "wrong_state", status: "written" });
+      expect((await postJson(started, `/api/admin/onec/${id}/skip`, {}, mudir)).status).toBe(409);
+      expect((await postJson(started, "/api/admin/onec/999999/retry", {}, mudir)).status).toBe(404);
+      expect((await postJson(started, "/api/admin/onec/abc/retry", {}, mudir)).status).toBe(400);
     });
   });
 });
