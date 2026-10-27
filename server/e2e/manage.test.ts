@@ -119,6 +119,10 @@ describe("the frame of the app", () => {
     await openSection(page, "Категории");
     await seeText(page.locator("h2:visible").first(), "Категории");
     expect(await tabs.getByRole("tab", { name: "Настройки" }).getAttribute("aria-selected")).toBe("true");
+    // Inside Telegram (its script marks the page "tg-app") Telegram's own back button stands for this one.
+    await page.evaluate(() => document.documentElement.classList.add("tg-app"));
+    expect(await page.getByRole("button", { name: "Настройки", exact: true }).isVisible()).toBe(false);
+    await page.evaluate(() => document.documentElement.classList.remove("tg-app"));
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
     await seeVisible(page.getByRole("navigation", { name: "Все разделы" }));
 

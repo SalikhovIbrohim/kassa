@@ -113,8 +113,14 @@ export function Shell(props: Props) {
 
         {/* A phone: the page under the bars of Telegram (or of the phone), above the tab bar. */}
         <div className="app-page grid min-w-0 content-start gap-4 px-4 min-[960px]:px-6 min-[960px]:pt-4 min-[960px]:pb-8">
+          {/* Inside Telegram its own back button takes the place of this one (a variant, not a rule of the components
+              layer: the utility "flex" would win over that). */}
           {onBack && (
-            <button type="button" className="phone-back -ml-1 flex w-fit items-center gap-1 text-[15px] font-semibold text-muted-foreground min-[960px]:hidden" onClick={onBack}>
+            <button
+              type="button"
+              className="phone-back -ml-1 flex w-fit items-center gap-1 text-[15px] font-semibold text-muted-foreground min-[960px]:hidden [.tg-app_&]:hidden"
+              onClick={onBack}
+            >
               <Icon name="chevronLeft" size={18} stroke={2.2} />
               Настройки
             </button>

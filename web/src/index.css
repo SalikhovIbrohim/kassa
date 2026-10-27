@@ -246,10 +246,6 @@
     padding-top: calc(var(--app-safe-top) + 12px);
     padding-bottom: calc(var(--app-safe-bottom) + 104px);
   }
-  /* Inside Telegram its own back button takes the place of the page's. */
-  .tg-app .phone-back {
-    display: none;
-  }
   /* Telegram full screen: the name of the page in the row of Telegram's buttons, and the page fading out under them. */
   .tg-title,
   .tg-fade {
