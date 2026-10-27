@@ -121,7 +121,7 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         const at = /Date ge datetime'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         return page(fake.documents.filter((row) => row.Date === at));
       }
-      const one = /^\/Document_ПриходныйКассовыйОрдер\(guid'([^']+)'\)(\/Post)?$/.exec(path);
+      const one = /^\/Document_ПриходныйКассовыйОрдер\(guid'([^']+)'\)(\/Post|\/Unpost)?$/.exec(path);
       if (one && request.method === "GET") {
         const found = fake.documents.find((row) => row.Ref_Key === one[1]);
         return found ? answer(200, found) : answer(404, {});
@@ -136,7 +136,22 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         }
         return answer(201, document);
       }
-      if (one && one[2] && request.method === "POST") {
+      if (one && one[2] === "/Unpost" && request.method === "POST") {
+        const document = fake.documents.find((row) => row.Ref_Key === one[1]);
+        if (!document) return answer(404, {});
+        document.Posted = false;
+        postings.delete(String(document.Ref_Key));
+        return answer(200, {});
+      }
+      if (one && !one[2] && request.method === "PATCH") {
+        const document = fake.documents.find((row) => row.Ref_Key === one[1]);
+        if (!document) return answer(404, {});
+        // As 1C: a posted document is not written in the mode «Запись»; it is unposted first.
+        if (document.Posted === true) return answer(400, { "odata.error": { message: { value: "Документ проведен: запись в режиме «Запись» невозможна" } } });
+        Object.assign(document, JSON.parse(raw) as Json);
+        return answer(200, document);
+      }
+      if (one && one[2] === "/Post" && request.method === "POST") {
         const document = fake.documents.find((row) => row.Ref_Key === one[1]);
         if (!document) return answer(404, {});
         document.Posted = true;

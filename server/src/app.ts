@@ -122,7 +122,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     intervalMs: options.sheetQueue?.intervalMs,
     baseBackoffSeconds: options.sheetQueue?.baseBackoffSeconds,
   });
-  const events = mergeEvents(groupEvents(outbox), onecEvents(onec, outbox), sheetEvents(sheet));
+  const events = mergeEvents(groupEvents(outbox), onecEvents(onec), sheetEvents(sheet));
 
   app.addHook("onClose", async () => {
     await sheet.stop();

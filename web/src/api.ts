@@ -160,9 +160,9 @@ export type Operation = {
 /**
  * A payment of a client in the queue of 1C. pending: waits for its turn; written: the document is in 1C; blocked: waits
  * for a person (no such client in 1C, no contract...), tried again every quarter of an hour; failed: given up; skipped:
- * not to be written; preview: only rehearsed.
+ * not to be written; preview: only rehearsed; removed: the entry was deleted, its document unposted and marked for deletion.
  */
-export type OneCStatus = "pending" | "written" | "blocked" | "failed" | "skipped" | "preview";
+export type OneCStatus = "pending" | "written" | "blocked" | "failed" | "skipped" | "preview" | "removed";
 export type OneCState = { id: number; status: OneCStatus; docNumber: string | null; detail: string | null; attempts: number };
 
 /** The admin's filter on the column «1С». */

@@ -54,7 +54,7 @@ export function createOneCClient(settings: Pick<OneCSettings, "url" | "user" | "
   const root = base.endsWith(SUFFIX) ? base : base + SUFFIX;
   const authorization = "Basic " + Buffer.from(`${settings.user}:${settings.password}`, "utf8").toString("base64");
 
-  async function request(method: "GET" | "POST", path: string, query?: string, body?: unknown): Promise<{ status: number; text: string }> {
+  async function request(method: "GET" | "POST" | "PATCH", path: string, query?: string, body?: unknown): Promise<{ status: number; text: string }> {
     // The path holds Russian names and a guid in quotes: percent-encode what needs it, leave what OData itself uses.
     const url = `${root}${encodeURI(path)}${query ? `?${query}` : ""}`;
     try {
@@ -116,6 +116,18 @@ export function createOneCClient(settings: Pick<OneCSettings, "url" | "user" | "
     async post(entity: string, ref: string): Promise<void> {
       const { status, text } = await request("POST", `/${entity}(guid'${ref}')/Post`, "PostingModeOperational=false");
       check(status, text, "to post the document");
+    },
+
+    /** Unposts a document (отмена проведения): its entries in the books go away, the document stays. */
+    async unpost(entity: string, ref: string): Promise<void> {
+      const { status, text } = await request("POST", `/${entity}(guid'${ref}')/Unpost`);
+      check(status, text, "to unpost the document");
+    },
+
+    /** Changes the fields given of a document that is not posted (a posted one is unposted first). */
+    async update(entity: string, ref: string, body: unknown): Promise<void> {
+      const { status, text } = await request("PATCH", `/${entity}(guid'${ref}')`, queryOf({ $format: "json" }), body);
+      check(status, text, "to change the document");
     },
   };
 }

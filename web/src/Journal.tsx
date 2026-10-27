@@ -852,6 +852,7 @@ const ONEC_LOOK: Record<OneCState["status"], { label: string; tone: string }> = 
   failed: { label: "Ошибка", tone: "bg-destructive-bg text-destructive" },
   skipped: { label: "Не записан", tone: "bg-muted text-muted-foreground" },
   preview: { label: "Репетиция", tone: "bg-muted text-muted-foreground" },
+  removed: { label: "Удалён в 1С", tone: "bg-muted text-muted-foreground" },
 };
 
 /** A payment of a client of the Moscow desk: what goes to 1C (the server keeps the same rule, see onec.ts). */
@@ -860,7 +861,7 @@ const isForOneC = (operation: Operation) =>
 
 /**
  * The admin's column «1С»: what became of the entry in 1C, why when it is not written, and the two things he can do
- * about it: «Повторить» (back in the queue) and «Не записывать». Nothing in 1C is changed or deleted from here.
+ * about it: «Повторить» (back in the queue) and «Не записывать». Corrections and deletions reach 1C by themselves.
  */
 function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Operation; onSessionExpired: () => void; onChanged: (state: OneCState) => void }) {
   const [busy, setBusy] = useState(false);

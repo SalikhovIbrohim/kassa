@@ -446,37 +446,113 @@ describe("writing the payments of clients to 1C", () => {
       return { started, ivan, body };
     }
 
-    it("is not done to the document: the group is told to correct it by hand when the entry is corrected", async () => {
+    const edit = (started: TestApp, cookie: string, id: unknown, changes: Entry) =>
+      putJson(started, `/api/operations/${id}`, { type: "income", amountMinor: 118_500, currency: "RUB", rateE4: 790_000, category: "client_payment", clientCode: "А406 Жавид", reason: "опечатка", ...changes }, cookie);
+    /** Waits until the queue has worked the payment out again after a change. */
+    async function settled(started: TestApp, status: string) {
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const [row] = await queued(started);
+        if (row?.status === status) return row;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      throw new Error(`The payment never became "${status}": ${JSON.stringify(await queued(started))}`);
+    }
+    const changesOfDocuments = () => onec.requests.filter((line) => line.startsWith("PATCH") || line.includes("/Unpost") || line.startsWith("POST /Document_ПриходныйКассовыйОрдер?") || line === "POST /Document_ПриходныйКассовыйОрдер");
+
+    it("corrects the document when the entry is corrected: the same document, the new sum, posted again", async () => {
       const { started, ivan, body } = await written();
-      const before = JSON.stringify(onec.documents);
-      const requests = onec.requests.length;
+      const number = onec.documents[0]!.Number;
 
-      const edit = await putJson(started, `/api/operations/${body.id}`, { type: "income", amountMinor: 120_000, currency: "RUB", rateE4: 790_000, category: "client_payment", clientCode: "А406 Жавид", reason: "опечатка" }, ivan);
-      expect(edit.status).toBe(200);
-      for (let attempt = 0; attempt < 200 && told().length < 1; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
+      // 1 580,00 rubles at 79,00 is 20,00 dollars.
+      expect((await edit(started, ivan, body.id, { amountMinor: 158_000 })).status).toBe(200);
+      const row = await settled(started, "written");
+      expect(row.detail).toContain(`исправлен ПКО №${number}`);
 
-      expect(told()).toHaveLength(1);
-      expect(told()[0]!.text).toContain("исправлен в Кассе");
-      expect(told()[0]!.text).toContain(`ПКО №${onec.documents[0]!.Number}`);
+      expect(onec.documents).toHaveLength(1);
+      expect(onec.documents[0]).toMatchObject({ Number: number, СуммаДокумента: 20, Posted: true, DeletionMark: false });
+      expect((onec.documents[0]!.РасшифровкаПлатежа as Entry[])[0]).toMatchObject({ СуммаПлатежа: 20 });
+      // Unposted, changed and posted again; never a second document, and nothing for the group to do by hand.
+      expect(onec.requests.filter((line) => line.includes("/Unpost"))).toHaveLength(1);
+      expect(onec.requests.filter((line) => line.startsWith("PATCH"))).toHaveLength(1);
+      expect(writes().filter((line) => !line.includes("/Post") && !line.includes("/Unpost"))).toHaveLength(1);
       await settle();
-      expect(JSON.stringify(onec.documents)).toBe(before);
-      expect(onec.requests).toHaveLength(requests);
+      expect(told()).toHaveLength(0);
     });
 
-    it("is not done to the document: the group is told to delete it by hand when the entry is deleted", async () => {
+    it("moves the document to the other client when the code is corrected", async () => {
       const { started, ivan, body } = await written();
-      const requests = onec.requests.length;
-
-      expect((await deleteRequest(started, `/api/operations/${body.id}`, ivan, { reason: "ошибка" })).status).toBe(200);
-      for (let attempt = 0; attempt < 200 && told().length < 1; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
-
-      expect(told()[0]!.text).toContain("удалён в Кассе");
-      expect(told()[0]!.text).toContain("вручную");
-      await settle();
+      const other = onec.addClient("А407", "Тимур");
+      expect((await edit(started, ivan, body.id, { clientCode: "А407 Тимур" })).status).toBe(200);
+      await settled(started, "written");
       expect(onec.documents).toHaveLength(1);
-      expect(onec.documents[0]).toMatchObject({ DeletionMark: false, Posted: true });
-      expect(onec.requests).toHaveLength(requests);
-      expect((await queued(started))[0]).toMatchObject({ status: "written" });
+      expect(onec.documents[0]).toMatchObject({ Контрагент: other.counterpart, ДоговорКонтрагента_Key: other.contract, Комментарий: "А407", Posted: true });
+    });
+
+    it("leaves the document alone when what was corrected is not in it (the comment)", async () => {
+      const { started, ivan, body } = await written();
+      const before = JSON.stringify(onec.documents);
+      const changes = changesOfDocuments().length;
+      expect((await edit(started, ivan, body.id, { comment: "наличными у склада" })).status).toBe(200);
+      await settled(started, "written");
+      expect(JSON.stringify(onec.documents)).toBe(before);
+      expect(changesOfDocuments()).toHaveLength(changes);
+    });
+
+    it("unposts the document and marks it for deletion when the entry is deleted, and never deletes it outright", async () => {
+      const { started, ivan, body } = await written();
+      expect((await deleteRequest(started, `/api/operations/${body.id}`, ivan, { reason: "ошибка" })).status).toBe(200);
+      const row = await settled(started, "removed");
+
+      expect(onec.documents).toHaveLength(1);
+      expect(onec.documents[0]).toMatchObject({ Posted: false, DeletionMark: true });
+      expect(row.detail).toContain(`ПКО №${onec.documents[0]!.Number} распроведён и помечен на удаление`);
+      expect(onec.requests.some((line) => line.startsWith("DELETE"))).toBe(false);
+      await settle();
+      expect(told()).toHaveLength(0);
+    });
+
+    it("takes its own mark off when the entry is a payment of a client again, and posts the document again", async () => {
+      const { started, ivan, body } = await written();
+      expect((await edit(started, ivan, body.id, { category: "debt_taken", clientCode: undefined })).status).toBe(200);
+      await settled(started, "removed");
+      expect(onec.documents[0]).toMatchObject({ Posted: false, DeletionMark: true });
+
+      expect((await edit(started, ivan, body.id, {})).status).toBe(200);
+      await settled(started, "written");
+      expect(onec.documents).toHaveLength(1);
+      expect(onec.documents[0]).toMatchObject({ Posted: true, DeletionMark: false });
+    });
+
+    it("does not touch a document a person marked for deletion in 1C", async () => {
+      const { started, ivan, body } = await written();
+      onec.documents[0]!.DeletionMark = true;
+      expect((await edit(started, ivan, body.id, { amountMinor: 158_000 })).status).toBe(200);
+      const row = await settled(started, "failed");
+      expect(row.detail).toContain("помечен на удаление");
+      expect(onec.documents[0]).toMatchObject({ СуммаДокумента: 15 });
+    });
+
+    it("keeps a payment the admin gave up on given up, whatever is corrected", async () => {
+      const { started, ivan } = await desk();
+      const body = payment({ clientCode: "А999" });
+      await post(started, ivan, body);
+      await until(started, "blocked");
+      // What «Не записывать» (and onec-skip) leaves in the queue.
+      await started.query("UPDATE onec_outbox SET status = 'skipped', detail = 'пропущен вручную (Мудир)'");
+      expect((await edit(started, ivan, body.id, { clientCode: "А999", amountMinor: 158_000 })).status).toBe(200);
+      await settle();
+      expect((await queued(started))[0]).toMatchObject({ status: "skipped" });
+    });
+
+    it("says so when 1C will not unpost the document (a closed period), and the group is told", async () => {
+      const { started, ivan, body } = await written();
+      onec.failNext("/Unpost", 400);
+      expect((await deleteRequest(started, `/api/operations/${body.id}`, ivan, { reason: "ошибка" })).status).toBe(200);
+      const row = await settled(started, "failed");
+      expect(row.detail).toContain("unpost");
+      for (let attempt = 0; attempt < 200 && told().length < 1; attempt++) await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(told()[0]!.text).toContain("не записан в 1С");
+      expect(onec.documents[0]).toMatchObject({ Posted: true, DeletionMark: false });
     });
   });
   describe("the commands of the administrator", () => {
