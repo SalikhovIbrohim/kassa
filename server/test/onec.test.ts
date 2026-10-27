@@ -36,7 +36,7 @@ describe("writing the payments of clients to 1C", () => {
     await telegram.close();
   });
 
-  async function desk(options: { mode?: "preview" | "live" | "off"; onlyClients?: string[]; logStream?: NodeJS.WritableStream; password?: string } = {}) {
+  async function desk(options: { mode?: "preview" | "live" | "off"; onlyClients?: string[]; logStream?: NodeJS.WritableStream; password?: string; night?: boolean } = {}) {
     const mode = options.mode ?? "live";
     const started = await startTestApp({
       telegramBotToken: TOKEN,
@@ -55,8 +55,10 @@ describe("writing the payments of clients to 1C", () => {
               currencyKey: KEYS.currency,
               mode,
               onlyClients: options.onlyClients,
+              send: options.night ? "night" : undefined,
             },
-      onecQueue: { intervalMs: 40, baseBackoffSeconds: 0.05, blockedRetrySeconds: 0.2 },
+      // Over a night the test moves the clock: the queue then runs on the app's clock too.
+      onecQueue: { intervalMs: 40, baseBackoffSeconds: 0.05, blockedRetrySeconds: 0.2, appClock: options.night },
       logStream: options.logStream,
     });
     app = started;
@@ -695,6 +697,54 @@ describe("writing the payments of clients to 1C", () => {
       expect(message).toContain("will not be written");
       expect(await queued(started)).toEqual([expect.objectContaining({ status: "skipped" })]);
       expect(onec.documents).toEqual([]);
+    });
+  });
+
+  describe("sent at night, when the day of the cash desk is over", () => {
+    // 5 March 2026, 14:00 Moscow time; the day of the cash desk ends on 6 March at 03:00.
+    const afternoon = new Date("2026-03-05T11:00:00Z");
+    const night = new Date("2026-03-06T00:00:30Z");
+
+    it("writes nothing during the day, and the day's last version of each payment at 03:00", async () => {
+      onec.addClient("А406", "Жавид");
+      const { started, ivan } = await desk({ night: true });
+      started.setNow(afternoon);
+      const body = payment();
+      expect(await post(started, ivan, body)).toBe(201);
+      // The cashier puts it right the same day: 1C never sees the first version.
+      const put = await putJson(started, `/api/operations/${body.id}`, { type: "income", amountMinor: 158_000, currency: "RUB", rateE4: 790_000, category: "client_payment", clientCode: "А406 Жавид", reason: "опечатка" }, ivan);
+      expect(put.status).toBe(200);
+      await settle();
+      expect(onec.requests).toHaveLength(0);
+      const [waiting] = await started.query<{ status: string; next_attempt_at: Date }>("SELECT status, next_attempt_at FROM onec_outbox");
+      expect(waiting).toMatchObject({ status: "pending" });
+      expect(waiting!.next_attempt_at.toISOString()).toBe("2026-03-06T00:00:00.000Z");
+
+      started.setNow(night);
+      await until(started, "written");
+      expect(onec.documents).toHaveLength(1);
+      expect(onec.documents[0]).toMatchObject({ СуммаДокумента: 20, Posted: true });
+      expect(onec.requests.filter((line) => line.startsWith("PATCH"))).toHaveLength(0);
+    });
+
+    it("waits for the next night with a correction of a payment that is in 1C already", async () => {
+      onec.addClient("А406", "Жавид");
+      const { started, ivan } = await desk({ night: true });
+      started.setNow(afternoon);
+      const body = payment();
+      await post(started, ivan, body);
+      started.setNow(night);
+      await until(started, "written");
+
+      // The next day, at noon, the entry is deleted: the document stays as it is until the night after.
+      started.setNow(new Date("2026-03-06T09:00:00Z"));
+      expect((await deleteRequest(started, `/api/operations/${body.id}`, ivan, { reason: "ошибка" })).status).toBe(200);
+      await settle();
+      expect(onec.documents[0]).toMatchObject({ Posted: true, DeletionMark: false });
+
+      started.setNow(new Date("2026-03-07T00:00:30Z"));
+      await until(started, "removed");
+      expect(onec.documents[0]).toMatchObject({ Posted: false, DeletionMark: true });
     });
   });
 

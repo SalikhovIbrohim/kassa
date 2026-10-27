@@ -12,6 +12,11 @@ export type OneCSettings = {
   mode: "preview" | "live";
   /** When set, only the payments of these clients (codes like А339) are written; the others are left alone. */
   onlyClients?: string[];
+  /**
+   * When what the cash desk did goes to 1C: `night`, once the day of the cash desk is over (03:00 Moscow time), so that
+   * the day's corrections and the day's average rate are final; left out, at once.
+   */
+  send?: "night" | "now";
 };
 
 /**

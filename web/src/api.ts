@@ -163,7 +163,15 @@ export type Operation = {
  * not to be written; preview: only rehearsed; removed: the entry was deleted, its document unposted and marked for deletion.
  */
 export type OneCStatus = "pending" | "written" | "blocked" | "failed" | "skipped" | "preview" | "removed";
-export type OneCState = { id: number; status: OneCStatus; docNumber: string | null; detail: string | null; attempts: number };
+export type OneCState = {
+  id: number;
+  status: OneCStatus;
+  docNumber: string | null;
+  detail: string | null;
+  attempts: number;
+  /** When it is tried next: what was entered or changed today goes at 03:00 Moscow time, when the day is over. */
+  nextAttemptAt?: string | null;
+};
 
 /** The admin's filter on the column «1С». */
 export type OneCFilter = "written" | "waiting" | "problem" | "none";

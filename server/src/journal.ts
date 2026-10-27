@@ -39,12 +39,27 @@ const ONEC_CONDITION: Record<OneCFilter, string> = {
   none: "ob.id IS NULL",
 };
 
-type OneCRow = { onec_id: string | null; onec_status: string | null; onec_doc_number: string | null; onec_detail: string | null; onec_attempts: number | null };
+type OneCRow = {
+  onec_id: string | null;
+  onec_status: string | null;
+  onec_doc_number: string | null;
+  onec_detail: string | null;
+  onec_attempts: number | null;
+  onec_next_attempt_at: Date | null;
+};
 
 /** What became of an entry in 1C, for the admin: null when it never went into the queue of 1C. */
 function oneCOf(row: OneCRow) {
   if (row.onec_id === null) return null;
-  return { id: Number(row.onec_id), status: row.onec_status, docNumber: row.onec_doc_number, detail: row.onec_detail, attempts: row.onec_attempts };
+  return {
+    id: Number(row.onec_id),
+    status: row.onec_status,
+    docNumber: row.onec_doc_number,
+    detail: row.onec_detail,
+    attempts: row.onec_attempts,
+    // When it is tried next: a payment of today waits for the night (see onec.ts).
+    nextAttemptAt: row.onec_next_attempt_at?.toISOString() ?? null,
+  };
 }
 
 /**
@@ -177,7 +192,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
 
       const found = await pool.query<OperationRow & OneCRow & { created_at_cursor: string }>(
         `SELECT ${OPERATION_SELECT},
-                ${admin ? "ob.id AS onec_id, ob.status AS onec_status, ob.doc_number AS onec_doc_number, ob.detail AS onec_detail, ob.attempts AS onec_attempts," : ""}
+                ${admin ? "ob.id AS onec_id, ob.status AS onec_status, ob.doc_number AS onec_doc_number, ob.detail AS onec_detail, ob.attempts AS onec_attempts, ob.next_attempt_at AS onec_next_attempt_at," : ""}
                 to_char(o.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
            FROM ${OPERATION_FROM}
            ${admin ? "LEFT JOIN onec_outbox ob ON ob.operation_id = o.id" : ""}

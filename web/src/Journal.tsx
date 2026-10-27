@@ -877,7 +877,9 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
     );
   }
 
-  const look = ONEC_LOOK[state.status];
+  // Today's entries wait for the night: the day is closed at 03:00 and they go to 1C then.
+  const tonight = state.status === "pending" && state.attempts === 0 && state.nextAttemptAt != null && Date.parse(state.nextAttemptAt) > Date.now();
+  const look = tonight ? { label: "Уйдёт в 03:00", tone: "bg-muted text-muted-foreground" } : ONEC_LOOK[state.status];
   const canRetry = ["failed", "blocked", "skipped", "preview"].includes(state.status);
   const canSkip = ["pending", "blocked", "failed", "preview"].includes(state.status);
   const what = `${operation.clientCode ?? "приход"} ${formatMoney(operation.amountMinor, operation.currency)}`;
@@ -888,7 +890,7 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
     try {
       const result = await changeOneC(state!.id, action);
       if (result.ok) {
-        onChanged(action === "retry" ? { ...state!, status: "pending", detail: null, attempts: 0 } : { ...state!, status: "skipped", detail: "пропущен вручную" });
+        onChanged(action === "retry" ? { ...state!, status: "pending", detail: null, attempts: 0, nextAttemptAt: null } : { ...state!, status: "skipped", detail: "пропущен вручную" });
       } else {
         setError(result.reason === "wrong-state" ? "Состояние уже другое: нажмите «Обновить»." : "Не получилось, попробуйте ещё раз.");
       }

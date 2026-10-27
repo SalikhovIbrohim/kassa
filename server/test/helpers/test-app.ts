@@ -85,7 +85,7 @@ type StartOptions = {
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
   /** The 1C base to write the payments of clients to (a fake one, see fake-onec.ts). */
   onec?: OneCSettings;
-  onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number };
+  onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number; appClock?: boolean };
   /** The Google spreadsheet to copy the journal to (a fake Google, see fake-google.ts). */
   sheet?: SheetSettings;
   sheetQueue?: { intervalMs?: number; baseBackoffSeconds?: number };

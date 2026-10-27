@@ -57,7 +57,7 @@ export type AppOptions = {
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
   /** The 1C base the payments of clients are written to; without it nothing is written. */
   onec?: OneCSettings;
-  onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number };
+  onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number; appClock?: boolean };
   /** The Google spreadsheet the journal is copied to (see journal-sheet.ts). */
   sheet?: SheetSettings;
   sheetQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
@@ -107,6 +107,10 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // The payments of clients for 1C: queued with the operation, written by a worker (see onec.ts).
   const onec = createOneC({
     pool: database.pool,
+    // The days of the cash desk follow the app's clock; the waits between tries run on the real one, unless a test
+    // that moves the clock over a night asks for the app's clock for both.
+    today: options.now,
+    now: options.onecQueue?.appClock ? options.now : undefined,
     settings: options.onec,
     telegram: outbox,
     log: app.log,

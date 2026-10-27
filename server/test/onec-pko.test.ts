@@ -153,12 +153,16 @@ describe("the settings of the writing to 1C", () => {
       currencyKey: KEY,
       mode: "live",
       onlyClients: undefined,
+      // At night unless told otherwise: the day's corrections and the day's average rate are final by then.
+      send: "night",
     });
     expect(loadConfig({ ...full, COSMO_1C_MODE: "Preview", COSMO_1C_CLIENTS: "a339, А-406" }).onec).toMatchObject({ mode: "preview", onlyClients: ["А339", "А406"] });
+    expect(loadConfig({ ...full, COSMO_1C_SEND: "Now" }).onec).toMatchObject({ send: "now" });
   });
 
   it("refuses a setting that is missing or wrong, without saying the password", () => {
     expect(() => loadConfig({ ...full, COSMO_1C_MODE: "yes" })).toThrow(/COSMO_1C_MODE/);
+    expect(() => loadConfig({ ...full, COSMO_1C_SEND: "hourly" })).toThrow(/COSMO_1C_SEND/);
     expect(() => loadConfig({ ...full, COSMO_ODATA_URL: "" })).toThrow(/COSMO_ODATA_URL/);
     expect(() => loadConfig({ ...full, COSMO_1C_KASSA_KEY: "not-a-key" })).toThrow(/COSMO_1C_KASSA_KEY/);
     expect(() => loadConfig({ ...full, COSMO_1C_CLIENTS: "Москва" })).toThrow(/COSMO_1C_CLIENTS/);

@@ -167,6 +167,8 @@ export function loadOneC(env: NodeJS.ProcessEnv): OneCSettings | undefined {
     if (!GUID.test(value)) throw new Error(`${name} must be a key like 0d2cb474-924a-11f1-8cb7-b8cb29f61f4c`);
     return value.toLowerCase();
   };
+  const send = env.COSMO_1C_SEND?.trim().toLowerCase() || "night";
+  if (send !== "night" && send !== "now") throw new Error(`COSMO_1C_SEND must be night or now, got "${env.COSMO_1C_SEND}"`);
   const clients = (env.COSMO_1C_CLIENTS ?? "")
     .split(",")
     .map((text) => text.trim())
@@ -186,5 +188,6 @@ export function loadOneC(env: NodeJS.ProcessEnv): OneCSettings | undefined {
     currencyKey: key("COSMO_1C_CURRENCY_KEY"),
     mode,
     onlyClients: clients.length > 0 ? clients : undefined,
+    send,
   };
 }

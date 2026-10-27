@@ -1,5 +1,6 @@
 import type pg from "pg";
 import type { Queryable } from "./balances.js";
+import { cashDayEnd, cashDayOf } from "./cash-day.js";
 import { isClientPayment } from "./categories.js";
 import { mergeEvents, type LedgerEvents } from "./ledger.js";
 import { createOneCClient, OneCError, type Json, type OneCClient, type OneCSettings } from "./onec-api.js";
@@ -29,6 +30,8 @@ export type OneCOptions = {
   log: Logger;
   /** The clock of the waits between tries: the real one unless a test moves it. */
   now?: () => Date;
+  /** The clock of the days of the cash desk, which says when the night comes (the app's: a test sets it). */
+  today?: () => Date;
   fetchImpl?: typeof fetch;
   /** How often the worker looks for what is due. */
   intervalMs?: number;
@@ -51,6 +54,8 @@ export type OneC = {
   readonly mode: "preview" | "live" | undefined;
   /** Writes a payment of a client to the queue, on the connection (the transaction) of the operation. */
   queue(db: Queryable, operationId: string): Promise<void>;
+  /** When what was entered or changed now goes to 1C: at once, or at the end of the day of the cash desk (03:00 Moscow time). */
+  due(): Date;
   nudge(): void;
   flush(): Promise<void>;
   start(): void;
@@ -104,6 +109,9 @@ export function createOneC(options: OneCOptions): OneC {
   let stopped = false;
 
   const later = (seconds: number) => new Date(now().getTime() + seconds * 1000);
+  // Sent at night: the day is over, the cashier's corrections are in, and the average rate of the day is final.
+  const today = options.today ?? now;
+  const due = () => (settings?.send === "night" ? cashDayEnd(cashDayOf(today())) : now());
 
   // What was read of 1C lately.
   let references: { at: number; value: Awaited<ReturnType<typeof readReferences>> } | undefined;
@@ -358,8 +366,9 @@ export function createOneC(options: OneCOptions): OneC {
     mode: settings?.mode,
     async queue(db, operationId) {
       if (!settings) return;
-      await db.query("INSERT INTO onec_outbox (operation_id, created_at, next_attempt_at) VALUES ($1, $2, $2) ON CONFLICT (operation_id) DO NOTHING", [operationId, now()]);
+      await db.query("INSERT INTO onec_outbox (operation_id, created_at, next_attempt_at) VALUES ($1, $2, $3) ON CONFLICT (operation_id) DO NOTHING", [operationId, now(), due()]);
     },
+    due,
     nudge() {
       if (!settings || stopped) return;
       setImmediate(() => void flush());
@@ -394,9 +403,9 @@ export function onecEvents(onec: OneC): LedgerEvents | undefined {
     },
     async changed(db, event) {
       const again = await db.query(
-        `UPDATE onec_outbox SET status = 'pending', attempts = 0, alerted = false, next_attempt_at = now(), written_at = NULL, detail = NULL
+        `UPDATE onec_outbox SET status = 'pending', attempts = 0, alerted = false, next_attempt_at = $2, written_at = NULL, detail = NULL
           WHERE operation_id = $1 AND NOT (status = 'skipped' AND detail LIKE 'пропущен вручную%')`,
-        [event.row.id],
+        [event.row.id, onec.due()],
       );
       if (again.rowCount) return;
       // Not in the queue yet: an income that became a payment of a client by the correction.
