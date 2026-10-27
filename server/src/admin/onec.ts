@@ -7,7 +7,7 @@ import { AdminError } from "./users.js";
 /** The things a document refers to that must be there, with what each is told about in the base. */
 const THINGS: Array<{ name: string; entity: string; key: (settings: OneCSettings) => string; expect?: string }> = [
   { name: "организация", entity: "Catalog_Организации", key: (settings) => settings.organizationKey },
-  { name: "касса", entity: "Catalog_КассыОрганизаций", key: (settings) => settings.kassaKey, expect: "кассу, в которую идут приходы (например «Москва»)" },
+  { name: "касса", entity: "Catalog_КассыОрганизаций", key: (settings) => settings.kassaKey, expect: "касса, в которую идут приходы (например «Москва»)" },
   { name: "валюта", entity: "Catalog_Валюты", key: (settings) => settings.currencyKey, expect: "«Доллар» (в этой базе его код 860)" },
 ];
 
