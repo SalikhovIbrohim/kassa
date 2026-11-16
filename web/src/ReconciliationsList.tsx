@@ -25,7 +25,7 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [reloadCount, setReloadCount] = useState(0);
   // The counts of the cash desk chosen.
-  const { scope } = useKassa();
+  const { scope, alike } = useKassa();
   const kassa = scopeKassa(scope);
   // Numbers the requests, so only the newest answer may update the screen.
   const newest = useRef(0);
@@ -102,7 +102,8 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
           ) : (
             <ul className="reconciliation-list">
               {load.reconciliations.map((item) => (
-                <ReconciliationCard key={item.id} reconciliation={item} />
+                // Several desks are shown: a count of a desk that its money does not tell from another says its name.
+                <ReconciliationCard key={item.id} reconciliation={item} named={scope === "both" && alike(item.kassa)} />
               ))}
             </ul>
           )}
@@ -122,10 +123,16 @@ export function ReconciliationsList({ onSessionExpired, onRefresh, active = true
   );
 }
 
-function ReconciliationCard({ reconciliation }: { reconciliation: Reconciliation }) {
+function ReconciliationCard({ reconciliation, named }: { reconciliation: Reconciliation; named: boolean }) {
+  const { labelOf, shortOf } = useKassa();
   return (
     <li className="reconciliation-card glass-card rounded-xl" data-reconciliation={reconciliation.id}>
       <p className="reconciliation-card-head">
+        {named && (
+          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={labelOf(reconciliation.kassa)}>
+            {shortOf(reconciliation.kassa)}
+          </span>
+        )}
         <strong>{reconciliation.madeBy.displayName}</strong>
       </p>
       <p className="reconciliation-card-time">{formatMoscowShort(reconciliation.madeAt)} (МСК)</p>

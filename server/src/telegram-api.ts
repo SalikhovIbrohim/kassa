@@ -5,8 +5,12 @@ export type TelegramSettings = {
   /** The topics of the group that get the messages about incomes and about expenses, when the group has topics; without one the main topic ("General") gets them. */
   incomeThreadId?: number;
   expenseThreadId?: number;
-  /** The topic of everything of the Andijan cash desk (incomes, expenses, corrections, counts); without one, the main topic. */
-  andijanThreadId?: number;
+  /**
+   * The topic of everything of one cash desk (incomes, expenses, corrections, counts), by the id of the desk:
+   * `{ andijan: 7 }`. A desk without one: the main desk tells its incomes and its expenses in the two topics above,
+   * any other desk tells everything in the main topic (see `threadOf` in outbox.ts).
+   */
+  kassaThreadIds?: Readonly<Record<string, number>>;
   /** `https://api.telegram.org` unless a test or a proxy stands in for it. */
   apiUrl: string;
 };

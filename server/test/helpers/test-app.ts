@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { buildApp, type LoginProtectionOptions } from "../../src/app.js";
+import type { Kassas } from "../../src/kassa.js";
 import { migrate } from "../../src/migrate.js";
 import type { OneCSettings } from "../../src/onec-api.js";
 import type { SheetSettings } from "../../src/sheets-api.js";
@@ -25,8 +26,8 @@ export type TestAdmin = {
   restoreUser(login: string): Promise<void>;
   resetPassword(login: string, newPassword: string): Promise<void>;
   setRole(login: string, role: string): Promise<unknown>;
-  /** Amount as the developer types it, e.g. "1000.50". */
-  setOpeningBalance(currency: string, amount: string): Promise<void>;
+  /** Amount as the developer types it, e.g. "1000.50". The main cash desk unless one is named. */
+  setOpeningBalance(currency: string, amount: string, kassa?: string): Promise<void>;
 };
 
 export type TestApp = {
@@ -71,6 +72,8 @@ type StartOptions = {
   sessionDays?: number;
   /** Addresses of reverse proxies whose X-Forwarded-For header is believed. */
   trustProxy?: string | string[];
+  /** The cash desks of the installation (see `parseKassas`); Moscow and Andijan without it. */
+  kassas?: Kassas;
   loginProtection?: LoginProtectionOptions;
   /** Gets the server's log lines, for tests that look at what is logged. */
   logStream?: NodeJS.WritableStream;
@@ -81,10 +84,14 @@ type StartOptions = {
   telegramIncomeThreadId?: number;
   telegramExpenseThreadId?: number;
   telegramAndijanThreadId?: number;
+  /** The topic of everything of one cash desk, by the id of the desk. */
+  telegramKassaThreadIds?: Record<string, number>;
   telegramApiUrl?: string;
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
   /** The 1C base to write the payments of clients to (a fake one, see fake-onec.ts). */
   onec?: OneCSettings;
+  /** The cash desks whose payments of clients are written to 1C; the main one without it. */
+  onecKassas?: string[];
   onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number; appClock?: boolean };
   /** The Google spreadsheet to copy the journal to (a fake Google, see fake-google.ts). */
   sheet?: SheetSettings;
@@ -153,14 +160,19 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       secureCookies: options.secureCookies,
       sessionDays: options.sessionDays,
       trustProxy: options.trustProxy,
+      kassas: options.kassas,
       telegramBotToken: options.telegramBotToken,
       telegramGroupChatId: options.telegramGroupChatId,
       telegramIncomeThreadId: options.telegramIncomeThreadId,
       telegramExpenseThreadId: options.telegramExpenseThreadId,
-      telegramAndijanThreadId: options.telegramAndijanThreadId,
+      telegramKassaThreadIds: {
+        ...(options.telegramAndijanThreadId === undefined ? {} : { andijan: options.telegramAndijanThreadId }),
+        ...options.telegramKassaThreadIds,
+      },
       telegramApiUrl: options.telegramApiUrl,
       telegramQueue: options.telegramQueue,
       onec: options.onec,
+      onecKassas: options.onecKassas,
       onecQueue: options.onecQueue,
       sheet: options.sheet,
       sheetQueue: options.sheetQueue,
@@ -213,8 +225,8 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       resetPassword: (login, newPassword) =>
         adminUsers.resetPassword(adminPool, login, newPassword),
       setRole: (login, role) => adminUsers.setRole(adminPool, login, role),
-      setOpeningBalance: async (currency, amount) => {
-        await adminBalances.setOpeningBalance(adminPool, currency, amount);
+      setOpeningBalance: async (currency, amount, kassa) => {
+        await adminBalances.setOpeningBalance(adminPool, currency, amount, kassa, options.kassas);
       },
     },
     setNow(date) {

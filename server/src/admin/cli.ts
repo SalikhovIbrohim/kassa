@@ -1,16 +1,25 @@
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
-import { isKassa, type Kassa } from "../kassa.js";
+import { parseKassas, type Kassa, type Kassas } from "../kassa.js";
 
-/** --kassa moscow or andijan; undefined when not given. */
-function kassaOption(text: string | undefined): Kassa | undefined {
+/** The cash desks of the installation, as its settings file names them (KASSAS; Moscow and Andijan without it). */
+function kassasOfSettings(): Kassas {
+  try {
+    return parseKassas(process.env.KASSAS);
+  } catch (error) {
+    throw new AdminError(`${(error as Error).message} (in the settings file)`);
+  }
+}
+
+/** --kassa moscow, andijan or another desk of the installation; undefined when not given. */
+function kassaOption(text: string | undefined, kassas: Kassas): Kassa | undefined {
   if (text === undefined) return undefined;
   const kassa = text.trim().toLowerCase();
-  if (!isKassa(kassa)) throw new AdminError(`--kassa must be moscow or andijan, got "${text}"`);
+  if (!kassas.has(kassa)) throw new AdminError(`--kassa must be ${kassas.ids.join(" or ")}, got "${text}"`);
   return kassa;
 }
-import { loadOneC, onecSetting } from "../config.js";
+import { kassaSettingName, loadOneC, loadOneCKassas, onecSetting, strangerSettings } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
@@ -49,13 +58,15 @@ Commands:
   reset-password --login <login>      set a new password and end all sessions
   set-opening-balance --currency <RUB|USD> --amount <1000.50> [--kassa <moscow|andijan>]
                                       the amount a currency's balance starts from, in a cash desk (Moscow
-                                      unless said; Andijan keeps dollars only)
+                                      unless said; Andijan keeps dollars only). The cash desks are those of
+                                      KASSAS in the settings file, the first of them unless said
   balances [--kassa <moscow|andijan>] current balance per currency (opening balance + income), of one cash
-                                      desk or of both added up
+                                      desk or of all of them added up
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
-                                      (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set)
+                                      (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set, and
+                                      into the topic of each cash desk that has one, TELEGRAM_THREAD_<DESK>)
 
   onec-check                          look at 1C and change nothing: does it answer, are the accounts, the item of the
                                       payments, the organization, the cash desk and the currency of the settings there
@@ -146,8 +157,9 @@ async function main(): Promise<void> {
       case "set-opening-balance": {
         const currency = required(values.currency, "--currency");
         const amount = required(values.amount, "--amount");
-        const kassa = kassaOption(values.kassa) ?? "moscow";
-        const minor = await setOpeningBalance(pool, currency, amount, kassa);
+        const kassas = kassasOfSettings();
+        const kassa = kassaOption(values.kassa, kassas) ?? kassas.primary;
+        const minor = await setOpeningBalance(pool, currency, amount, kassa, kassas);
         console.log(`Opening balance for ${currency.trim().toUpperCase()} in ${kassa} set to ${formatAmount(minor)}.`);
         const entered = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM operations WHERE kassa = $1", [kassa])).rows[0]!.n;
         if (entered > 0) {
@@ -159,7 +171,9 @@ async function main(): Promise<void> {
         break;
       }
       case "balances": {
-        for (const balance of await getBalances(pool, kassaOption(values.kassa))) {
+        const kassas = kassasOfSettings();
+        const kassa = kassaOption(values.kassa, kassas);
+        for (const balance of await getBalances(pool, kassa === undefined ? kassas.currencies : kassas.currenciesOf(kassa), kassa)) {
           console.log(`${balance.currency}  ${formatAmount(balance.amountMinor)}`);
         }
         break;
@@ -213,14 +227,22 @@ async function main(): Promise<void> {
         const topic = (name: string) => (process.env[name]?.trim() ? Number(process.env[name]!.trim()) : undefined);
         const incomeThread = topic("TELEGRAM_THREAD_INCOME");
         const expenseThread = topic("TELEGRAM_THREAD_EXPENSE");
-        // One message into each topic that is set, or into the main topic when none is.
-        const targets: Array<{ thread: number | undefined; about: string }> =
-          incomeThread === undefined && expenseThread === undefined
+        // The topic of everything of one cash desk, for each desk that has one (TELEGRAM_THREAD_ANDIJAN).
+        const kassas = kassasOfSettings();
+        const deskTargets = kassas.list.flatMap((desk) => {
+          const thread = topic(kassaSettingName("TELEGRAM_THREAD", desk.id));
+          return thread === undefined ? [] : [{ thread, about: ` Эта тема для кассы «${desk.label}».` }];
+        });
+        // One message into each topic of a kind that is set, or into the main topic when neither is; then the desks' own.
+        const targets: Array<{ thread: number | undefined; about: string }> = [
+          ...(incomeThread === undefined && expenseThread === undefined
             ? [{ thread: undefined, about: "" }]
             : [
                 ...(incomeThread === undefined ? [] : [{ thread: incomeThread, about: " Эта тема для приходов." }]),
                 ...(expenseThread === undefined ? [] : [{ thread: expenseThread, about: " Эта тема для расходов." }]),
-              ];
+              ]),
+          ...deskTargets,
+        ];
         try {
           for (const target of targets) {
             await sendToGroup({ botToken, groupChatId, apiUrl }, `✅ Касса: проверка связи.${target.about}`, target.thread);
@@ -229,19 +251,26 @@ async function main(): Promise<void> {
         } catch (error) {
           throw new AdminError(telegramProblem(error));
         }
+        // A topic set for a cash desk the installation does not have is a slip of the hand: its messages would go elsewhere.
+        for (const name of strangerSettings(process.env, "TELEGRAM_THREAD", kassas, ["TELEGRAM_THREAD_INCOME", "TELEGRAM_THREAD_EXPENSE"])) {
+          console.log(`Note: ${name} is not used: the cash desks of this installation are ${kassas.ids.join(", ")} (KASSAS in the settings file).`);
+        }
         break;
       }
       case "onec-check": {
         // The look works with the rehearsal settings when the writing is off: all but the mode must be set.
         const modeSetting = onecSetting(process.env, "ONEC_MODE");
         const mode = modeSetting.value?.trim().toLowerCase();
+        const kassas = kassasOfSettings();
         let settings;
+        let written;
         try {
-          settings = loadOneC({ ...process.env, [modeSetting.name]: mode === "live" ? "live" : "preview" });
+          settings = loadOneC({ ...process.env, [modeSetting.name]: mode === "live" ? "live" : "preview" }, kassas);
+          written = loadOneCKassas(process.env, kassas);
         } catch (error) {
           throw new AdminError(`${(error as Error).message} (in the settings file)`);
         }
-        const good = await checkOneC(settings!, (line) => console.log(line));
+        const good = await checkOneC(settings!, (line) => console.log(line), written);
         if (!good) throw new AdminError("1C is not ready: see the lines marked ПРОБЛЕМА above");
         console.log("Всё готово.");
         break;

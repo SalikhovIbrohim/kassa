@@ -1,7 +1,7 @@
 import type pg from "pg";
 import { getBalances, type Balance } from "./balances.js";
 import { cashDayStartSql } from "./cash-day.js";
-import { KASSA_CURRENCIES, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { CURRENCIES, toUsdMinor, type Currency } from "./money.js";
 
 export type OperationRow = {
@@ -305,7 +305,8 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
  * - A retry of an entry that was accepted is answered as before. The answer is read in one
  *   snapshot (see `answerRetry`), so it never mixes two moments.
  */
-export async function recordOperation(pool: pg.Pool, wanted: NewOperation, events?: LedgerEvents): Promise<RecordResult> {
+export async function recordOperation(pool: pg.Pool, wanted: NewOperation, kassas: Kassas, events?: LedgerEvents): Promise<RecordResult> {
+  const balancesOf = (db: pg.ClientBase, kassa: Kassa) => getBalances(db, kassas.currenciesOf(kassa), kassa);
   const recorded = await inTransaction(pool, async (client): Promise<RecordResult | "stored already"> => {
     // The entry may be stored already: a retry, or a clash of ids.
     if (await findOperation(client, wanted.id)) return "stored already";
@@ -342,10 +343,10 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const row = await findOperation(client, wanted.id);
     if (!row) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
     await events?.created?.(client, row);
-    return { status: "created", row, balances: await getBalances(client, row.kassa) };
+    return { status: "created", row, balances: await balancesOf(client, row.kassa) };
   });
 
-  return recorded === "stored already" ? answerRetry(pool, wanted) : recorded;
+  return recorded === "stored already" ? answerRetry(pool, wanted, kassas) : recorded;
 }
 
 /**
@@ -355,7 +356,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
  * committed in between would leave an answer showing the operation as it was and the
  * balances as they are.
  */
-async function answerRetry(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
+async function answerRetry(pool: pg.Pool, wanted: NewOperation, kassas: Kassas): Promise<RecordResult> {
   return inTransaction(
     pool,
     async (client): Promise<RecordResult> => {
@@ -363,7 +364,7 @@ async function answerRetry(pool: pg.Pool, wanted: NewOperation): Promise<RecordR
       // Nothing is ever physically deleted, so what was there a moment ago is still there.
       if (!stored) throw new Error(`Operation ${wanted.id} was stored and is gone`);
       if (!(await isSameEntry(client, stored, wanted))) return { status: "id_conflict" };
-      return { status: "replayed", row: stored, balances: await getBalances(client, stored.kassa) };
+      return { status: "replayed", row: stored, balances: await getBalances(client, kassas.currenciesOf(stored.kassa), stored.kassa) };
     },
     "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
   );
@@ -385,7 +386,7 @@ export type ChangeResult =
   | { status: "deleted" }
   /** An income cannot become an expense or the other way round. */
   | { status: "kind_changed" }
-  /** The cash desk of the operation does not keep that currency (Andijan keeps dollars only). */
+  /** The cash desk of the operation does not keep that currency (a desk of dollars only). */
   | { status: "currency_not_kept" };
 
 /**
@@ -402,9 +403,10 @@ export const OWN_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function changeOperation(
   pool: pg.Pool,
-  request: { id: string; actorId: string; actorIsAdmin?: boolean; now: () => Date; change: Change; events?: LedgerEvents },
+  request: { id: string; actorId: string; actorIsAdmin?: boolean; now: () => Date; change: Change; kassas: Kassas; events?: LedgerEvents },
 ): Promise<ChangeResult> {
-  const { id, actorId, now, change } = request;
+  const { id, actorId, now, change, kassas } = request;
+  const balancesOf = (db: pg.ClientBase, kassa: Kassa) => getBalances(db, kassas.currenciesOf(kassa), kassa);
 
   return inTransaction(pool, async (client): Promise<ChangeResult> => {
     // Both currencies, always: a correction may move money from one to the other. Taking
@@ -426,7 +428,7 @@ export async function changeOperation(
     const unchanged = async (): Promise<ChangeResult> => ({
       status: "unchanged",
       row: stored,
-      balances: await getBalances(client, stored.kassa),
+      balances: await balancesOf(client, stored.kassa),
     });
 
     if (stored.deleted_at) return change.action === "delete" ? unchanged() : { status: "deleted" };
@@ -435,7 +437,7 @@ export async function changeOperation(
     let after = before;
     if (change.action === "edit") {
       if (change.kind !== stored.kind) return { status: "kind_changed" };
-      if (!KASSA_CURRENCIES[stored.kassa].includes(change.next.currency)) return { status: "currency_not_kept" };
+      if (!kassas.currenciesOf(stored.kassa).includes(change.next.currency)) return { status: "currency_not_kept" };
       after = change.next;
       if (sameSnapshot(before, after)) return unchanged();
     }
@@ -477,7 +479,7 @@ export async function changeOperation(
     const changed = await findOperation(client, id);
     if (!changed) throw new Error(`Operation ${id} disappeared while it was being changed`);
     await request.events?.changed?.(client, { action: change.action, before, row: changed, actorId, reason: change.reason, at, byAdmin });
-    return { status: "changed", row: changed, balances: await getBalances(client, changed.kassa) };
+    return { status: "changed", row: changed, balances: await balancesOf(client, changed.kassa) };
   });
 }
 

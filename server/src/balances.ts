@@ -1,6 +1,6 @@
 import type pg from "pg";
-import { KASSA_CURRENCIES, type Kassa } from "./kassa.js";
-import { CURRENCIES, type Currency } from "./money.js";
+import type { Kassa } from "./kassa.js";
+import type { Currency } from "./money.js";
 
 export type Balance = { currency: Currency; amountMinor: number };
 
@@ -10,9 +10,10 @@ export type Queryable = Pick<pg.Pool, "query">;
 /**
  * Opening balance plus incomes minus expenses, per currency, plus what the reconciliations found when the cash was
  * counted (a shortage lowers it, a surplus raises it: the books then say what is really in the cash desk). A deleted
- * operation counts for nothing. For one cash desk, its currencies; without one, both desks added up, every currency.
+ * operation counts for nothing. For one cash desk, with its currencies; without one, every desk added up, with every
+ * currency. The currencies are the caller's to say: the settings of the installation know what each desk keeps.
  */
-export async function getBalances(db: Queryable, kassa?: Kassa): Promise<Balance[]> {
+export async function getBalances(db: Queryable, currencies: readonly Currency[], kassa?: Kassa): Promise<Balance[]> {
   const result = await db.query<{ currency: Currency; amount_minor: string }>(
     `SELECT c.currency,
             COALESCE((SELECT SUM(o.amount_minor) FROM opening_balances o WHERE o.currency = c.currency AND ($2::text IS NULL OR o.kassa = $2)), 0)
@@ -24,7 +25,7 @@ export async function getBalances(db: Queryable, kassa?: Kassa): Promise<Balance
               AS amount_minor
        FROM unnest($1::text[]) AS c(currency)
       ORDER BY c.currency`,
-    [kassa ? KASSA_CURRENCIES[kassa] : CURRENCIES, kassa ?? null],
+    [currencies, kassa ?? null],
   );
   // bigint comes back as a string. Single amounts are capped (see MAX_AMOUNT_MINOR) so that
   // sums stay exact as numbers for any realistic number of operations.

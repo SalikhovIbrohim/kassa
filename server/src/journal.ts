@@ -1,4 +1,4 @@
-import { kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
@@ -12,6 +12,8 @@ const MAX_PAGE_SIZE = 100;
 export type JournalOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The cash desks of the installation. */
+  kassas: Kassas;
 };
 
 type JournalQuery = {
@@ -96,7 +98,7 @@ function decodeCursor(cursor: string): Position | null {
 }
 
 export async function registerJournal(app: FastifyInstance, options: JournalOptions) {
-  const { pool, now } = options;
+  const { pool, now, kassas } = options;
 
   // The journal: newest first, one page at a time. Everybody who works in the cash desk sees everybody's entries (it is
   // one book and one box of money, and each line says who entered it); only the owner and the admin see the deleted ones.
@@ -117,8 +119,8 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
             category: { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" },
             clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
             author: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
-            // One cash desk; without it, the person's own, or both for a person of everywhere.
-            kassa: kassaProperty,
+            // One cash desk; without it, the person's own, or all of them for a person of everywhere.
+            kassa: kassas.property,
             // Deleted operations: left out (the default), shown among the others, or only them.
             deleted: { type: "string", enum: ["exclude", "include", "only"] },
             // The admin's: what became of the entries in 1C.
@@ -176,7 +178,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       // lower() on both sides: the database folds case its own way, and so must the typed text.
       if (query.author !== undefined) add((p) => `lower(u.login) = lower(${p})`, query.author);
       const kassa = query.kassa ?? user.city ?? undefined;
-      if (kassa !== undefined && !mayUseKassa(user.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      if (kassa !== undefined && !kassas.mayUse(user.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
       if (kassa !== undefined) add((p) => `o.kassa = ${p}`, kassa);
       if (query.currency !== undefined) add((p) => `o.currency = ${p}`, query.currency);
       if (query.type !== undefined) add((p) => `o.kind = ${p}`, query.type);

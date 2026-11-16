@@ -2,16 +2,16 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { readCategories, type Category } from "./categories.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { inTransaction } from "./ledger.js";
 import { NO_NUL, NO_QUERY } from "./schemas.js";
 import { cleanText } from "./text.js";
 
 export type CategoryAdminOptions = {
   pool: pg.Pool;
+  /** The cash desks of the installation: the city of a category is one of them, or none (everywhere). */
+  kassas: Kassas;
 };
-
-/** A city, or null for everywhere. */
-const cityProperty = { type: ["string", "null"], enum: ["andijan", "moscow", null] } as const;
 
 const labelProperty = { type: "string", minLength: 1, maxLength: 60, pattern: NO_NUL } as const;
 
@@ -29,12 +29,14 @@ function isDuplicateLabel(error: unknown): boolean {
  */
 export async function registerCategoryAdmin(app: FastifyInstance, options: CategoryAdminOptions) {
   const { pool } = options;
+  /** A city, or null for everywhere. */
+  const { cityProperty } = options.kassas;
   const admin = [app.authenticate, app.requireRole("admin")];
 
   /** One change at a time, so that two taps cannot each see the same order and number two categories alike. */
   const lockCategories = (client: pg.ClientBase) => client.query("SELECT pg_advisory_xact_lock(hashtext('kassa.categories'))");
 
-  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; city?: "andijan" | "moscow" | null } }>(
+  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; city?: Kassa | null } }>(
     "/api/admin/categories",
     {
       onRequest: admin,
@@ -83,7 +85,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
   app.patch<{
     Params: { code: string };
-    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: "income" | "expense"; city?: "andijan" | "moscow" | null };
+    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: "income" | "expense"; city?: Kassa | null };
   }>(
     "/api/admin/categories/:code",
     {

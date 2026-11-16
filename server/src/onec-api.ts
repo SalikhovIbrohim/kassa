@@ -8,6 +8,11 @@ export type OneCSettings = {
   organizationKey: string;
   kassaKey: string;
   currencyKey: string;
+  /**
+   * The cash desk in the base of a cash desk of the installation that has one of its own there, by the id of the desk:
+   * `{ tashkent: "0d2c…" }`. The payments of any other desk go to `kassaKey`.
+   */
+  kassaKeys?: Readonly<Record<string, string>>;
   /** `preview` only looks and says what would be written; `live` writes. */
   mode: "preview" | "live";
   /** When set, only the payments of these clients (codes like А339) are written; the others are left alone. */

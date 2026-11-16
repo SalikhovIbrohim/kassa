@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
 import { clientOfEntry } from "./clients.js";
-import { defaultKassa, KASSA_CURRENCIES, kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
@@ -14,6 +14,8 @@ const MAX_SUGGESTIONS = 8;
 export type OperationsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The cash desks of the installation. */
+  kassas: Kassas;
   /** What is written down with an operation besides it (the messages for the Telegram group). */
   events?: LedgerEvents;
   outbox: Pick<Outbox, "nudge">;
@@ -50,19 +52,19 @@ async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: Fas
 }
 
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
-  const { pool, now, events, outbox } = options;
+  const { pool, now, kassas, events, outbox } = options;
 
   // The balances of one cash desk: the one asked for (a person of everywhere chooses), or the person's own.
   app.get<{ Querystring: { kassa?: Kassa } }>(
     "/api/balances",
     {
       onRequest: app.authenticate,
-      schema: { querystring: { type: "object", additionalProperties: false, properties: { kassa: kassaProperty } } },
+      schema: { querystring: { type: "object", additionalProperties: false, properties: { kassa: kassas.property } } },
     },
     async (request, reply) => {
-      const kassa = request.query.kassa ?? defaultKassa(request.user!.city);
-      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
-      return { balances: await getBalances(pool, kassa) };
+      const kassa = request.query.kassa ?? kassas.defaultOf(request.user!.city);
+      if (!kassas.mayUse(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      return { balances: await getBalances(pool, kassas.currenciesOf(kassa), kassa) };
     },
   );
 
@@ -98,7 +100,8 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 
-  // What the form should start with: the currency this person used last.
+  // What the form should start with: the currency this person used last (the first one the business keeps, before
+  // their first entry).
   app.get(
     "/api/operations/defaults",
     { onRequest: app.authenticate },
@@ -108,7 +111,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
           ORDER BY created_at DESC LIMIT 1`,
         [request.user!.id],
       );
-      return { currency: last.rows[0]?.currency ?? "RUB" };
+      return { currency: last.rows[0]?.currency ?? kassas.currencies[0] ?? "RUB" };
     },
   );
 
@@ -138,7 +141,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         // The id is made by the client, so that sending the same entry twice stores it once.
         // `shiftId` is accepted and ignored: a phone that was offline when the shifts were taken away still has entries
         // in its queue that name one, and an entry is never turned away for that.
-        body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }),
+        body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }, kassas),
       },
     },
     async (request, reply) => {
@@ -158,9 +161,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
       }
 
       // The cash desk: the one sent, or the person's own; a person works only in the desks of their city.
-      const kassa = body.kassa ?? defaultKassa(request.user!.city);
-      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
-      if (!KASSA_CURRENCIES[kassa].includes(normalized.fields.currency)) {
+      const kassa = body.kassa ?? kassas.defaultOf(request.user!.city);
+      if (!kassas.mayUse(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      if (!kassas.currenciesOf(kassa).includes(normalized.fields.currency)) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by this cash desk" });
       }
 
@@ -171,7 +174,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
-      }, events);
+      }, kassas, events);
       // The messages were written with the operation; now that it is committed, the worker is asked to send them.
       if (recorded.status === "created") outbox.nudge();
 

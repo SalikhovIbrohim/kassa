@@ -1,4 +1,5 @@
 import type { Queryable } from "./balances.js";
+import type { Kassa } from "./kassa.js";
 
 export type CategoryKind = "income" | "expense";
 
@@ -21,8 +22,8 @@ export type Category = {
   requiresCounterparty: boolean;
   /** An entry of it must name the employee. */
   requiresEmployee: boolean;
-  /** The city it belongs to, for the reports and 1C; null is everywhere. */
-  city: "andijan" | "moscow" | null;
+  /** The city it belongs to (the id of a cash desk); null is everywhere. */
+  city: Kassa | null;
   /** The Telegram group is told of the entries of this category (see `groupEvents`). */
   notifyGroup: boolean;
   /** False for the money handed to the owner: it leaves the cash desk but is not a cost of the business. */
@@ -39,7 +40,7 @@ type CategoryRow = {
   requires_trip: boolean;
   requires_counterparty: boolean;
   requires_employee: boolean;
-  city: "andijan" | "moscow" | null;
+  city: Kassa | null;
   counts_as_cost: boolean;
   notify_group: boolean;
 };

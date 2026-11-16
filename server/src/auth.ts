@@ -5,6 +5,7 @@ import type pg from "pg";
 import { AttemptLimiter } from "./attempt-limiter.js";
 import { clientNetwork } from "./client-network.js";
 import { ConcurrencyGate, GateFullError } from "./concurrency-gate.js";
+import type { Kassa } from "./kassa.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { NO_NUL } from "./schemas.js";
 
@@ -19,8 +20,11 @@ export type SessionUser = {
   login: string;
   displayName: string;
   role: Role;
-  /** The city the person works in: the entry forms offer only its categories and those of everywhere. Null is everywhere. */
-  city: "andijan" | "moscow" | null;
+  /**
+   * The city the person works in, which is the id of their cash desk: they work in that desk only, and the entry forms
+   * offer its categories and those of everywhere. Null is everywhere.
+   */
+  city: Kassa | null;
 };
 
 export type LoginProtectionOptions = {

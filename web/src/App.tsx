@@ -1,9 +1,11 @@
-import { KASSA_CURRENCIES, KassaProvider, useKassa } from "./kassa";
+import { DEFAULT_KASSAS, KassaProvider, useKassa, type KassaInfo } from "./kassa";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   fetchBalances,
   fetchCategories,
   fetchCurrentUser,
+  fetchKassas,
+  keptKassas,
   loginWithTelegram,
   logOut,
   NetworkError,
@@ -42,7 +44,8 @@ type State =
   | { kind: "loading" }
   | { kind: "unreachable" }
   | { kind: "logged-out" }
-  | { kind: "logged-in"; user: User };
+  /** `desks`: the cash desks of the business, and whether the server said them now (`fresh`) or the phone remembered them. */
+  | { kind: "logged-in"; user: User; desks: { kassas: readonly KassaInfo[]; fresh: boolean } };
 
 const ROLE_LABEL: Record<Role, string> = {
   cashier: "Кассир",
@@ -62,6 +65,10 @@ export function App() {
 
   const load = useCallback(() => {
     setState({ kind: "loading" });
+    // Asked together with who is signed in, so that the app opens no later than it did before it asked.
+    const desksAsked = fetchKassas();
+    // Signed in only now (inside Telegram): there was no session yet when the desks were asked for.
+    let signedInNow = false;
     fetchCurrentUser()
       .then(async (user) => {
         // Opened inside Telegram by an account that is linked to a login: signed in by what Telegram says.
@@ -69,7 +76,10 @@ export function App() {
         if (!user && launch) {
           try {
             const result = await loginWithTelegram(launch);
-            if (result.ok) return result.user;
+            if (result.ok) {
+              signedInNow = true;
+              return result.user;
+            }
             if (result.reason === "not-linked") {
               setTelegramNote("Этот Telegram ещё не привязан к логину. Войдите логином и паролем, а потом нажмите «Привязать Telegram».");
             }
@@ -80,17 +90,30 @@ export function App() {
         return user;
       })
       .then(
-      (user) => {
+      async (user) => {
         if (user) rememberUser(user);
         else forgetUser();
-        setState(user ? { kind: "logged-in", user } : { kind: "logged-out" });
+        if (!user) {
+          setState({ kind: "logged-out" });
+          return;
+        }
+        // The cash desks are known before the screens are shown: the forms start from what the desk keeps. When the
+        // server did not say them (no connection for that one question), the phone's own are used, and asked for again
+        // later (see `KassaProvider`): the app does not wait twice.
+        let desks = await desksAsked;
+        if (!desks.fresh && signedInNow) desks = await fetchKassas();
+        setState({ kind: "logged-in", user, desks });
       },
       () => {
         // The server could not be asked. A cashier who was signed in here before can still make
         // entries: they are kept on the phone and go out when the server answers. Whether the
-        // session is still alive is found out then.
+        // session is still alive is found out then. The cash desks are the ones the phone remembers.
         const remembered = rememberedUser();
-        setState(remembered && remembered.role !== "viewer" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
+        setState(
+          remembered && remembered.role !== "viewer"
+            ? { kind: "logged-in", user: remembered, desks: { kassas: keptKassas() ?? DEFAULT_KASSAS, fresh: false } }
+            : { kind: "unreachable" },
+        );
       },
     );
   }, []);
@@ -159,14 +182,15 @@ export function App() {
         note={telegramNote}
         onLoggedIn={(user) => {
           rememberUser(user);
-          setState({ kind: "logged-in", user });
+          setState({ kind: "loading" });
+          void fetchKassas().then((desks) => setState({ kind: "logged-in", user, desks }));
         }}
       />
     );
   }
 
   return (
-    <KassaProvider city={state.user.city}>
+    <KassaProvider city={state.user.city} initial={state.desks.kassas} fresh={state.desks.fresh} refresh={fetchKassas}>
       <SignedIn user={state.user} onLoggedOut={showLoggedOut} />
     </KassaProvider>
   );
@@ -185,7 +209,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // so a slow older answer cannot replace a fresher balance.
   const newest = useRef(0);
   // The cash desk shown: its balances in the header, its journal, its forms.
-  const { kassa } = useKassa();
+  const { kassas, kassa, choosable, currenciesOf } = useKassa();
 
   const loadBalances = useCallback(() => {
     const mine = ++newest.current;
@@ -205,16 +229,20 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
   const showSavedBalances = useCallback(
     (fresh: Balance[]) => {
-      // The answer of a save has the balances of the desk of that entry: an entry of the other desk (one that waited on
-      // the phone, say) says nothing about the desk shown, which is read again instead.
-      if (fresh.map((item) => item.currency).join() !== KASSA_CURRENCIES[kassa].join()) {
+      // The answer of a save has the balances of the desk of that entry: an entry of another desk (one that waited on
+      // the phone, say) says nothing about the desk shown, which is read again instead. Whose balances they are is
+      // told by the money: a person who chooses among desks that keep the same money (three desks of dollars) cannot
+      // tell that way, and the desk shown is read again.
+      const kept = currenciesOf(kassa).join();
+      const alike = choosable && kassas.some((item) => item.id !== kassa && item.currencies.join() === kept);
+      if (alike || fresh.map((item) => item.currency).join() !== kept) {
         loadBalances();
         return;
       }
       newest.current++;
       setBalances(fresh);
     },
-    [kassa, loadBalances],
+    [kassas, kassa, choosable, currenciesOf, loadBalances],
   );
 
   useEffect(loadBalances, [loadBalances]);

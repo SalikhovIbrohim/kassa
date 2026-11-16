@@ -121,7 +121,7 @@ export async function logOut(): Promise<boolean> {
 // ---- Operations and balances ----
 
 import type { Currency } from "./money";
-import type { Kassa } from "./kassa";
+import { DEFAULT_KASSAS, type Kassa, type KassaInfo } from "./kassa";
 
 export type Balance = { currency: Currency; amountMinor: number };
 
@@ -216,6 +216,72 @@ export const DEFAULT_INCOME_CATEGORY = "client_payment";
 export function operationTitle(type: "income" | "expense", category: string | null, labels: ReadonlyMap<string, string>): string {
   if (type === "expense") return labels.get(category ?? "") ?? "Расход";
   return category !== null && category !== DEFAULT_INCOME_CATEGORY ? (labels.get(category) ?? "Приход") : "Приход";
+}
+
+const KASSAS_KEY = "kassa.kassas";
+
+/** The cash desks out of an answer of the server or out of what the phone kept; null when it is not a list of desks. */
+function readKassas(value: unknown): KassaInfo[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const list: KassaInfo[] = [];
+  for (const item of value as Array<Partial<KassaInfo> | null>) {
+    if (!item || typeof item.id !== "string" || item.id === "" || typeof item.label !== "string" || !Array.isArray(item.currencies)) return null;
+    const currencies = (["RUB", "USD"] as const).filter((code) => (item.currencies as readonly string[]).includes(code));
+    if (currencies.length === 0) return null;
+    list.push({
+      id: item.id,
+      label: item.label,
+      short: typeof item.short === "string" && item.short !== "" ? item.short : item.label.slice(0, 3).toUpperCase(),
+      currencies,
+      onec: item.onec === true,
+    });
+  }
+  return list;
+}
+
+/** The cash desks as the server named them last, kept on the phone; null when it never did. */
+export function keptKassas(): KassaInfo[] | null {
+  try {
+    const raw = localStorage.getItem(KASSAS_KEY);
+    return raw ? readKassas(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The cash desks of the business: which there are, what each is called and what money it keeps is the server's to say
+ * (the settings of its installation). The last answer is kept on the phone, for opening the app without a connection.
+ * A server that does not know the question (an older version) has the two desks there were then. Never throws:
+ * `fresh` says whether the server answered now; when it did not, the desks are the ones kept, or those two.
+ */
+export async function fetchKassas(): Promise<{ kassas: readonly KassaInfo[]; fresh: boolean }> {
+  try {
+    const response = await request("/api/kassas", undefined, 5_000);
+    if (response.status === 404) {
+      // What a newer version left on the phone is not this server's.
+      try {
+        localStorage.removeItem(KASSAS_KEY);
+      } catch {
+        // nothing to do
+      }
+      return { kassas: DEFAULT_KASSAS, fresh: true };
+    }
+    if (response.ok) {
+      const kassas = readKassas(((await response.json()) as { kassas?: unknown }).kassas);
+      if (kassas) {
+        try {
+          localStorage.setItem(KASSAS_KEY, JSON.stringify(kassas));
+        } catch {
+          // not kept; the next visit with a connection asks again
+        }
+        return { kassas, fresh: true };
+      }
+    }
+  } catch {
+    // no connection: what the phone kept
+  }
+  return { kassas: keptKassas() ?? DEFAULT_KASSAS, fresh: false };
 }
 
 export async function fetchBalances(kassa?: Kassa): Promise<Balance[]> {
@@ -679,10 +745,8 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-/** The cities a category or a person can belong to; none means everywhere. */
-export type City = "andijan" | "moscow";
-
-export const CITY_LABEL: Record<City, string> = { andijan: "Андижан", moscow: "Москва" };
+/** The city a category or a person belongs to, which is the id of a cash desk; none means everywhere. */
+export type City = Kassa;
 
 export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null };
 

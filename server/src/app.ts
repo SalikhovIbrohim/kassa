@@ -10,6 +10,7 @@ import { groupEvents } from "./group-messages.js";
 import { createOneC, onecEvents } from "./onec.js";
 import type { OneCSettings } from "./onec-api.js";
 import { createDatabase } from "./db.js";
+import { DEFAULT_KASSAS, type Kassa, type Kassas } from "./kassa.js";
 import { registerJournal } from "./journal.js";
 import { registerOneCAdmin } from "./onec-admin.js";
 import { mergeEvents } from "./ledger.js";
@@ -26,6 +27,8 @@ export type { LoginProtectionOptions };
 
 export type AppOptions = {
   databaseUrl: string;
+  /** The cash desks of the business (see kassa.ts): Moscow in rubles and dollars and Andijan in dollars, unless said. */
+  kassas?: Kassas;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
   /** `true` logs to the console; a stream gets the log lines (for tests that read them). */
@@ -50,13 +53,16 @@ export type AppOptions = {
   /** The topics of that group that get the messages about incomes and about expenses, when it has topics. */
   telegramIncomeThreadId?: number;
   telegramExpenseThreadId?: number;
-  telegramAndijanThreadId?: number;
+  /** The topic that gets everything of one cash desk, by the id of the desk: `{ andijan: 7 }` (see `threadOf` in outbox.ts). */
+  telegramKassaThreadIds?: Readonly<Record<string, number>>;
   /** The address of the Bot API (https://api.telegram.org unless a test stands in for it). */
   telegramApiUrl?: string;
   /** How often the queue of messages is looked at, and how long the first wait after a failed try is: tests make them short. */
   telegramQueue?: { intervalMs?: number; baseBackoffSeconds?: number };
   /** The 1C base the payments of clients are written to; without it nothing is written. */
   onec?: OneCSettings;
+  /** The cash desks whose payments of clients are written to 1C: the main one, unless said. */
+  onecKassas?: readonly Kassa[];
   onecQueue?: { intervalMs?: number; baseBackoffSeconds?: number; blockedRetrySeconds?: number; appClock?: boolean };
   /** The Google spreadsheet the journal is copied to (see journal-sheet.ts). */
   sheet?: SheetSettings;
@@ -71,6 +77,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     ajv: { customOptions: { coerceTypes: false, removeAdditional: false } },
   });
   const database = createDatabase(options.databaseUrl);
+  const kassas = options.kassas ?? DEFAULT_KASSAS;
+  const onecKassas = options.onecKassas ?? [kassas.primary];
 
   // JSON as Fastify reads it, except that nothing at all is no body, not an error: a client
   // that sends "Content-Type: application/json" with an empty DELETE has asked for nothing
@@ -98,8 +106,11 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     settings:
       options.telegramBotToken && options.telegramGroupChatId
-        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, incomeThreadId: options.telegramIncomeThreadId, expenseThreadId: options.telegramExpenseThreadId, andijanThreadId: options.telegramAndijanThreadId, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
+        ? { botToken: options.telegramBotToken, groupChatId: options.telegramGroupChatId, incomeThreadId: options.telegramIncomeThreadId, expenseThreadId: options.telegramExpenseThreadId, kassaThreadIds: options.telegramKassaThreadIds, apiUrl: options.telegramApiUrl ?? "https://api.telegram.org" }
         : undefined,
+    primaryKassa: kassas.primary,
+    // Three desks of dollars in one chat: a message says which desk it is about. Moscow and Andijan are told by their money.
+    kassaNote: (kassa) => (kassas.alike(kassa) ? `Касса: ${kassas.labelOf(kassa)}` : undefined),
     log: app.log,
     intervalMs: options.telegramQueue?.intervalMs,
     baseBackoffSeconds: options.telegramQueue?.baseBackoffSeconds,
@@ -112,6 +123,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     today: options.now,
     now: options.onecQueue?.appClock ? options.now : undefined,
     settings: options.onec,
+    kassas: onecKassas,
+    primaryKassa: kassas.primary,
     telegram: outbox,
     log: app.log,
     intervalMs: options.onecQueue?.intervalMs,
@@ -122,6 +135,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const sheet = createJournalSheet({
     pool: database.pool,
     settings: options.sheet,
+    kassas,
     log: app.log,
     intervalMs: options.sheetQueue?.intervalMs,
     baseBackoffSeconds: options.sheetQueue?.baseBackoffSeconds,
@@ -162,21 +176,35 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     botToken: options.telegramBotToken,
   });
 
+  // The cash desks of the business, for the screens: what each is called, what money it keeps, and whether the payments
+  // of its clients go to 1C. They are the installation's to say (its settings), so the screens ask and never assume.
+  app.get("/api/kassas", { onRequest: app.authenticate }, async () => ({
+    kassas: kassas.list.map((item) => ({
+      id: item.id,
+      label: item.label,
+      short: item.short,
+      currencies: item.currencies,
+      onec: onecKassas.includes(item.id),
+    })),
+  }));
+
   await registerOperations(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    kassas,
     events,
     outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });
 
-  await registerCategoryAdmin(app, { pool: database.pool });
+  await registerCategoryAdmin(app, { pool: database.pool, kassas });
   await registerOneCAdmin(app, { pool: database.pool });
-  await registerUserAdmin(app, { pool: database.pool });
+  await registerUserAdmin(app, { pool: database.pool, kassas });
   await registerClients(app, { pool: database.pool });
 
   await registerCorrections(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    kassas,
     events,
     outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });
@@ -184,17 +212,20 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerJournal(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    kassas,
   });
 
   await registerReconciliations(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    kassas,
     outbox,
   });
 
   await registerSummary(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
+    kassas,
   });
 
   app.get("/api/health", async (_request, reply) => {

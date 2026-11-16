@@ -3,7 +3,7 @@ import type { Queryable } from "./balances.js";
 import { cashDayStartSql } from "./cash-day.js";
 import { isClientPayment, readCategories, type Category } from "./categories.js";
 import { OPERATION_FROM, OPERATION_SELECT, inDollars, type LedgerEvents, type OperationRow } from "./ledger.js";
-import { KASSA_LABEL } from "./kassa.js";
+import { DEFAULT_KASSAS, type Kassas } from "./kassa.js";
 import { createSheetsClient, SheetsError, type SheetSettings, type SheetsClient } from "./sheets-api.js";
 
 type Logger = { warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
@@ -20,6 +20,8 @@ export type JournalSheetOptions = {
   baseBackoffSeconds?: number;
   /** The clock of the waits between tries. */
   now?: () => Date;
+  /** The cash desks of the installation, for the column «Касса». */
+  kassas?: Kassas;
 };
 
 /** The columns of the sheet, in order. The last one, the id of the entry, is how a row is found again. */
@@ -63,7 +65,7 @@ function moscowDateTime(instant: Date): string {
 }
 
 /** One row of the sheet for an entry, as it stands now. Sums and rates are numbers, so the sheet can add them up. */
-export function sheetRow(row: OperationRow, categories: readonly Category[]): Array<string | number> {
+export function sheetRow(row: OperationRow, categories: readonly Category[], kassas: Kassas = DEFAULT_KASSAS): Array<string | number> {
   const amount = Number(row.amount_minor) / 100;
   const label = isClientPayment(row.kind, row.category)
     ? "Приход"
@@ -87,7 +89,7 @@ export function sheetRow(row: OperationRow, categories: readonly Category[]): Ar
     comment,
     status,
     row.id,
-    KASSA_LABEL[row.kassa],
+    kassas.labelOf(row.kassa),
   ];
 }
 
@@ -173,7 +175,7 @@ export function createJournalSheet(options: JournalSheetOptions): JournalSheet {
     const found = await pool.query<OperationRow>(`SELECT ${OPERATION_SELECT} FROM ${OPERATION_FROM} WHERE o.id = $1`, [operationId]);
     const operation = found.rows[0];
     if (!operation) return;
-    const values = sheetRow(operation, await readCategories(pool));
+    const values = sheetRow(operation, await readCategories(pool), options.kassas);
     let rowNumber = (await pool.query<{ row_number: number }>("SELECT row_number FROM sheet_rows WHERE operation_id = $1", [operationId])).rows[0]?.row_number;
     if (rowNumber === undefined && attempts > 1) {
       // A try before may have added the row and failed before its number was kept: look for the id, not to add it twice.

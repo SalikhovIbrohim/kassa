@@ -2,15 +2,18 @@ import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { assertPassword, LOGIN_PATTERN, ROLES, type Role } from "./admin/users.js";
 import { inTransaction } from "./ledger.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { hashPassword } from "./passwords.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
 import { cleanText } from "./text.js";
 
 export type UserAdminOptions = {
   pool: pg.Pool;
+  /** The cash desks of the installation: the city of a person is one of them, or none (everywhere). */
+  kassas: Kassas;
 };
 
-type City = "andijan" | "moscow";
+type City = Kassa;
 
 type UserRow = { id: string; login: string; display_name: string; role: Role; city: City | null; active: boolean; created_at: Date; has_entries: boolean };
 
@@ -26,7 +29,7 @@ const toUser = (row: UserRow) => ({
   login: row.login,
   displayName: row.display_name,
   role: row.role,
-  // The city the person works in, for the reports and 1C; null is everywhere.
+  // The city the person works in, which is their cash desk; null is everywhere.
   city: row.city,
   active: row.active,
   createdAt: row.created_at.toISOString(),
@@ -42,7 +45,6 @@ const loginProperty = { type: "string", minLength: 1, maxLength: 64 } as const;
 const nameProperty = { type: "string", minLength: 1, maxLength: 60, pattern: NO_NUL } as const;
 const passwordProperty = { type: "string", minLength: 1, maxLength: 1024 } as const;
 const roleProperty = { type: "string", enum: [...ROLES] } as const;
-const cityProperty = { type: ["string", "null"], enum: ["andijan", "moscow", null] } as const;
 
 /** Says what is wrong with a login or a password, or nothing. */
 function badInput(input: { login?: string; password?: string }): string | null {
@@ -64,6 +66,7 @@ function badInput(input: { login?: string; password?: string }): string | null {
  */
 export async function registerUserAdmin(app: FastifyInstance, options: UserAdminOptions) {
   const { pool } = options;
+  const { cityProperty } = options.kassas;
   const admin = [app.authenticate, app.requireRole("admin")];
   const params = { type: "object", required: ["id"], properties: { id: UUID } } as const;
 

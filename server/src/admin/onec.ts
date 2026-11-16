@@ -4,19 +4,30 @@ import { readReferences } from "../onec-pko.js";
 import { retryPayment, skipPayment } from "../onec-admin.js";
 import { AdminError } from "./users.js";
 
-/** The things a document refers to that must be there, with what each is told about in the base. */
-const THINGS: Array<{ name: string; entity: string; key: (settings: OneCSettings) => string; expect?: string }> = [
-  { name: "организация", entity: "Catalog_Организации", key: (settings) => settings.organizationKey },
-  { name: "касса", entity: "Catalog_КассыОрганизаций", key: (settings) => settings.kassaKey, expect: "касса, в которую идут приходы (например «Москва»)" },
-  { name: "валюта", entity: "Catalog_Валюты", key: (settings) => settings.currencyKey, expect: "«Доллар» (в этой базе его код 860)" },
-];
+/**
+ * The things a document refers to that must be there, with what each is told about in the base. A cash desk of the
+ * installation that has a cash desk of its own in the base (`kassaKeys`) is looked at too.
+ */
+function thingsOf(settings: OneCSettings): Array<{ name: string; entity: string; key: string; expect?: string }> {
+  return [
+    { name: "организация", entity: "Catalog_Организации", key: settings.organizationKey },
+    { name: "касса", entity: "Catalog_КассыОрганизаций", key: settings.kassaKey, expect: "касса, в которую идут приходы (например «Москва»)" },
+    ...Object.entries(settings.kassaKeys ?? {}).map(([id, key]) => ({
+      name: `касса для ${id}`,
+      entity: "Catalog_КассыОрганизаций",
+      key,
+      expect: `касса, в которую идут приходы кассы ${id}`,
+    })),
+    { name: "валюта", entity: "Catalog_Валюты", key: settings.currencyKey, expect: "«Доллар» (в этой базе его код 860)" },
+  ];
+}
 
 /**
  * A look at 1C that changes nothing: whether it answers, whether the login is taken, whether the accounts, the item of
  * the payments and the keys of the organization, cash desk and currency are there. Says what it found, line by line,
  * and whether all is well. Never says the address, the login or the password.
  */
-export async function checkOneC(settings: OneCSettings, say: (line: string) => void): Promise<boolean> {
+export async function checkOneC(settings: OneCSettings, say: (line: string) => void, kassas?: readonly string[]): Promise<boolean> {
   const client = createOneCClient(settings);
   let good = true;
   const fail = (line: string) => {
@@ -45,15 +56,16 @@ export async function checkOneC(settings: OneCSettings, say: (line: string) => v
   }
 
   say("Ключи из настроек:");
-  for (const thing of THINGS) {
+  for (const thing of thingsOf(settings)) {
     try {
-      const row = await client.get(`/${thing.entity}(guid'${thing.key(settings)}')`, { $select: "Ref_Key,Description" });
+      const row = await client.get(`/${thing.entity}(guid'${thing.key}')`, { $select: "Ref_Key,Description" });
       say(`  ${thing.name}: «${String(row.Description ?? "")}»${thing.expect ? `, это должна быть ${thing.expect}` : ""}`);
     } catch (error) {
       fail(`${thing.name}: ${reason(error)}`);
     }
   }
 
+  if (kassas) say(`Кассы, приходы клиентов которых записываются: ${kassas.join(", ")} (ONEC_KASSAS; без неё только основная касса).`);
   say(
     settings.onlyClients
       ? `Клиенты, которых записываем: ${settings.onlyClients.join(", ")} (ONEC_CLIENTS), остальные пропускаются.`

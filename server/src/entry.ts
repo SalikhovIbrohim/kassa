@@ -1,4 +1,4 @@
-import { kassaProperty, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { DEFAULT_INCOME_CATEGORY, type Category } from "./categories.js";
 import type { Snapshot } from "./ledger.js";
 import { CURRENCIES, MAX_AMOUNT_MINOR, MAX_RATE_E4, MIN_RATE_E4 } from "./money.js";
@@ -44,7 +44,7 @@ export type ExpenseEntry = {
   comment?: string;
 };
 
-/** The cash desk it goes to (see `kassaProperty`). */
+/** The cash desk it goes to (one of the installation's, see `Kassas`). */
 export type Entry = (IncomeEntry | ExpenseEntry) & { kassa?: Kassa };
 
 const clientCodeProperty = { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL } as const;
@@ -53,20 +53,21 @@ const counterpartyProperty = { type: "string", minLength: 1, maxLength: 100, pat
 /** A code of a category; whether there is such a category is checked against the table (see `normalizeEntry`). */
 const categoryProperty = { type: "string", minLength: 1, maxLength: 40, pattern: "^[a-z0-9_]+$" } as const;
 
-const commonProperties = {
+const moneyProperties = {
   amountMinor: { type: "integer", minimum: 1, maximum: MAX_AMOUNT_MINOR },
   currency: { type: "string", enum: [...CURRENCIES] },
   rateE4: { type: "integer", minimum: MIN_RATE_E4, maximum: MAX_RATE_E4 },
   comment: { type: "string", maxLength: 500, pattern: NO_NUL },
-  /** The cash desk it goes to; without it, the one of the person (see `defaultKassa`). A correction never moves an entry. */
-  kassa: kassaProperty,
 } as const;
 
 /**
  * The JSON schema of an income or an expense. `extra` holds what only some callers take
  * besides the entry itself: the client's id for a new entry, the reason for a correction.
+ * `kassas` are the desks of the installation: an entry names one of them, or none (then it is the person's own, see
+ * `Kassas.defaultOf`). A correction never moves an entry.
  */
-export function entrySchema(extra: { properties: Record<string, unknown>; required: string[] }) {
+export function entrySchema(extra: { properties: Record<string, unknown>; required: string[] }, kassas: Kassas) {
+  const commonProperties = { ...moneyProperties, kassa: kassas.property };
   return {
     oneOf: [
       {

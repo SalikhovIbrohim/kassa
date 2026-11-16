@@ -5,7 +5,7 @@ import { IncomeForm } from "./IncomeForm";
 import type { Currency } from "./money";
 import { rememberedCurrency } from "./remembered-currency";
 import { useCategories } from "./useCategories";
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { useKassa } from "./kassa";
 
 type Props = {
   /** The form shown: both stay alive, the other only hidden. */
@@ -46,7 +46,8 @@ export function EntryScreen({ section, changed, onSaved, onBalancesStale, onSess
   }, []);
 
   // A cash desk keeps only its own currencies (Andijan: dollars): a currency it does not keep is not offered.
-  const kept = KASSA_CURRENCIES[useKassa().kassa];
+  const { kassa, currenciesOf } = useKassa();
+  const kept = currenciesOf(kassa);
   const shared = {
     entryId,
     currency: kept.includes(currency) ? currency : kept[0]!,

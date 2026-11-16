@@ -2,6 +2,7 @@ import type pg from "pg";
 import type { Queryable } from "./balances.js";
 import { cashDayEnd, cashDayOf } from "./cash-day.js";
 import { isClientPayment } from "./categories.js";
+import type { Kassa } from "./kassa.js";
 import { mergeEvents, type LedgerEvents } from "./ledger.js";
 import { createOneCClient, OneCError, type Json, type OneCClient, type OneCSettings } from "./onec-api.js";
 import {
@@ -27,6 +28,10 @@ export type OneCOptions = {
   settings: OneCSettings | undefined;
   /** The Telegram group: told when a payment waits for a person or could not be written. */
   telegram: Outbox;
+  /** The cash desks whose payments of clients are written to 1C (the main desk of the installation, unless the settings name others). */
+  kassas: readonly Kassa[];
+  /** The main cash desk of the installation. */
+  primaryKassa: Kassa;
   log: Logger;
   /** The clock of the waits between tries: the real one unless a test moves it. */
   now?: () => Date;
@@ -52,6 +57,8 @@ const CATALOG_SECONDS = 60;
 export type OneC = {
   readonly enabled: boolean;
   readonly mode: "preview" | "live" | undefined;
+  /** Whether the payments of clients of this cash desk are written to 1C. */
+  writes(kassa: Kassa): boolean;
   /** Writes a payment of a client to the queue, on the connection (the transaction) of the operation. */
   queue(db: Queryable, operationId: string): Promise<void>;
   /** When what was entered or changed now goes to 1C: at once, or at the end of the day of the cash desk (03:00 Moscow time). */
@@ -102,6 +109,12 @@ export function createOneC(options: OneCOptions): OneC {
   const baseBackoff = options.baseBackoffSeconds ?? 30;
   const blockedRetry = options.blockedRetrySeconds ?? 15 * 60;
   const client: OneCClient | undefined = settings && createOneCClient(settings, options.fetchImpl);
+  const writing = new Set(options.kassas);
+  /** The cash desk in the base that the payments of a cash desk go to. */
+  const kassaKeyOf = (kassa: Kassa) => {
+    const own = settings!.kassaKeys;
+    return own && Object.hasOwn(own, kassa) ? own[kassa]! : settings!.kassaKey;
+  };
 
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
@@ -159,13 +172,21 @@ export function createOneC(options: OneCOptions): OneC {
       client_code: string | null;
       created_at: Date;
       deleted_at: Date | null;
-    }>("SELECT kind, currency, amount_minor, rate_e4, category, client_code, created_at, deleted_at FROM operations WHERE id = $1", [row.operation_id]);
+      kassa: Kassa;
+    }>("SELECT kind, currency, amount_minor, rate_e4, category, client_code, created_at, deleted_at, kassa FROM operations WHERE id = $1", [row.operation_id]);
     const operation = found.rows[0];
     if (!operation) return { status: "failed", reason: "операции нет в базе Кассы" };
     if (operation.deleted_at || !isClientPayment(operation.kind, operation.category)) {
       const why = operation.deleted_at ? "приход удалён в Кассе" : "это уже не оплата от клиента";
       if (row.doc_ref === null) return { status: "skipped", reason: operation.deleted_at ? "приход удалён в Кассе до записи в 1С" : why };
       return remove(row, why);
+    }
+
+    // The desk of the payment was taken out of the desks that go to 1C since it was queued: nothing of it is written,
+    // and a document it has already is not moved to the cash desk of another desk. A person looks at that one.
+    if (!writing.has(operation.kassa)) {
+      const why = `приходы кассы ${operation.kassa} в 1С не записываются (ONEC_KASSAS)`;
+      return row.doc_ref === null ? { status: "skipped", reason: why } : { status: "failed", reason: `${why}, а документ №${row.doc_number} уже есть: проверьте его в 1С` };
     }
 
     const code = clientCodeOf(operation.client_code);
@@ -186,7 +207,8 @@ export function createOneC(options: OneCOptions): OneC {
       if (!contract) return { status: "blocked", reason: `у контрагента «${picked.counterpart.name}» нет договора` };
 
       const receipt = { date: documentDate(operation.created_at), dollarsMinor: dollars, comment: code.code };
-      const body = receiptBody(settings!, refs.refs, receipt, { counterpart: picked.counterpart, contractKey: contract.key });
+      const kassaKey = kassaKeyOf(operation.kassa);
+      const body = receiptBody({ ...settings!, kassaKey }, refs.refs, receipt, { counterpart: picked.counterpart, contractKey: contract.key });
       const what = `${money(dollars, "USD")} от «${picked.counterpart.name}» по договору «${contract.name}», дата ${receipt.date}`;
       if (settings!.mode === "preview") return { status: "preview", detail: `репетиция: был бы записан ПКО на ${what}` };
 
@@ -203,7 +225,7 @@ export function createOneC(options: OneCOptions): OneC {
         const twin = (same.value ?? []).find(
           (item) =>
             item.DeletionMark !== true &&
-            item["КассаОрганизации_Key"] === settings!.kassaKey &&
+            item["КассаОрганизации_Key"] === kassaKey &&
             Math.round(Number(item["СуммаДокумента"]) * 100) === dollars &&
             String(item["Комментарий"] ?? "").trim().toLowerCase() === receipt.comment.toLowerCase(),
         );
@@ -282,7 +304,9 @@ export function createOneC(options: OneCOptions): OneC {
     if (outcome.status === "blocked" || outcome.status === "failed" || outcome.status === "retry") forget();
     const alert = async (text: string) => {
       if (row.alerted) return;
-      await telegram.queue(pool, text, row.operation_id, "income");
+      // Told where the incomes of the cash desk of the payment are told.
+      const desk = await pool.query<{ kassa: Kassa }>("SELECT kassa FROM operations WHERE id = $1", [row.operation_id]);
+      await telegram.queue(pool, text, row.operation_id, { kind: "income", kassa: desk.rows[0]?.kassa ?? options.primaryKassa });
       await pool.query("UPDATE onec_outbox SET alerted = true WHERE id = $1", [row.id]);
       telegram.nudge();
     };
@@ -364,6 +388,7 @@ export function createOneC(options: OneCOptions): OneC {
   return {
     enabled: settings !== undefined,
     mode: settings?.mode,
+    writes: (kassa) => settings !== undefined && writing.has(kassa),
     async queue(db, operationId) {
       if (!settings) return;
       await db.query("INSERT INTO onec_outbox (operation_id, created_at, next_attempt_at) VALUES ($1, $2, $3) ON CONFLICT (operation_id) DO NOTHING", [operationId, now(), due()]);
@@ -398,8 +423,8 @@ export function onecEvents(onec: OneC): LedgerEvents | undefined {
   if (!onec.enabled) return undefined;
   return {
     async created(db, row) {
-      // Only the Moscow cash desk keeps its book in 1C.
-      if (row.kassa === "moscow" && isClientPayment(row.kind, row.category)) await onec.queue(db, row.id);
+      // Only the cash desks that keep their book in 1C: the main one (Moscow), unless the settings name others.
+      if (onec.writes(row.kassa) && isClientPayment(row.kind, row.category)) await onec.queue(db, row.id);
     },
     async changed(db, event) {
       const again = await db.query(
@@ -410,7 +435,7 @@ export function onecEvents(onec: OneC): LedgerEvents | undefined {
       if (again.rowCount) return;
       // Not in the queue yet: an income that became a payment of a client by the correction.
       const known = await db.query("SELECT 1 FROM onec_outbox WHERE operation_id = $1", [event.row.id]);
-      if (known.rowCount === 0 && event.action === "edit" && event.row.kassa === "moscow" && isClientPayment(event.row.kind, event.row.category)) {
+      if (known.rowCount === 0 && event.action === "edit" && onec.writes(event.row.kassa) && isClientPayment(event.row.kind, event.row.category)) {
         await onec.queue(db, event.row.id);
       }
     },

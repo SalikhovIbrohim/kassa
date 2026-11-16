@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type City, type Role, CITY_LABEL } from "./api";
+import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type City, type Role } from "./api";
 import { CitySelect } from "./CitySelect";
+import { useKassa } from "./kassa";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> =
  * the pencil of a row opens everything about that person (name, login, role, password, block, delete).
  */
 export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
+  const { labelOf } = useKassa();
   // null: loading, undefined: did not load.
   const [users, setUsers] = useState<Account[] | null | undefined>(null);
   const [busy, setBusy] = useState(false);
@@ -163,7 +165,7 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
                         </Badge>
                         {user.city && (
                           <Badge variant="secondary" className="text-xs font-medium">
-                            {CITY_LABEL[user.city]}
+                            {labelOf(user.city)}
                           </Badge>
                         )}
                         {!user.active && (

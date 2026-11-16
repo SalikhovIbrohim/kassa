@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { useKassa } from "./kassa";
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { activeCategories, DEFAULT_INCOME_CATEGORY, type Balance, type Category, type Operation } from "./api";
 import { CategoryField } from "./CategoryField";
@@ -76,7 +76,7 @@ export function IncomeForm({
   const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const { kassa } = useKassa();
+  const { kassa, currenciesOf } = useKassa();
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
 
   // Without the lists (never loaded, nothing kept on the phone) an income can still be entered: it is a payment of a client.
@@ -199,7 +199,7 @@ export function IncomeForm({
       />
 
       {/* Andijan keeps dollars only: nothing to choose. */}
-      {KASSA_CURRENCIES[kassa].length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
+      {currenciesOf(kassa).length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
 
       <Label className="relative">
         <span className="sr-only">Сумма</span>

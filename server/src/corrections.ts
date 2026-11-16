@@ -3,6 +3,7 @@ import type pg from "pg";
 import { readCategories } from "./categories.js";
 import { clientOfEntry } from "./clients.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
+import type { Kassas } from "./kassa.js";
 import { changeOperation, readHistory, toOperation, type Change, type ChangeResult, type LedgerEvents } from "./ledger.js";
 import type { Outbox } from "./outbox.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
@@ -11,6 +12,8 @@ import { cleanText } from "./text.js";
 export type CorrectionsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The cash desks of the installation. */
+  kassas: Kassas;
   events?: LedgerEvents;
   outbox: Pick<Outbox, "nudge">;
 };
@@ -25,10 +28,10 @@ const reasonProperty = { type: "string", maxLength: 500, pattern: NO_NUL } as co
 
 /** How a cashier corrects or deletes their own operations. */
 export async function registerCorrections(app: FastifyInstance, options: CorrectionsOptions) {
-  const { pool, now, events, outbox } = options;
+  const { pool, now, kassas, events, outbox } = options;
 
   async function apply(reply: FastifyReply, user: { id: string; role: string }, id: string, change: Change) {
-    const result = await changeOperation(pool, { id, actorId: user.id, actorIsAdmin: user.role === "admin", now, change, events });
+    const result = await changeOperation(pool, { id, actorId: user.id, actorIsAdmin: user.role === "admin", now, change, kassas, events });
     if (result.status === "changed") outbox.nudge();
     return answer(reply, result);
   }
@@ -44,7 +47,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
         params: idParams,
         // The reason belongs in the body: one in the query string would be dropped unheard.
         querystring: NO_QUERY,
-        body: entrySchema({ properties: { reason: reasonProperty }, required: [] }),
+        body: entrySchema({ properties: { reason: reasonProperty }, required: [] }, kassas),
       },
     },
     async (request, reply) => {

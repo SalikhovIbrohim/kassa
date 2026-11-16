@@ -1,4 +1,4 @@
-import { KASSA_SHORT, scopeCurrencies, scopeKassa, useKassa } from "./kassa";
+import { scopeKassa, useKassa } from "./kassa";
 import { Icon } from "./sections";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -114,7 +114,7 @@ function toFilters(draft: Draft): JournalFilters {
 export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = cashDayToday();
-  const { scope } = useKassa();
+  const { scope, scopeCurrencies } = useKassa();
   const kassa = scopeKassa(scope);
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
   // Laptops start with the filters open, phones with them folded; the person's choice sticks.
@@ -666,7 +666,7 @@ function OperationRow({
   oneC,
 }: {
   operation: Operation;
-  /** Both desks are shown: each entry says which one it is of (МСК, АНД). */
+  /** Several desks are shown: each entry says which one it is of (МСК, АНД). */
   markKassa: boolean;
   mode: Props["mode"];
   /** The day is shown with the time (a period of several days). */
@@ -684,6 +684,7 @@ function OperationRow({
   oneC: ReactNode;
 }) {
   const row = useRef<HTMLTableRowElement>(null);
+  const { labelOf, shortOf } = useKassa();
   useEffect(() => {
     if (!focusRequest) return;
     row.current?.focus();
@@ -710,8 +711,8 @@ function OperationRow({
     >
       <td className="c-time">
         {markKassa && (
-          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={operation.kassa === "andijan" ? "Андижан" : "Москва"}>
-            {KASSA_SHORT[operation.kassa ?? "moscow"]}
+          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={labelOf(operation.kassa)}>
+            {shortOf(operation.kassa)}
           </span>
         )}
         <time dateTime={operation.createdAt}>
@@ -855,9 +856,12 @@ const ONEC_LOOK: Record<OneCState["status"], { label: string; tone: string }> = 
   removed: { label: "Удалён в 1С", tone: "bg-muted text-muted-foreground" },
 };
 
-/** A payment of a client of the Moscow desk: what goes to 1C (the server keeps the same rule, see onec.ts). */
-const isForOneC = (operation: Operation) =>
-  operation.type === "income" && (operation.category === null || operation.category === "client_payment") && (operation.kassa ?? "moscow") === "moscow";
+/**
+ * A payment of a client of a desk that keeps its book in 1C (the main desk, unless the settings of the server name
+ * others): what goes to 1C. The server keeps the same rule, see onec.ts.
+ */
+const isForOneC = (operation: Operation, deskWrites: boolean) =>
+  operation.type === "income" && (operation.category === null || operation.category === "client_payment") && deskWrites;
 
 /**
  * The admin's column «1С»: what became of the entry in 1C, why when it is not written, and the two things he can do
@@ -867,9 +871,10 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const state = operation.onec ?? null;
+  const { writesToOneC } = useKassa();
 
   if (state === null) {
-    if (!isForOneC(operation) || operation.deletedAt !== null) return null;
+    if (!isForOneC(operation, writesToOneC(operation.kassa)) || operation.deletedAt !== null) return null;
     return (
       <span className="onec-state text-muted-foreground" data-onec="none" title="Внесён, когда запись в 1С была выключена: в 1С его нет">
         Не отправлялся
