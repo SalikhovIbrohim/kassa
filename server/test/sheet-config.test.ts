@@ -16,6 +16,11 @@ describe("the settings of the Google spreadsheet", () => {
     expect(config.sheetProblem).toContain("NT SERVICE\\KassaApp:R");
   });
 
+  it("name the service of a second installation on the machine in the hint about the key", () => {
+    const config = loadConfig({ ...base, INSTANCE: "express", GOOGLE_SHEET_ID: "1gfan8zPUFEX07ZUMVcGBWYREeTIg633VYtbTZy9kEJQ", GOOGLE_SHEETS_KEY_FILE: "/no/such/key.json" });
+    expect(config.sheetProblem).toContain("NT SERVICE\\KassaApp-express:R");
+  });
+
   it("turn the copy off when only half of it is set", () => {
     expect(loadConfig({ ...base, GOOGLE_SHEET_ID: "1gfan8zPUFEX07ZUMVcGBWYREeTIg633VYtbTZy9kEJQ" }).sheetProblem).toContain("GOOGLE_SHEETS_KEY_FILE is required");
   });

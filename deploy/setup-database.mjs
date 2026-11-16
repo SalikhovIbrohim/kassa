@@ -3,6 +3,10 @@
 // and the settings file that holds their password. Safe to run again: what exists is kept.
 //
 //   node deploy/setup-database.mjs --settings C:\kassa\config\kassa.env
+//   node deploy/setup-database.mjs --settings C:\kassa-express\config\kassa.env --instance express --port 3001
+//
+// The second line is for another installation on the same machine (the cash desk of another company): a role, a
+// database, a port and a name of its own, so that it shares nothing with the first.
 //
 // It connects as the PostgreSQL administrator. Connection details come from the usual variables:
 // PGPASSWORD (required), PGUSER (default "postgres"), PGHOST (default 127.0.0.1), PGPORT (default 5432).
@@ -12,15 +16,22 @@ import { existsSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
+import { parseArgs, parseEnv } from "node:util";
 import pg from "pg";
 
-const USAGE = `Usage: node deploy/setup-database.mjs --settings <path> [--role kassa] [--database kassa]
+const USAGE = `Usage: node deploy/setup-database.mjs --settings <path> [--instance <name> --port <port>] [--role <role>] [--database <database>]
 
 Creates the role and the database if they are missing, and writes the settings file if it is missing.
+The role and the database are both "kassa" unless named.
+--instance is for another installation on the same machine (the cash desk of another company). Its role and its
+database are then kassa_<name> unless named, and its settings file gets the lines INSTANCE=<name>, by which the
+scripts of deploy/windows name its service and its tasks, and PORT=<port>: every installation listens on a port
+of its own.
 Set PGPASSWORD to the password of the PostgreSQL administrator (the "postgres" user).`;
 
 const NAME = /^[a-z_][a-z0-9_]{0,62}$/;
+// What goes into the name of a role here and into the names of a service and of a task in deploy/windows/common.ps1.
+const INSTANCE = /^[a-z][a-z0-9]{0,15}$/;
 const templatePath = fileURLToPath(new URL("./kassa.env.example", import.meta.url));
 
 function fail(message) {
@@ -32,8 +43,10 @@ const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
     settings: { type: "string" },
-    role: { type: "string", default: "kassa" },
-    database: { type: "string", default: "kassa" },
+    instance: { type: "string" },
+    port: { type: "string" },
+    role: { type: "string" },
+    database: { type: "string" },
     help: { type: "boolean", short: "h" },
   },
 });
@@ -42,12 +55,28 @@ if (values.help) {
   process.exit(0);
 }
 if (!values.settings) fail(`--settings is required\n\n${USAGE}`);
+if (values.instance !== undefined && !INSTANCE.test(values.instance)) {
+  fail(`--instance must be one short lower-case word of letters and digits (express), got "${values.instance}"`);
+}
+if (values.port !== undefined && (!/^\d{1,5}$/.test(values.port) || Number(values.port) < 1 || Number(values.port) > 65535)) {
+  fail(`--port must be a port number, like 3001, got "${values.port}"`);
+}
+if (values.instance && values.port === undefined) {
+  fail("--instance needs --port: every installation on the machine listens on a port of its own (the first one on 3000, so 3001, say)");
+}
+const ownNames = values.instance ? `kassa_${values.instance}` : "kassa";
+values.role ??= ownNames;
+values.database ??= ownNames;
 for (const [flag, name] of [["--role", values.role], ["--database", values.database]]) {
   if (!NAME.test(name)) fail(`${flag} must be lower-case letters, digits and underscores, got "${name}"`);
 }
 if (!process.env.PGPASSWORD) fail("set PGPASSWORD to the password of the PostgreSQL administrator");
 
 const envFile = resolve(values.settings);
+const template = await readFile(templatePath, "utf8");
+// Found out now, before anything is created: the lines this script fills in must be in the template.
+if (values.port !== undefined && !/^PORT=.*$/m.test(template)) fail(`${templatePath} has no PORT= line to write the port into`);
+if (values.instance && !/^# INSTANCE=.*$/m.test(template)) fail(`${templatePath} has no "# INSTANCE=" line to write the name into`);
 const admin = new pg.Client({
   host: process.env.PGHOST ?? "127.0.0.1",
   user: process.env.PGUSER ?? "postgres",
@@ -70,7 +99,17 @@ try {
   // The password already in the settings file wins: running this again must not lock the server out.
   let password;
   if (existsSync(envFile)) {
-    password = passwordFrom(await readFile(envFile, "utf8"), values.role, values.database);
+    const text = await readFile(envFile, "utf8");
+    password = passwordFrom(text, values.role, values.database);
+    // A settings file of one installation is never taken for another's: the scripts name its service by this line.
+    const written = parseEnv(text);
+    const whose = (name) => (name ? `the installation "${name}"` : "the first installation (it has no INSTANCE line)");
+    if ((written.INSTANCE ?? "").trim() !== (values.instance ?? "")) {
+      fail(`${envFile} is the settings file of ${whose((written.INSTANCE ?? "").trim())}, not of ${whose(values.instance ?? "")}: give the folder and the --instance that belong together`);
+    }
+    if (values.port !== undefined && (written.PORT ?? "3000").trim() !== values.port) {
+      console.log(`Note: ${envFile} is kept as it is, with PORT=${(written.PORT ?? "3000").trim()}: --port ${values.port} was not written. Change the line there if it is to change.`);
+    }
   }
   const keep = password !== undefined;
   password ??= randomBytes(24).toString("base64url");
@@ -108,9 +147,10 @@ try {
   if (keep) {
     console.log(`Kept the settings file ${envFile}.`);
   } else {
-    const template = await readFile(templatePath, "utf8");
     const url = `postgres://${encodeURIComponent(values.role)}:${encodeURIComponent(password)}@127.0.0.1:${process.env.PGPORT ?? 5432}/${encodeURIComponent(values.database)}`;
-    const text = template.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`);
+    let text = template.replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=${url}`);
+    if (values.port !== undefined) text = text.replace(/^PORT=.*$/m, `PORT=${values.port}`);
+    if (values.instance) text = text.replace(/^# INSTANCE=.*$/m, `INSTANCE=${values.instance}`);
     await mkdir(dirname(envFile), { recursive: true });
     // Without a byte order mark, with the plain line ends the reader expects.
     await writeFile(envFile, text, { encoding: "utf8", mode: 0o600 });

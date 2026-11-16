@@ -1,5 +1,5 @@
-# Caddy for Kassa: HTTPS in front of the application. install-services.ps1 fills in the
-# address and the log folder and writes the result to C:\kassa\config\Caddyfile (keeping the
+# Caddy for Kassa: HTTPS in front of the application. install-services.ps1 fills in the site
+# (CaddySite.template) and writes the result to C:\kassa\config\Caddyfile (keeping the
 # file that was there as Caddyfile.<date>.bak). To change something later, edit that file and
 # restart the service "KassaProxy".
 {
@@ -8,41 +8,9 @@
 	admin off
 }
 
-__SITE__ {
-	encode zstd gzip
+# The sites of the other installations on this machine (the cash desks of other companies), one file each in the
+# folder "sites" beside this file: install-services.ps1 -NoProxy -ProxyRoot of such an installation writes its file
+# there. With no file there, Caddy says so in its log and serves the site below alone.
+import sites/*.caddy
 
-	header {
-		X-Content-Type-Options nosniff
-		Referrer-Policy no-referrer
-		-Server
-		# Not here on purpose: Strict-Transport-Security (a certificate that is not renewed in time would
-		# then lock everybody out without a way past the warning; add it once the real domain has
-		# renewed its certificate), and X-Frame-Options (the Telegram Mini App shows this site in a frame).
-	}
-
-	# Caddy puts the real address of the client into X-Forwarded-For (and throws away one sent
-	# by the client). The server believes it because TRUST_PROXY=127.0.0.1 is in its settings.
-	reverse_proxy 127.0.0.1:__PORT__
-
-	# While the application is stopped (an update takes a minute or two) Caddy has nothing to
-	# forward to. People get a sentence instead of a blank page, and the app on a phone
-	# (which keeps entries until the server answers) sees an answer that is not the app.
-	handle_errors {
-		# The same headers as above: this answer is made by the error handler, and does not get the ones of the site.
-		header {
-			Content-Type "text/plain; charset=utf-8"
-			Retry-After 60
-			X-Content-Type-Options nosniff
-			Referrer-Policy no-referrer
-			-Server
-		}
-		respond "Касса обновляется или временно недоступна. Подождите минуту и обновите страницу." 503
-	}
-
-	log {
-		output file __LOGS__/caddy-access.log {
-			roll_size 10MiB
-			roll_keep 10
-		}
-	}
-}
+__OWN_SITE__

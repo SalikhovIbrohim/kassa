@@ -171,7 +171,7 @@ export function createOneC(options: OneCOptions): OneC {
     const code = clientCodeOf(operation.client_code);
     if (!code) return { status: "blocked", reason: `в коде клиента «${operation.client_code ?? ""}» нет кода вида А245` };
     if (settings!.onlyClients && !settings!.onlyClients.includes(code.code)) {
-      return { status: "skipped", reason: `клиента ${code.code} нет в списке COSMO_1C_CLIENTS` };
+      return { status: "skipped", reason: `клиента ${code.code} нет в списке ONEC_CLIENTS` };
     }
     const dollars = dollarsOf({ currency: operation.currency, amountMinor: Number(operation.amount_minor), rateE4: operation.rate_e4 === null ? null : Number(operation.rate_e4) });
     if (dollars === null) return { status: "blocked", reason: "у прихода в рублях нет курса, не из чего посчитать доллары" };

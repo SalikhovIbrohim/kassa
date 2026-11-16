@@ -4,7 +4,8 @@
   Sets up the nightly update of Kassa as a task of the Windows Task Scheduler (or removes it).
 
 .DESCRIPTION
-  Makes the task "Kassa update": every day at the time given (default 03:30, after the nightly copy of the database
+  Makes the task "Kassa update" ("Kassa update (express)" for the installation of that name, see setup.ps1
+  -Instance): every day at the time given (default 03:30, after the nightly copy of the database
   at 03:00) it runs auto-update.ps1 as the system account, which runs update.ps1 for the branch given. When the
   branch has nothing new, nothing is stopped or changed. A night with something new stops the application for a
   minute or two, copies the database first, and goes back to the version before if the new one does not start.
@@ -32,10 +33,12 @@ param(
 
 . "$PSScriptRoot\common.ps1"
 
-$TaskName = 'Kassa update'
-
 Invoke-Main {
     Assert-Administrator
+    # Every installation on the machine has a task of its own, with the name of the installation in it.
+    $layout = Get-KassaLayout -Root $Root
+    Assert-OwnService -Layout $layout -Name $layout.AppService
+    $TaskName = $layout.UpdateTask
 
     if ($Remove) {
         if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {

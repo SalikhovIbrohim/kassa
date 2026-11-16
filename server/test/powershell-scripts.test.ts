@@ -103,6 +103,44 @@ describe.skipIf(!havePowerShell)("the PowerShell scripts of deploy/windows, on a
       expect(a).not.toBe(b);
     }, 60_000);
 
+    describe("of another installation on the machine, named in its settings file", () => {
+      const named = () => world.write("config/kassa.env", "DATABASE_URL=postgres://kassa_express:secret@127.0.0.1:5432/kassa_express\nPORT=3001\nINSTANCE=express\n");
+
+      it("stops, holds and starts the service of that installation, by its own name", async () => {
+        named();
+        const b = world.commit("Version B", { "fake/changed": "b\n" });
+
+        const run = await world.run(typed("update.ps1"), { FAKE_SERVICE: "KassaApp-express" });
+
+        expect(run.code, run.stdout + run.stderr).toBe(0);
+        expect(run.stdout).toContain("Updated:");
+        expect(world.head()).toBe(b);
+        expect(world.calls().filter((line) => /^(Stop|Start)-Service /.test(line))).toEqual(["Stop-Service KassaApp-express", `Start-Service KassaApp-express at ${short(b)}`]);
+        expect(world.calls().filter((line) => line.startsWith("sc.exe config"))).toEqual([
+          "sc.exe config KassaApp-express start= demand",
+          "sc.exe config KassaApp-express start= delayed-auto",
+        ]);
+        expect(world.startMode()).toBe("delayed-auto");
+        // The copy made before the update is the copy of its own database.
+        expect(run.stdout).toMatch(/kassa_express-\d{8}-\d{6}-before-update\.dump/);
+      }, 60_000);
+
+      it("leaves the service of the first installation alone when its own is not there", async () => {
+        named();
+        const a = before();
+        world.commit("Version B", { "fake/changed": "b\n" });
+
+        // The machine of this world has the service KassaApp only: the first installation's.
+        const run = await world.run(typed("update.ps1"));
+
+        expect(run.code).toBe(1);
+        expect(run.stdout).toContain("The service KassaApp-express is not installed");
+        expect(world.calls().filter((line) => /^(Stop|Start)-Service /.test(line))).toEqual([]);
+        expect(world.head()).toBe(a);
+        expect(world.service()).toBe("Running");
+      }, 60_000);
+    });
+
     it("goes back to the version that ran before when the new one does not answer, and says that the update failed", async () => {
       const a = before();
       const b = world.commit("Version B crashes at start", { "fake/crash": "1\n" });
@@ -477,6 +515,65 @@ describe.skipIf(!havePowerShell)("the PowerShell scripts of deploy/windows, on a
       }
     }, 90_000);
 
+    it("names the service and the tasks of an installation after the INSTANCE line of its settings file", async () => {
+      const names = `$l = Get-KassaLayout -Root '${world.root}'; @($l.Instance, $l.AppService, $l.ProxyService, $l.BackupTask, $l.UpdateTask) -join '|'`;
+      for (const [lines, expected] of [
+        ["PORT=3000\n", "|KassaApp|KassaProxy|Kassa backup|Kassa update"],
+        ["PORT=3000\n# INSTANCE=\n", "|KassaApp|KassaProxy|Kassa backup|Kassa update"],
+        ["PORT=3001\nINSTANCE=express\n", "express|KassaApp-express|KassaProxy-express|Kassa backup (express)|Kassa update (express)"],
+        // The last line counts, as for the application; in quotes, with a comment, with the line ends of Windows.
+        ['INSTANCE=first\r\nINSTANCE="express2" # the cash desk of Express\r\n', "express2|KassaApp-express2|KassaProxy-express2|Kassa backup (express2)|Kassa update (express2)"],
+      ] as const) {
+        world.write("config/kassa.env", lines);
+        expect(await evaluate(names)).toBe(expected);
+      }
+    }, 90_000);
+
+    it("refuses a name that is not one short lower-case word, and never takes it for the installation without a name", async () => {
+      for (const line of ["INSTANCE=Express\n", "INSTANCE=express co\n", "INSTANCE=a-b\n", "INSTANCE=1c\n"]) {
+        world.write("config/kassa.env", line);
+        const answer = await evaluate(`try { (Get-KassaLayout -Root '${world.root}').AppService } catch { 'REFUSED: ' + $_.Exception.Message }`);
+        expect(answer, line).toContain("REFUSED: The name of an installation must be");
+      }
+    }, 90_000);
+
+    it("refuses to work on another installation than the one this copy of the code belongs to", async () => {
+      const ask = (root: string, more = "") => evaluate(`try { (Get-KassaLayout -Root '${root}'${more}).Root } catch { 'REFUSED: ' + $_.Exception.Message }`);
+      // The copy of the code of this world is in <dir>/app. With settings in <dir>, <dir> is its installation, and the
+      // root it is usually given is another one.
+      world.write("../config/kassa.env", "PORT=3001\nINSTANCE=express\n");
+
+      expect(await ask(world.root)).toContain("REFUSED: These scripts belong to the installation in");
+      expect(await ask(world.dir)).toBe(world.dir);
+      // A look at the other one, asked for as such, is still there: the proxy of one installation serves the other.
+      expect(await ask(world.root, " -Other")).toBe(world.root);
+    }, 90_000);
+
+    it("refuses a root that has a copy of the code of its own, which is not this one", async () => {
+      world.write("app/deploy/windows/common.ps1", "# the copy of the code of the installation in this root\n");
+
+      const answer = await evaluate(`try { (Get-KassaLayout -Root '${world.root}').Root } catch { 'REFUSED: ' + $_.Exception.Message }`);
+
+      expect(answer).toContain("REFUSED: The installation in");
+      expect(answer).toContain("has a copy of the code of its own");
+    }, 60_000);
+
+    it("refuses to act on a service of its name whose program is in the folder of another installation", async () => {
+      // A stand-in for what Windows says of a service: the program it runs (a copy of WinSW in the folder of its installation).
+      const ask = (program: string) =>
+        evaluate(
+          `function Get-CimInstance { [pscustomobject]@{ PathName = '${program}' } }; ` +
+            `try { Assert-OwnService -Layout (Get-KassaLayout -Root '${world.root}') -Name 'KassaApp'; 'OWN' } catch { 'REFUSED: ' + $_.Exception.Message }`,
+        );
+
+      expect(await ask(`"${world.root}/services/KassaApp/KassaApp.exe"`)).toBe("OWN");
+      expect(await ask(`${world.root}/services/KassaApp/KassaApp.exe`)).toBe("OWN");
+      // An installation set up without a name beside the first one would have its names: the service says whose they are.
+      expect(await ask(`"${world.dir}/first root/services/KassaApp/KassaApp.exe"`)).toContain("REFUSED: The service KassaApp on this machine belongs to another installation");
+      // No such service: there is nothing to say.
+      expect(await evaluate(`function Get-CimInstance { }; Assert-OwnService -Layout (Get-KassaLayout -Root '${world.root}') -Name 'KassaApp'; 'OWN'`)).toBe("OWN");
+    }, 90_000);
+
     it("keeps what a program prints out of the answer of the function that runs it", async () => {
       const answer = await evaluate(
         "function Ask { Invoke-Native -File 'echo' -Arguments @('noise'); return $true }; $x = Ask; Write-Output ('type=' + $x.GetType().Name + ' value=' + $x)",
@@ -525,6 +622,23 @@ describe.skipIf(!havePowerShell)("the PowerShell scripts of deploy/windows, on a
 
       expect(run.code).toBe(1);
       expect(run.stdout).toContain("The service KassaApp is running");
+      expect(world.calls().filter((line) => line.startsWith("npm "))).toEqual([]);
+    }, 60_000);
+
+    it("setup.ps1 asks for a port of its own for another installation, before it does anything", async () => {
+      const run = await world.run(`& '${world.script("setup.ps1")}' -Instance express -Root '${world.dir}/express root'`);
+
+      expect(run.code).toBe(1);
+      expect(run.stdout).toContain("needs a port of its own");
+      expect(world.calls().filter((line) => line.startsWith("npm "))).toEqual([]);
+      expect(world.exists(`${world.dir}/express root`)).toBe(false);
+    }, 60_000);
+
+    it("setup.ps1 does not take the settings file of the first installation for another's", async () => {
+      const run = await world.run(typed("setup.ps1", "-Instance express -Port 3001"));
+
+      expect(run.code).toBe(1);
+      expect(run.stdout).toContain("belongs to the first installation");
       expect(world.calls().filter((line) => line.startsWith("npm "))).toEqual([]);
     }, 60_000);
 

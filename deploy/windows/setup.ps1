@@ -12,25 +12,48 @@
 
   If PGPASSWORD is set in the window, that password is used and nothing is asked.
 
+  Another installation on the same machine (the cash desk of another company) is made from its own copy of this
+  repository, in the folder "app" of its own root, with a name and a port of its own:
+    C:\kassa-express\app\deploy\windows\setup.ps1 -Root C:\kassa-express -Instance express -Port 3001
+  It gets its own role and database (kassa_express), and the scripts name its service and its tasks after it
+  (KassaApp-express, "Kassa backup (express)"). It shares nothing with the first installation but the machine.
+
 .PARAMETER Root
   The folder with config, logs and tools. Default C:\kassa.
+
+.PARAMETER Instance
+  The name of another installation on this machine: one short lower-case word of letters and digits, like express.
+  Not given for the first installation.
+
+.PARAMETER Port
+  The port the application listens on, written into a new settings file (default 3000). Needed with -Instance:
+  every installation on a machine has a port of its own.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [string]$Root = 'C:\kassa'
+    [string]$Root = 'C:\kassa',
+    [string]$Instance,
+    [int]$Port = 0
 )
 
 . "$PSScriptRoot\common.ps1"
 
 Invoke-Main {
     Assert-Administrator
-    $layout = Get-KassaLayout -Root $Root
+    $layout = Get-KassaLayout -Root $Root -Instance $Instance
+    # Before anything is made: an installation without a name must not take the names of the one that is there
+    # (its service, its task, and its database role, whose password would be set anew).
+    Assert-OwnService -Layout $layout -Name $layout.AppService
     Assert-Node
     Assert-Tool -Name git -Hint 'Install Git for Windows from https://git-scm.com, then open a new PowerShell window.'
+    if ($Port -lt 0 -or $Port -gt 65535) { throw "-Port must be a port number, like 3001, got $Port." }
+    if ($layout.Instance -and $Port -eq 0 -and -not (Test-Path -LiteralPath $layout.Settings)) {
+        throw 'Another installation on this machine needs a port of its own (the first one listens on 3000): add -Port 3001, or another port that is free.'
+    }
     # npm ci below deletes the packages the application runs from: not while it is running (an update is update.ps1).
-    $application = Get-ServiceOrNull -Name 'KassaApp'
+    $application = Get-ServiceOrNull -Name $layout.AppService
     if ($application -and $application.Status -ne 'Stopped') {
-        throw 'The service KassaApp is running, and this script reinstalls the packages it runs from. For a new version use update.ps1. To run this anyway, stop the service first: Stop-Service KassaApp'
+        throw "The service $($layout.AppService) is running, and this script reinstalls the packages it runs from. For a new version use update.ps1. To run this anyway, stop the service first: Stop-Service $($layout.AppService)"
     }
     $postgres = @(Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue)
     if ($postgres.Count -eq 0) {
@@ -60,7 +83,12 @@ Invoke-Main {
         Write-Step 'Preparing the database'
         $asked = Request-PostgresPassword
         try {
-            Invoke-Native -File 'node' -Arguments @('deploy/setup-database.mjs', '--settings', $layout.Settings)
+            $database = @('deploy/setup-database.mjs', '--settings', $layout.Settings)
+            # Another installation: a role, a database and a port of its own (kept as they are when its file is there).
+            if ($layout.Instance) { $database += @('--instance', $layout.Instance) }
+            if ($Port -gt 0) { $database += @('--port', [string]$Port) }
+            elseif ($layout.Instance) { $database += @('--port', [string](Get-AppPort -Layout $layout)) }
+            Invoke-Native -File 'node' -Arguments $database
         }
         finally {
             if ($asked) { Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue }
@@ -84,4 +112,7 @@ Invoke-Main {
 
     Write-Host ''
     Write-Host 'Done. Next: create the users (kassa.ps1 create-user ...), then download-tools.ps1 and install-services.ps1.' -ForegroundColor Green
+    if ($layout.Instance) {
+        Write-Host "This is the installation '$($layout.Instance)': give every script its folder, -Root `"$($layout.Root)`", and run the scripts of its own copy of the code ($($layout.App))." -ForegroundColor Yellow
+    }
 }

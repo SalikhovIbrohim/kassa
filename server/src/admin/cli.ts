@@ -10,7 +10,7 @@ function kassaOption(text: string | undefined): Kassa | undefined {
   if (!isKassa(kassa)) throw new AdminError(`--kassa must be moscow or andijan, got "${text}"`);
   return kassa;
 }
-import { loadOneC } from "../config.js";
+import { loadOneC, onecSetting } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
@@ -233,10 +233,11 @@ async function main(): Promise<void> {
       }
       case "onec-check": {
         // The look works with the rehearsal settings when the writing is off: all but the mode must be set.
-        const mode = process.env.COSMO_1C_MODE?.trim().toLowerCase();
+        const modeSetting = onecSetting(process.env, "ONEC_MODE");
+        const mode = modeSetting.value?.trim().toLowerCase();
         let settings;
         try {
-          settings = loadOneC({ ...process.env, COSMO_1C_MODE: mode === "live" ? "live" : "preview" });
+          settings = loadOneC({ ...process.env, [modeSetting.name]: mode === "live" ? "live" : "preview" });
         } catch (error) {
           throw new AdminError(`${(error as Error).message} (in the settings file)`);
         }

@@ -56,11 +56,11 @@ export async function checkOneC(settings: OneCSettings, say: (line: string) => v
 
   say(
     settings.onlyClients
-      ? `Клиенты, которых записываем: ${settings.onlyClients.join(", ")} (COSMO_1C_CLIENTS), остальные пропускаются.`
-      : "Список клиентов (COSMO_1C_CLIENTS) не задан: записываются приходы всех клиентов.",
+      ? `Клиенты, которых записываем: ${settings.onlyClients.join(", ")} (ONEC_CLIENTS), остальные пропускаются.`
+      : "Список клиентов (ONEC_CLIENTS) не задан: записываются приходы всех клиентов.",
   );
   say(`Режим: ${settings.mode === "live" ? "БОЕВОЙ (пишет в 1С)" : "репетиция (в 1С ничего не пишется)"}.`);
-  say(settings.send === "now" ? "Отправка: сразу после записи (COSMO_1C_SEND=now)." : "Отправка: раз в сутки, в 03:00 МСК, когда день кассы закрыт.");
+  say(settings.send === "now" ? "Отправка: сразу после записи (ONEC_SEND=now)." : "Отправка: раз в сутки, в 03:00 МСК, когда день кассы закрыт.");
   return good;
 }
 

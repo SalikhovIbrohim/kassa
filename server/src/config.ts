@@ -136,7 +136,9 @@ export function loadSheet(env: NodeJS.ProcessEnv): SheetSettings | undefined {
   try {
     text = readFileSync(keyFile, "utf8");
   } catch {
-    throw new Error(`GOOGLE_SHEETS_KEY_FILE: the file ${keyFile} cannot be read (is it there, and may the service read it? icacls "${keyFile}" /grant "NT SERVICE\\KassaApp:R")`);
+    // The service of a second installation on the machine is named after it (INSTANCE, see deploy/windows/common.ps1).
+    const service = env.INSTANCE?.trim() ? `KassaApp-${env.INSTANCE.trim()}` : "KassaApp";
+    throw new Error(`GOOGLE_SHEETS_KEY_FILE: the file ${keyFile} cannot be read (is it there, and may the service read it? icacls "${keyFile}" /grant "NT SERVICE\\${service}:R")`);
   }
   const from = env.GOOGLE_SHEET_FROM?.trim();
   if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error(`GOOGLE_SHEET_FROM must be a day like 2026-10-14, got "${from}"`);
@@ -151,41 +153,80 @@ export function loadSheet(env: NodeJS.ProcessEnv): SheetSettings | undefined {
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The settings of the writing to 1C. `COSMO_1C_MODE` is off (the default), `preview` (says what would be written) or `live`. */
-export function loadOneC(env: NodeJS.ProcessEnv): OneCSettings | undefined {
-  const mode = env.COSMO_1C_MODE?.trim().toLowerCase() || "off";
-  if (mode === "off") return undefined;
-  if (mode !== "preview" && mode !== "live") throw new Error(`COSMO_1C_MODE must be off, preview or live, got "${env.COSMO_1C_MODE}"`);
+/**
+ * The settings of the writing to 1C, each with the name it had while the cash desk served one company only. A settings
+ * file written then needs no change: a setting that is not there under its own name is read under the earlier one.
+ */
+const ONEC_EARLIER_NAMES = {
+  ONEC_MODE: "COSMO_1C_MODE",
+  ONEC_SEND: "COSMO_1C_SEND",
+  ONEC_CLIENTS: "COSMO_1C_CLIENTS",
+  ONEC_ODATA_URL: "COSMO_ODATA_URL",
+  ONEC_ODATA_USER: "COSMO_ODATA_USER",
+  ONEC_ODATA_PASSWORD: "COSMO_ODATA_PASSWORD",
+  ONEC_ORGANIZATION_KEY: "COSMO_1C_ORGANIZATION_KEY",
+  ONEC_KASSA_KEY: "COSMO_1C_KASSA_KEY",
+  ONEC_CURRENCY_KEY: "COSMO_1C_CURRENCY_KEY",
+} as const;
 
-  const need = (name: string) => {
-    const value = env[name]?.trim();
-    if (!value) throw new Error(`${name} is required when COSMO_1C_MODE is ${mode}`);
-    return value;
+export type OneCSettingName = keyof typeof ONEC_EARLIER_NAMES;
+
+/**
+ * A setting of the writing to 1C: its value, and the name it was found under, which is the name a message about it
+ * says. Not set at all, it is undefined under its own name.
+ */
+export function onecSetting(env: NodeJS.ProcessEnv, name: OneCSettingName): { name: string; value: string | undefined } {
+  if (env[name] !== undefined) return { name, value: env[name] };
+  const earlier = ONEC_EARLIER_NAMES[name];
+  if (env[earlier] !== undefined) return { name: earlier, value: env[earlier] };
+  return { name, value: undefined };
+}
+
+/** The settings of the writing to 1C. `ONEC_MODE` is off (the default), `preview` (says what would be written) or `live`. */
+export function loadOneC(env: NodeJS.ProcessEnv): OneCSettings | undefined {
+  const modeSetting = onecSetting(env, "ONEC_MODE");
+  const mode = modeSetting.value?.trim().toLowerCase() || "off";
+  if (mode === "off") return undefined;
+  if (mode !== "preview" && mode !== "live") throw new Error(`${modeSetting.name} must be off, preview or live, got "${modeSetting.value}"`);
+
+  // A file that turns the writing on under the earlier name is told what it lacks by the earlier names too.
+  const earlier = modeSetting.name !== "ONEC_MODE";
+  const read = (name: OneCSettingName) => {
+    const setting = onecSetting(env, name);
+    return setting.value === undefined && earlier ? { name: ONEC_EARLIER_NAMES[name], value: undefined } : setting;
   };
-  const key = (name: string) => {
-    const value = need(name);
-    if (!GUID.test(value)) throw new Error(`${name} must be a key like 0d2cb474-924a-11f1-8cb7-b8cb29f61f4c`);
-    return value.toLowerCase();
+  const need = (name: OneCSettingName) => {
+    const setting = read(name);
+    const value = setting.value?.trim();
+    if (!value) throw new Error(`${setting.name} is required when ${modeSetting.name} is ${mode}`);
+    return { name: setting.name, value };
   };
-  const send = env.COSMO_1C_SEND?.trim().toLowerCase() || "night";
-  if (send !== "night" && send !== "now") throw new Error(`COSMO_1C_SEND must be night or now, got "${env.COSMO_1C_SEND}"`);
-  const clients = (env.COSMO_1C_CLIENTS ?? "")
+  const key = (name: OneCSettingName) => {
+    const setting = need(name);
+    if (!GUID.test(setting.value)) throw new Error(`${setting.name} must be a key like 0d2cb474-924a-11f1-8cb7-b8cb29f61f4c`);
+    return setting.value.toLowerCase();
+  };
+  const sendSetting = read("ONEC_SEND");
+  const send = sendSetting.value?.trim().toLowerCase() || "night";
+  if (send !== "night" && send !== "now") throw new Error(`${sendSetting.name} must be night or now, got "${sendSetting.value}"`);
+  const clientsSetting = read("ONEC_CLIENTS");
+  const clients = (clientsSetting.value ?? "")
     .split(",")
     .map((text) => text.trim())
     .filter(Boolean)
     .map((text) => {
       const code = clientCodeOf(text);
-      if (!code) throw new Error(`COSMO_1C_CLIENTS must list codes of clients like А339, got "${text}"`);
+      if (!code) throw new Error(`${clientsSetting.name} must list codes of clients like А339, got "${text}"`);
       return code.code;
     });
 
   return {
-    url: need("COSMO_ODATA_URL"),
-    user: need("COSMO_ODATA_USER"),
-    password: need("COSMO_ODATA_PASSWORD"),
-    organizationKey: key("COSMO_1C_ORGANIZATION_KEY"),
-    kassaKey: key("COSMO_1C_KASSA_KEY"),
-    currencyKey: key("COSMO_1C_CURRENCY_KEY"),
+    url: need("ONEC_ODATA_URL").value,
+    user: need("ONEC_ODATA_USER").value,
+    password: need("ONEC_ODATA_PASSWORD").value,
+    organizationKey: key("ONEC_ORGANIZATION_KEY"),
+    kassaKey: key("ONEC_KASSA_KEY"),
+    currencyKey: key("ONEC_CURRENCY_KEY"),
     mode,
     onlyClients: clients.length > 0 ? clients : undefined,
     send,

@@ -37,9 +37,10 @@ Invoke-Main {
     if (-not (Test-Path -LiteralPath $layout.Settings)) {
         throw "The settings file $($layout.Settings) does not exist. Run setup.ps1 first (it creates the database and this file)."
     }
-    $running = Get-ServiceOrNull -Name 'KassaApp'
+    Assert-OwnService -Layout $layout -Name $layout.AppService
+    $running = Get-ServiceOrNull -Name $layout.AppService
     if ($running -and $running.Status -ne 'Stopped') {
-        throw 'The application (KassaApp) is running, and this would replace the files it uses. Use update.ps1, which stops it first.'
+        throw "The application ($($layout.AppService)) is running, and this would replace the files it uses. Use update.ps1, which stops it first."
     }
 
     Push-Location $layout.App

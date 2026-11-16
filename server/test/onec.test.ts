@@ -209,7 +209,7 @@ describe("writing the payments of clients to 1C", () => {
 
     expect(onec.documents).toHaveLength(1);
     expect(onec.documents[0]).toMatchObject({ Комментарий: "А500" });
-    expect((await queued(started)).find((row) => row.status === "skipped")!.detail).toContain("COSMO_1C_CLIENTS");
+    expect((await queued(started)).find((row) => row.status === "skipped")!.detail).toContain("ONEC_CLIENTS");
     expect(rows).toHaveLength(2);
   });
 

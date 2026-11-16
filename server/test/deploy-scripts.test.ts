@@ -321,6 +321,72 @@ describe("deploy/setup-database.mjs: a role, a database and the settings file on
     await expect(readFile(settings, "utf8")).rejects.toThrow();
   }, 30_000);
 
+  it("gives another installation on the machine a role, a database, a port and a name of its own", async () => {
+    const instance = `t${randomBytes(5).toString("hex")}`;
+    const own = `kassa_${instance}`;
+    const folder = await mkdtemp(join(tmpdir(), "kassa-setup-"));
+    const settings = join(folder, "config", "kassa.env");
+    cleanups.push(async () => {
+      const client = new pg.Client({ connectionString: admin.toString() });
+      await client.connect();
+      try {
+        await client.query(`DROP DATABASE IF EXISTS ${own}`);
+        await client.query(`DROP ROLE IF EXISTS ${own}`);
+      } finally {
+        await client.end();
+      }
+      await rm(folder, { recursive: true, force: true });
+    });
+    const asked = ["--settings", settings, "--instance", instance, "--port", "3107"];
+
+    const result = await runScript("setup-database.mjs", asked, adminEnv);
+    const again = await runScript("setup-database.mjs", asked, adminEnv);
+    const otherPort = await runScript("setup-database.mjs", ["--settings", settings, "--instance", instance, "--port", "3108"], adminEnv);
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Created the role "${own}"`);
+    expect(result.stdout).toContain(`Created the database "${own}"`);
+    const text = await readFile(settings, "utf8");
+    expect(text).toMatch(new RegExp(`^INSTANCE=${instance}$`, "m"));
+    expect(text).toMatch(/^PORT=3107$/m);
+    expect(text).not.toMatch(/^PORT=3000$/m);
+    // What install-services.ps1 insists on is still there.
+    expect(text).toMatch(/^NODE_ENV=production$/m);
+    expect(text).toMatch(/^TRUST_PROXY=127\.0\.0\.1$/m);
+    const url = new URL(/^DATABASE_URL=(.*)$/m.exec(text)![1]!);
+    expect([url.username, url.pathname]).toEqual([own, `/${own}`]);
+    expect(await canConnect(settings)).toBe(true);
+    // Run again, it keeps the file; with another port it says that the file was not changed.
+    expect(again.code, again.stderr).toBe(0);
+    expect(again.stdout).toContain("Kept the settings file");
+    expect(otherPort.code, otherPort.stderr).toBe(0);
+    expect(otherPort.stdout).toContain("--port 3108 was not written");
+    expect(await readFile(settings, "utf8")).toBe(text);
+  }, 30_000);
+
+  it("refuses another installation without a port of its own, and never takes the settings file of one for another's", async () => {
+    const { name, settings } = await sandbox();
+
+    const noPort = await runScript("setup-database.mjs", ["--settings", settings, "--instance", "express"], adminEnv);
+    const badName = await runScript("setup-database.mjs", ["--settings", settings, "--instance", "Express Co", "--port", "3001"], adminEnv);
+    const badPort = await runScript("setup-database.mjs", ["--settings", settings, "--instance", "express", "--port", "http"], adminEnv);
+    await expect(readFile(settings, "utf8")).rejects.toThrow();
+    // The settings file of the first installation (no name) is there; the second one is pointed at it by mistake.
+    expect((await setup(settings, name)).code).toBe(0);
+    const before = await readFile(settings, "utf8");
+    const mixedUp = await runScript("setup-database.mjs", ["--settings", settings, "--role", name, "--database", name, "--instance", "express", "--port", "3001"], adminEnv);
+
+    expect(noPort.code).toBe(1);
+    expect(noPort.stderr).toContain("--instance needs --port");
+    expect(badName.code).toBe(1);
+    expect(badName.stderr).toContain("--instance must be one short lower-case word");
+    expect(badPort.code).toBe(1);
+    expect(badPort.stderr).toContain("--port must be a port number");
+    expect(mixedUp.code).toBe(1);
+    expect(mixedUp.stderr).toContain("is the settings file of the first installation");
+    expect(await readFile(settings, "utf8")).toBe(before);
+  }, 30_000);
+
   it("refuses names that are not plain lower-case words", async () => {
     const { settings } = await sandbox();
 

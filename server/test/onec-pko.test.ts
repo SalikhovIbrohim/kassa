@@ -160,6 +160,45 @@ describe("the settings of the writing to 1C", () => {
     expect(loadConfig({ ...full, COSMO_1C_SEND: "Now" }).onec).toMatchObject({ send: "now" });
   });
 
+  it("reads the settings under their own names, ONEC_*, and prefers them to the earlier names", () => {
+    const renamed = {
+      ...base,
+      ONEC_MODE: "live",
+      ONEC_ODATA_URL: "http://1c.example/Express",
+      ONEC_ODATA_USER: "robot",
+      ONEC_ODATA_PASSWORD: "s3cret",
+      ONEC_ORGANIZATION_KEY: KEY,
+      ONEC_KASSA_KEY: KEY.toUpperCase(),
+      ONEC_CURRENCY_KEY: KEY,
+      ONEC_CLIENTS: "a339",
+      ONEC_SEND: "Now",
+    };
+    expect(loadConfig(renamed).onec).toEqual({
+      url: "http://1c.example/Express",
+      user: "robot",
+      password: "s3cret",
+      organizationKey: KEY,
+      kassaKey: KEY,
+      currencyKey: KEY,
+      mode: "live",
+      onlyClients: ["А339"],
+      send: "now",
+    });
+    // A settings file of before the names changed goes on working, and a setting under its own name wins.
+    expect(loadConfig({ ...full, ONEC_MODE: "preview", ONEC_ODATA_URL: "http://1c.example/new" }).onec).toMatchObject({ mode: "preview", url: "http://1c.example/new", user: "robot" });
+    expect(loadConfig({ ...full, ONEC_MODE: "off" }).onec).toBeUndefined();
+  });
+
+  it("names a wrong or missing setting the way the settings file names it", () => {
+    expect(() => loadConfig({ ...base, ONEC_MODE: "yes" })).toThrow(/ONEC_MODE must be off, preview or live/);
+    expect(() => loadConfig({ ...base, ONEC_MODE: "live" })).toThrow(/ONEC_ODATA_URL is required when ONEC_MODE is live/);
+    expect(() => loadConfig({ ...base, ONEC_MODE: "live", ONEC_ODATA_URL: "http://1c.example", ONEC_ODATA_USER: "robot", ONEC_ODATA_PASSWORD: "s3cret", ONEC_ORGANIZATION_KEY: "x" })).toThrow(
+      /ONEC_ORGANIZATION_KEY must be a key/,
+    );
+    expect(() => loadConfig({ ...base, COSMO_1C_MODE: "live" })).toThrow(/COSMO_ODATA_URL is required when COSMO_1C_MODE is live/);
+    expect(() => loadConfig({ ...full, ONEC_SEND: "hourly" })).toThrow(/ONEC_SEND must be night or now/);
+  });
+
   it("refuses a setting that is missing or wrong, without saying the password", () => {
     expect(() => loadConfig({ ...full, COSMO_1C_MODE: "yes" })).toThrow(/COSMO_1C_MODE/);
     expect(() => loadConfig({ ...full, COSMO_1C_SEND: "hourly" })).toThrow(/COSMO_1C_SEND/);

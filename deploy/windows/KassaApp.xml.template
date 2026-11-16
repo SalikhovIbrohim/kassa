@@ -2,8 +2,8 @@
      install-services.ps1 fills in the __PLACEHOLDERS__ and writes this next to a copy of WinSW
      named KassaApp.exe. -->
 <service>
-  <id>KassaApp</id>
-  <name>Kassa application</name>
+  <id>__ID__</id>
+  <name>__NAME__</name>
   <description>Kassa cash book: the application server (Node.js).</description>
   <executable>__NODE__</executable>
   <arguments>--env-file="__SETTINGS__" server/dist/main.js</arguments>

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
+import { KEYS, startFakeOneC, type FakeOneC } from "./helpers/fake-onec.js";
 import { createBlankDatabase } from "./helpers/test-app.js";
 
 const serverDir = fileURLToPath(new URL("..", import.meta.url));
@@ -142,5 +143,72 @@ describe("admin command line: migrate", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("0002_operations.sql failed");
     expect(result.stderr).toContain("Applied before it: 0001_users_and_sessions.sql");
+  }, 30_000);
+});
+
+describe("admin command line: onec-check", () => {
+  const cleanups: Array<() => Promise<void>> = [];
+  let onec: FakeOneC;
+
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  async function world() {
+    onec = await startFakeOneC();
+    cleanups.push(() => onec.close());
+    const database = await createBlankDatabase();
+    cleanups.push(database.drop);
+    return database.url;
+  }
+
+  it("reads the settings of 1C under their own names, and looks even while the writing is off", async () => {
+    const url = await world();
+
+    const result = await runCli(["onec-check"], {
+      DATABASE_URL: url,
+      ONEC_ODATA_URL: onec.url,
+      ONEC_ODATA_USER: onec.user,
+      ONEC_ODATA_PASSWORD: onec.password,
+      ONEC_ORGANIZATION_KEY: KEYS.organization,
+      ONEC_KASSA_KEY: KEYS.kassa,
+      ONEC_CURRENCY_KEY: KEYS.currency,
+    });
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("репетиция");
+    expect(result.stdout).toContain("Всё готово.");
+    expect(onec.requests.every((line) => line.startsWith("GET"))).toBe(true);
+  }, 30_000);
+
+  it("goes on reading a settings file that names them the earlier way, with its mode", async () => {
+    const url = await world();
+
+    const result = await runCli(["onec-check"], {
+      DATABASE_URL: url,
+      COSMO_1C_MODE: "live",
+      COSMO_ODATA_URL: onec.url,
+      COSMO_ODATA_USER: onec.user,
+      COSMO_ODATA_PASSWORD: onec.password,
+      COSMO_1C_ORGANIZATION_KEY: KEYS.organization,
+      COSMO_1C_KASSA_KEY: KEYS.kassa,
+      COSMO_1C_CURRENCY_KEY: KEYS.currency,
+    });
+
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.stdout).toContain("БОЕВОЙ");
+    expect(result.stdout).toContain("Всё готово.");
+  }, 30_000);
+
+  it("says which setting is missing, by the name the settings file uses", async () => {
+    const url = await world();
+
+    const own = await runCli(["onec-check"], { DATABASE_URL: url, ONEC_ODATA_URL: onec.url });
+    const earlier = await runCli(["onec-check"], { DATABASE_URL: url, COSMO_1C_MODE: "preview", COSMO_ODATA_URL: onec.url });
+
+    expect(own.code).toBe(1);
+    expect(own.stderr).toContain("ONEC_ODATA_USER is required when ONEC_MODE is preview");
+    expect(earlier.code).toBe(1);
+    expect(earlier.stderr).toContain("COSMO_ODATA_USER is required when COSMO_1C_MODE is preview");
   }, 30_000);
 });

@@ -4,7 +4,8 @@
   Sets up the nightly copy of the database as a task of the Windows Task Scheduler (or removes it).
 
 .DESCRIPTION
-  Makes the task "Kassa backup": every day at the time given (default 03:00) it runs backup.ps1 as the
+  Makes the task "Kassa backup" ("Kassa backup (express)" for the installation of that name, see setup.ps1
+  -Instance): every day at the time given (default 03:00) it runs backup.ps1 as the
   system account, with the highest rights it needs and no window. If the computer was off at that time
   the copy is made as soon as it is on. It is stopped after an hour, and tried again (three times, ten
   minutes apart) if it fails. Safe to run again: the task is replaced.
@@ -31,10 +32,12 @@ param(
 
 . "$PSScriptRoot\common.ps1"
 
-$TaskName = 'Kassa backup'
-
 Invoke-Main {
     Assert-Administrator
+    # Every installation on the machine has a task of its own, with the name of the installation in it.
+    $layout = Get-KassaLayout -Root $Root
+    Assert-OwnService -Layout $layout -Name $layout.AppService
+    $TaskName = $layout.BackupTask
 
     if ($Remove) {
         if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
@@ -60,5 +63,5 @@ Invoke-Main {
     Register-ScheduledTask -TaskName $TaskName -Description 'A copy of the Kassa database (deploy\windows\backup.ps1).' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 
     Write-Host "The task '$TaskName' is set up: every day at $At." -ForegroundColor Green
-    Write-Host 'Try it now:  Start-ScheduledTask -TaskName "Kassa backup"   then   .\deploy\windows\backup.ps1 -Status'
+    Write-Host "Try it now:  Start-ScheduledTask -TaskName ""$TaskName""   then   .\deploy\windows\backup.ps1 -Status"
 }
