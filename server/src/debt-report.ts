@@ -161,6 +161,20 @@ export type DebtReport = {
     came: Array<Named & { debtMinor: number; daysUnpaid: number; lastPaidDay: string | null; reason: "days" | "debt" }>;
   };
   control: { year: number; months: ControlMonth[]; agrees: boolean };
+  /** The month as a whole, when `day` is its last day; null on any other day. */
+  dynamics: Dynamics | null;
+};
+
+/** A month looked back on, the day it ends: what all the clients owed day by day. The months of the year are in the control sheet. */
+export type Dynamics = {
+  /** YYYY-MM. */
+  month: string;
+  /** What all the clients owed when the month began (at the end of the month before). */
+  openingMinor: number;
+  /** How many trucks came in the month. */
+  trips: number;
+  /** Every day of the month: what was charged, what was paid, and what was owed at its end. */
+  days: Array<{ day: string; chargedMinor: number; paidMinor: number; closingMinor: number }>;
 };
 
 type Charge = { trip: number; day: string; minor: number };
@@ -442,7 +456,40 @@ export function debtReport(book: DebtBook, options: { day: string; since: string
     top,
     overdue,
     control: { year: Number(day.slice(0, 4)), months: control, agrees: (control[control.length - 1]?.closingMinor ?? openingMinor) === closingMinor },
+    // Tomorrow is another month: today the month is looked back on.
+    dynamics: shiftDay(day, 1).slice(0, 7) === day.slice(0, 7) ? null : dynamicsOf(ledgers, day, historyFrom),
   };
+}
+
+/** The month that ends on `day`, day by day. */
+function dynamicsOf(ledgers: readonly Ledger[], day: string, historyFrom: string): Dynamics {
+  const month = day.slice(0, 7);
+  const first = `${month}-01`;
+  const before = shiftDay(first, -1);
+  const moved = new Map<string, { charged: number; paid: number }>();
+  const trips = new Set<number>();
+  const at = (when: string) => {
+    const known = moved.get(when) ?? { charged: 0, paid: 0 };
+    moved.set(when, known);
+    return known;
+  };
+  for (const ledger of ledgers) {
+    for (const charge of ledger.charges)
+      if (charge.day >= first && charge.day <= day) {
+        at(charge.day).charged += charge.minor;
+        trips.add(charge.trip);
+      }
+    for (const payment of ledger.payments) if (payment.day >= first && payment.day <= day) at(payment.day).paid += payment.minor;
+  }
+  const openingMinor = ledgers.reduce((sum, ledger) => sum + standingOn(ledger, before, historyFrom).debtMinor, 0);
+  const days: Dynamics["days"] = [];
+  let running = openingMinor;
+  for (let when = first; when <= day; when = shiftDay(when, 1)) {
+    const { charged, paid } = moved.get(when) ?? { charged: 0, paid: 0 };
+    running += charged - paid;
+    days.push({ day: when, chargedMinor: charged, paidMinor: paid, closingMinor: running });
+  }
+  return { month, openingMinor, trips: trips.size, days };
 }
 
 /** What differs between the day as it was closed and the same day as the book has it now. */

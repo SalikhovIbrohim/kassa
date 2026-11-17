@@ -1344,6 +1344,13 @@ export type DebtReport = {
     came: Array<Named & { debtMinor: number; daysUnpaid: number; lastPaidDay: string | null; reason: "days" | "debt" }>;
   };
   control: { year: number; months: ControlMonth[]; agrees: boolean };
+  /** The month as a whole, when `day` is its last day: what all the clients owed day by day. Null on any other day. */
+  dynamics: {
+    month: string;
+    openingMinor: number;
+    trips: number;
+    days: Array<{ day: string; chargedMinor: number; paidMinor: number; closingMinor: number }>;
+  } | null;
 };
 
 /** The report of a day (today's, unless said), compared with the day before it or with an earlier one. */

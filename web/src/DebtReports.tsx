@@ -8,6 +8,7 @@ import {
   clientsCount,
   controlNotes,
   dayNear,
+  dynamicsNotes,
   formatCents,
   formatChange,
   formatWhole,
@@ -23,6 +24,7 @@ import {
   topNotes,
   yearDay,
 } from "./debt-report";
+import { Dynamics } from "./DebtDynamics";
 import { useKassa } from "./kassa";
 import { BLOCK_CSS, canCopyPictures, copyPicture, givePictures, NARROW_CSS, pictureOf, saveFile } from "./report-picture";
 import { Button } from "@/components/ui/button";
@@ -41,12 +43,14 @@ type Props = {
 /** The longest period a report covers, as the server has it. */
 const MAX_PERIOD_DAYS = 92;
 
-/** The four pictures, in the order they are shown and sent. */
+/** The pictures, in the order they are shown and sent. */
 const PICTURES = [
   { key: "movement", title: "Изменение долга", file: "1-izmenenie-dolga" },
   { key: "top", title: "Топ-30 должников", file: "2-top-30" },
   { key: "overdue", title: "Долго не платят", file: "3-dolgo-ne-platyat" },
   { key: "control", title: "Контроль по месяцам", file: "4-kontrol" },
+  // Only on the last day of a month.
+  { key: "dynamics", title: "Динамика за месяц", file: "5-dinamika" },
 ] as const;
 type PictureKey = (typeof PICTURES)[number]["key"];
 
@@ -65,7 +69,7 @@ export function DebtReports({ onSessionExpired, active = true }: Props) {
   const [stale, setStale] = useState(false);
   const [reloads, setReloads] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
-  const blocks = useRef<Record<PictureKey, HTMLDivElement | null>>({ movement: null, top: null, overdue: null, control: null });
+  const blocks = useRef<Record<PictureKey, HTMLDivElement | null>>({ movement: null, top: null, overdue: null, control: null, dynamics: null });
 
   const before = shiftDay(day, -1);
   const asked = since !== null && since < day ? since : before;
@@ -212,7 +216,7 @@ export function DebtReports({ onSessionExpired, active = true }: Props) {
         {ready && (
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" disabled={busy !== null} onClick={() => void saveAll()}>
-              {busy === "all" ? "Готовим…" : "Скачать все 4 картинки"}
+              {busy === "all" ? "Готовим…" : report.dynamics ? "Скачать все 5 картинок" : "Скачать все 4 картинки"}
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={busy !== null} onClick={() => void sheet()}>
               {busy === "sheet" ? "Готовим…" : "Excel: не платят больше 7 дней"}
@@ -233,6 +237,13 @@ export function DebtReports({ onSessionExpired, active = true }: Props) {
           {picture("top", report.debtors.count > report.top.rows.length ? PICTURES[1].title : "Должники", PICTURES[1].file, <Top report={report} />)}
           {picture("overdue", PICTURES[2].title, PICTURES[2].file, <Overdue report={report} />)}
           {picture("control", PICTURES[3].title, PICTURES[3].file, <Control report={report} />)}
+          {report.dynamics &&
+            picture(
+              "dynamics",
+              `Динамика за ${monthName(report.dynamics.month).toLowerCase()}`,
+              PICTURES[4].file,
+              <Dynamics report={report} tile={(tile) => <Tile key={tile.label} {...tile} />} notes={<Notes notes={dynamicsNotes(report)} />} />,
+            )}
         </div>
       )}
     </div>

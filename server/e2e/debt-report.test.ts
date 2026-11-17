@@ -212,6 +212,49 @@ describe("the report on the debts on the screen", () => {
     await seeText(movement.locator('[data-list="charged"]'), "Кому начислено 15.11");
   });
 
+  it("adds a fifth picture on the last day of a month: the month day by day and the year month by month", async () => {
+    const started = await business();
+    const laptop = await newLaptop(browser);
+    contexts.push(laptop.context);
+    const page = laptop.page;
+    await signIn(page, started, "ivan", "correct horse");
+    await openSection(page, "Отчёты");
+    // In the middle of a month there are four.
+    await showDay(page, "2026-11-16");
+    await seeGone(picture(page, "dynamics"));
+    await seeVisible(report(page).getByRole("button", { name: "Скачать все 4 картинки" }));
+
+    await showDay(page, "2026-10-31");
+    const dynamics = picture(page, "dynamics");
+    await seeVisible(dynamics);
+    await seeText(dynamics.locator("h3"), "Динамика за октябрь");
+    expect(await tiles(dynamics)).toEqual([
+      ["Долг на 30.09", "$27 731"],
+      ["Начислено за октябрь", "0"],
+      ["Оплачено за октябрь", "− 100"],
+      ["Долг на 31.10", "$27 631", "−100 за месяц"],
+    ]);
+    // The debt day by day: one line with its end named; the months of the year up to this one, each with what it ended with.
+    await seeVisible(dynamics.locator('svg[data-chart="days"] polyline'));
+    expect(plain((await dynamics.locator('svg[data-chart="days"]').locator("text").last().textContent()) ?? "")).toBe("27 631");
+    expect(await dynamics.locator('svg[data-chart="months"] [data-month]').count()).toBe(10);
+    expect(plain((await dynamics.locator('svg[data-chart="months"] [data-month="2026-10"] title').textContent()) ?? "")).toBe("Октябрь: начислено 0, оплачено 100, остаток на конец 27 631");
+    expect(plain(await dynamics.locator("[data-note]").innerText())).toContain("Самый большой долг за месяц — 27 731 (01.10), самый маленький — 27 631 (17.10).");
+
+    // All the pictures at once: five files.
+    const names: string[] = [];
+    page.on("download", (download) => names.push(download.suggestedFilename()));
+    await report(page).getByRole("button", { name: "Скачать все 5 картинок" }).click();
+    await expect.poll(() => names.length, { timeout: 20_000 }).toBe(5);
+    expect(names).toEqual([
+      "dolgi-2026-10-31-1-izmenenie-dolga.png",
+      "dolgi-2026-10-31-2-top-30.png",
+      "dolgi-2026-10-31-3-dolgo-ne-platyat.png",
+      "dolgi-2026-10-31-4-kontrol.png",
+      "dolgi-2026-10-31-5-dinamika.png",
+    ]);
+  });
+
   it("fits a phone without the page running sideways, and is nobody's where there are no trips or no cash", async () => {
     const started = await business();
     const phone = await newPhone(browser);

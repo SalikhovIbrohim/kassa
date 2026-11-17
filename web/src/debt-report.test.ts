@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { DebtReport } from "./api";
 import {
+  axisLabel,
+  axisTicks,
   backdatedNote,
   changeCaption,
   chargedCaption,
   controlNotes,
   deskOf,
+  dynamicsNotes,
   formatCents,
   formatChange,
   formatWhole,
@@ -50,6 +53,7 @@ function quiet(more: Partial<DebtReport> = {}): DebtReport {
     top: { rows: [], totalMinor: 0, left: [], entered: [], moved: [], near: [], crossed: [] },
     overdue: { rows: [], totalMinor: 0, long: 0, left: [], came: [] },
     control: { year: 2026, months: [], agrees: true },
+    dynamics: null,
     ...more,
   };
 }
@@ -286,6 +290,37 @@ describe("the notes under the pictures", () => {
     expect(controlNotes(quiet({ day: "2026-11-30", control: { year: 2026, months: [month], agrees: true } }))).toEqual([]);
     expect(plainAll(controlNotes(quiet({ day: "2026-11-30", closingMinor: 70_677_400, control: { year: 2026, months: [month], agrees: false } })))).toEqual([
       "Внимание: остаток на конец месяца (706 773,59) не сходится с долгом всех клиентов на 30.11 (706 774,00).",
+    ]);
+  });
+});
+
+describe("the picture of a month", () => {
+  it("marks an axis with round numbers that hold everything drawn", () => {
+    expect(axisTicks(699_945, 744_757)).toEqual([680_000, 700_000, 720_000, 740_000, 760_000]);
+    expect(axisTicks(0, 638_795, 3)).toEqual([0, 500_000, 1_000_000]);
+    expect(axisTicks(0, 245_336, 3)).toEqual([0, 100_000, 200_000, 300_000]);
+    expect(axisTicks(26_584, 31_974)).toEqual([26_000, 28_000, 30_000, 32_000]);
+    expect(axisTicks(120, 180)).toEqual([120, 140, 160, 180]);
+    // Nothing moved all month: an axis all the same.
+    expect(axisTicks(500, 500)).toEqual([500, 501]);
+    // Thousands in short where every mark is a whole thousand, in full where not.
+    expect(plain(axisLabel(700_000, [680_000, 700_000]))).toBe("700 тыс.");
+    expect(plain(axisLabel(1_000_000, [0, 500_000, 1_000_000]))).toBe("1 000 тыс.");
+    expect(axisLabel(0, [0, 500_000])).toBe("0");
+    expect(plain(axisLabel(1_500, [1_000, 1_500, 2_000]))).toBe("1 500");
+  });
+
+  it("says when the debt was biggest and smallest, and how many trucks came", () => {
+    expect(dynamicsNotes(quiet())).toEqual([]);
+    const days = [
+      { day: "2026-11-01", chargedMinor: 0, paidMinor: 1_000_000, closingMinor: 70_000_000 },
+      { day: "2026-11-02", chargedMinor: 4_475_700, paidMinor: 0, closingMinor: 74_475_700 },
+      { day: "2026-11-03", chargedMinor: 0, paidMinor: 4_481_200, closingMinor: 69_994_500 },
+    ];
+    expect(plainAll(dynamicsNotes(quiet({ dynamics: { month: "2026-11", openingMinor: 71_000_000, trips: 7, days } })))).toEqual([
+      "Самый большой долг за месяц — 744 757 (02.11), самый маленький — 699 945 (03.11).",
+      "Рейсов прибыло: 7.",
+      "Под названием месяца — остаток на конец месяца, тыс. $.",
     ]);
   });
 });

@@ -215,6 +215,29 @@ describe("the report on the debts of a day", () => {
     expect(october.months[9]).toEqual({ month: "2026-10", openingMinor: 2_773_103, chargedMinor: 0, paidMinor: 0, closingMinor: 2_773_103 });
   });
 
+  it("looks back on the whole month the day it ends, and on no other day", async () => {
+    const { started, owner } = await business();
+    expect((await report(started, owner, "?day=2026-11-16")).dynamics).toBeNull();
+    expect((await report(started, owner, "?day=2026-10-30")).dynamics).toBeNull();
+    const october = await report(started, owner, "?day=2026-10-31");
+    const { dynamics } = october;
+    expect(dynamics).toMatchObject({ month: "2026-10", openingMinor: 2_773_103, trips: 0 });
+    expect(dynamics!.days).toHaveLength(31);
+    expect(dynamics!.days[0]).toEqual({ day: "2026-10-01", chargedMinor: 0, paidMinor: 0, closingMinor: 2_773_103 });
+    // The one payment of the month, on the 17th.
+    expect(dynamics!.days[16]).toEqual({ day: "2026-10-17", chargedMinor: 0, paidMinor: 10_000, closingMinor: 2_763_103 });
+    expect(dynamics!.days[30]).toEqual({ day: "2026-10-31", chargedMinor: 0, paidMinor: 0, closingMinor: october.closingMinor });
+
+    // November ends on the 30th: three trucks came in it, and the days add up to what the month ends with.
+    started.setNow(new Date("2026-11-30T09:00:00Z"));
+    const november = await report(started, owner, "?day=2026-11-30");
+    expect(november.dynamics).toMatchObject({ month: "2026-11", openingMinor: 2_763_103, trips: 3 });
+    expect(november.dynamics!.days).toHaveLength(30);
+    expect(november.dynamics!.days[13]).toEqual({ day: "2026-11-14", chargedMinor: 300_000, paidMinor: 0, closingMinor: 3_033_103 });
+    expect(november.dynamics!.days[15]).toEqual({ day: "2026-11-16", chargedMinor: 200_000, paidMinor: 739_000, closingMinor: 2_658_360 });
+    expect(november.dynamics!.days[29]!.closingMinor).toBe(november.control.months[10]!.closingMinor);
+  });
+
   it("covers several days when it is compared with an earlier closing, and tells them one by one", async () => {
     const { started, ivan } = await business();
     const days = await report(started, ivan, "?day=2026-11-16&since=2026-11-13");

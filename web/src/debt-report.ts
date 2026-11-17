@@ -276,3 +276,47 @@ export function controlNotes(report: DebtReport): string[] {
   if (last && !report.control.agrees) notes.push(`Внимание: остаток на конец месяца (${formatCents(last.closingMinor)}) не сходится с долгом всех клиентов на ${shortDay(report.day)} (${formatCents(report.closingMinor)}).`);
   return notes;
 }
+
+/**
+ * The marks of an axis that holds everything between `low` and `high`: round numbers, a step of 1, 2 or 5 times a
+ * power of ten, about `wanted` steps of them. The first is at or under `low`, the last at or over `high`.
+ */
+export function axisTicks(low: number, high: number, wanted = 4): number[] {
+  const top = high > low ? high : low + 1;
+  const rough = (top - low) / wanted;
+  const power = 10 ** Math.floor(Math.log10(rough));
+  // Never finer than a dollar: an axis of money has no use for cents.
+  const step = Math.max(1, [1, 2, 5, 10].map((times) => times * power).find((candidate) => candidate >= rough) ?? 10 * power);
+  const ticks: number[] = [];
+  for (let tick = Math.floor(low / step) * step; ; tick += step) {
+    ticks.push(Math.round(tick));
+    if (tick >= top) break;
+  }
+  return ticks;
+}
+
+/** A mark of an axis of dollars: thousands in short («700 тыс.») when every mark is a whole thousand, in full otherwise. */
+export function axisLabel(dollars: number, ticks: readonly number[]): string {
+  if (dollars === 0) return "0";
+  const thousands = ticks.every((tick) => tick % 1000 === 0);
+  return thousands ? `${formatWhole((dollars / 1000) * 100)}${NBSP}тыс.` : formatWhole(dollars * 100);
+}
+
+const SHORT_MONTHS = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+export const shortMonth = (month: string) => SHORT_MONTHS[Number(month.slice(5, 7)) - 1] ?? month;
+
+/** The notes under the picture of a month: when the debt was biggest and smallest, and what the numbers under the months are. */
+export function dynamicsNotes(report: DebtReport): string[] {
+  const { dynamics } = report;
+  if (!dynamics || dynamics.days.length === 0) return [];
+  let most = dynamics.days[0]!;
+  let least = dynamics.days[0]!;
+  for (const day of dynamics.days) {
+    if (day.closingMinor > most.closingMinor) most = day;
+    if (day.closingMinor < least.closingMinor) least = day;
+  }
+  const notes = [`Самый большой долг за месяц — ${formatWhole(most.closingMinor)} (${shortDay(most.day)}), самый маленький — ${formatWhole(least.closingMinor)} (${shortDay(least.day)}).`];
+  if (dynamics.trips > 0) notes.push(`Рейсов прибыло: ${dynamics.trips}.`);
+  notes.push(`Под названием месяца — остаток на конец месяца, тыс.${NBSP}$.`);
+  return notes;
+}

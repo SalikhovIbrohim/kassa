@@ -53,6 +53,21 @@ box-sizing:border-box;width:100%;margin:0;padding:18px 16px 14px;background:var(
 .dr-control th{font-size:13px;font-weight:700;color:var(--t2);padding-bottom:10px}
 .dr-control td{padding-top:9px;padding-bottom:9px;font-size:14px}
 .dr-empty{padding:10px 0;font-size:13px;color:var(--tm)}
+.dr-chart-title{margin:22px 0 8px;font-size:14px;font-weight:700}
+.dr-chart-title.dr-with-legend{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 16px}
+.dr-legend{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:400;color:var(--t2)}
+.dr-swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:10px}
+.dr-swatch.dr-charged{background:#e34948}.dr-swatch.dr-paid{background:#1baf7a}
+.dr-chart{display:block;width:100%;height:auto;overflow:visible}
+.dr-chart text{font-size:11px;font-variant-numeric:tabular-nums}
+.dr-grid{stroke:var(--bd);stroke-width:1}
+.dr-axis{fill:var(--tm)}
+.dr-under{fill:var(--t2)}
+.dr-chart .dr-value{fill:var(--t1);font-size:12px}
+.dr-line{fill:none;stroke:#3987e5;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.dr-dot{fill:#3987e5;stroke:var(--bg);stroke-width:2}
+.dr-col.dr-charged{fill:#e34948}.dr-col.dr-paid{fill:#1baf7a}
+.dr-hit{fill:transparent}
 `;
 
 /** How a block folds on a narrow screen. The page only: a picture is never narrow. */
@@ -73,6 +88,7 @@ export const NARROW_CSS = `
 .dr-top th.dr-barcell,.dr-top td.dr-barcell{display:none}
 .dr-client b{max-width:30vw}
 .dr-control th,.dr-control td{padding-left:4px;padding-right:4px;font-size:12px}
+.dr-chart{min-width:600px}
 }
 `;
 
