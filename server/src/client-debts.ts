@@ -179,6 +179,50 @@ export async function readStatement(db: Queryable, codes: ClientCodes, code: str
   return { code, name: row.name, openingDebtMinor, movements, debtMinor };
 }
 
+/**
+ * Everything the debts are worked out from, as it stands now: the clients of the directory, what each trip that has
+ * arrived came to for each of them, and every payment. The report of a day (debt-report.ts) is made of it, for the
+ * day asked for and for the days before: what somebody owed on a day is the opening, the trips up to it and the
+ * payments up to it.
+ */
+export type DebtBook = {
+  clients: Array<{ code: string; name: string; phone: string | null; openingMinor: number }>;
+  /** A row to a client and a trip that has arrived; `day` is the day it arrived. */
+  charges: Array<{ code: string; trip: number; day: string; minor: number }>;
+  /** A row to a payment, oldest first; less than nothing is money given back to the client. */
+  payments: Array<{ code: string; day: string; minor: number; kassa: string | null }>;
+  /** When each trip was last marked as arrived or given another day of arrival, by its number; a trip of the history has no such moment. */
+  arrivedAt: Map<number, Date>;
+};
+
+/** Reads the book. Call it in one transaction that sees one moment (REPEATABLE READ): it is three statements. */
+export async function readDebtBook(db: Queryable, codes: ClientCodes): Promise<DebtBook> {
+  const clients = await db.query<{ code: string; name: string; phone: string | null; opening: string }>(
+    "SELECT code, name, phone, opening_debt_minor AS opening FROM clients ORDER BY code",
+  );
+  const charges = await db.query<{ code: string; number: number; day: string; minor: string }>(
+    `SELECT code, number, to_char(day, 'YYYY-MM-DD') AS day, minor FROM (${CHARGES_SQL}) charges
+      WHERE code IN (SELECT code FROM clients) ORDER BY day, number, code`,
+  );
+  const payments = await db.query<{ code: string; day: string; minor: string; kassa: string | null }>(
+    `SELECT code, to_char(day, 'YYYY-MM-DD') AS day, minor, kassa FROM (${paymentsSql(codes)}) payments
+      WHERE code IN (SELECT code FROM clients) ORDER BY day, at, code`,
+  );
+  const arrived = await db.query<{ number: number; at: Date }>(
+    `SELECT t.number, MAX(h.changed_at) AS at FROM trip_changes h JOIN trips t ON t.id = h.trip_id
+      WHERE t.deleted_at IS NULL AND t.status = 'arrived'
+        AND ((h.action = 'status' AND h.state_after->>'status' = 'arrived')
+          OR (h.action = 'edit' AND h.state_before->>'arrivalDay' IS DISTINCT FROM h.state_after->>'arrivalDay'))
+      GROUP BY t.number`,
+  );
+  return {
+    clients: clients.rows.map((row) => ({ code: row.code, name: row.name, phone: row.phone, openingMinor: Number(row.opening) })),
+    charges: charges.rows.map((row) => ({ code: row.code, trip: row.number, day: row.day, minor: Number(row.minor) })),
+    payments: payments.rows.map((row) => ({ code: row.code, day: row.day, minor: Number(row.minor), kassa: row.kassa })),
+    arrivedAt: new Map(arrived.rows.map((row) => [row.number, row.at])),
+  };
+}
+
 /** A month of the control sheet: what all the clients owed when it began, what arrived, what was paid, what they owed when it ended. */
 export type ControlMonth = { month: string; openingMinor: number; chargedMinor: number; paidMinor: number; closingMinor: number };
 
