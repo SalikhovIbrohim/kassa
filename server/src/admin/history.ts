@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type pg from "pg";
-import { readControl, type ControlMonth } from "../client-debts.js";
+import { readDebts, type ControlMonth } from "../client-debts.js";
 import { clientCodeIn, type ClientCodes } from "../clients.js";
 import type { Kassas } from "../kassa.js";
 import { inTransaction } from "../ledger.js";
@@ -63,8 +63,17 @@ export type HistoryReport = {
   trips: { added: number; there: number; removed: number; sums: number };
   payments: number;
   waybills: Array<{ number: number; lines: number; note: string }>;
-  /** The control sheet as the database has it after the load, and next to it what the file said (when it said). */
+  /**
+   * The control sheet of the history as it was loaded (the opening debts, the trips of before, the payments of before:
+   * nothing that was entered here since), and next to each month what the file said (when it said). The two are the
+   * same thing counted twice, so they agree, or the load is not whole.
+   */
   control: Array<ControlMonth & { file?: ControlMonth }>;
+  /**
+   * What all the clients owe now, the cash book and the trips kept here counted in. More or less than the history
+   * closes with by what was entered here since: the payments the cash desk took, the trips that arrived.
+   */
+  debtsNowMinor: number;
 };
 
 const isDay = (day: unknown): day is string => {
@@ -318,13 +327,25 @@ export async function importHistory(
       loaded.push({ number: waybill.number, lines: count, note: row ? "its lines were added to the trip that was there" : "made" });
     }
 
-    // What the debts come to now, month by month, next to what the card file said.
-    const years = [...new Set([...trips.map((trip) => trip.arrivalDay.slice(0, 4)), ...payments.map((payment) => payment.day.slice(0, 4)), ...(file.control ?? []).map((month) => month.month.slice(0, 4))])].sort();
-    const control: HistoryReport["control"] = [];
-    for (const year of years) {
-      for (const month of await readControl(db, clientCodes, Number(year))) control.push({ ...month, file: file.control?.find((item) => item.month === month.month) });
-    }
+    // The history as it stands in the database now, month by month, next to what the card file said. Only the history:
+    // the entries of the cash book and the trips kept here are of after the file was closed, and the file knows none.
+    const moved = await db.query<{ month: string; charged: string; paid: string }>(
+      `SELECT month, SUM(charged) AS charged, SUM(paid) AS paid
+         FROM (SELECT to_char(t.arrival_day, 'YYYY-MM') AS month, floor((s.amount_micro + 5000) / 10000) AS charged, 0 AS paid
+                 FROM trip_sums s JOIN trips t ON t.id = s.trip_id WHERE t.from_card_file AND t.deleted_at IS NULL
+               UNION ALL
+               SELECT to_char(paid_day, 'YYYY-MM'), 0, amount_minor FROM past_payments) moves
+        GROUP BY month ORDER BY month`,
+    );
+    let debt = clients.reduce((sum, client) => sum + client.opening, 0);
+    const control: HistoryReport["control"] = moved.rows.map((row) => {
+      const month = { month: row.month, openingMinor: debt, chargedMinor: Number(row.charged), paidMinor: Number(row.paid), closingMinor: debt + Number(row.charged) - Number(row.paid) };
+      debt = month.closingMinor;
+      return { ...month, file: file.control?.find((item) => item.month === row.month) };
+    });
+    const now = await readDebts(db, clientCodes);
     return {
+      debtsNowMinor: [...now.values()].reduce((sum, client) => sum + client.debtMinor, 0),
       clients: { added, there: clients.length - added },
       trips: { added: tripsAdded, there: tripsThere, removed: gone.length, sums: sums.length },
       payments: payments.length,

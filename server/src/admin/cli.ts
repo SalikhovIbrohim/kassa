@@ -228,9 +228,11 @@ async function main(): Promise<void> {
         console.log(`Trips of before: ${report.trips.added} added, ${report.trips.there} were there, ${report.trips.removed} taken away; ${report.trips.sums} sums of clients.`);
         console.log(`Payments of before: ${report.payments}.`);
         for (const waybill of report.waybills) console.log(`Trip ${waybill.number} on the road: ${waybill.lines} lines (${waybill.note}).`);
-        // The debts month by month, as the control sheet of the card file has them: the proof that the load is whole.
+        // The history month by month, as the control sheet of the card file has it: the proof that the load is whole.
+        // Only the history: what the cash desk took and what arrived here since the file was closed is said after it.
         const money = (minor: number) => formatAmount(minor).padStart(13);
-        console.log("\nMonth        opening       charged          paid       closing   the file says");
+        console.log("\nThe history as it was loaded:");
+        console.log("Month        opening       charged          paid       closing   the file says");
         let apart = 0;
         for (const month of report.control) {
           const difference = month.file ? month.closingMinor - month.file.closingMinor : 0;
@@ -242,6 +244,14 @@ async function main(): Promise<void> {
         if (report.control.some((month) => month.file)) {
           console.log(apart < 100 ? "\nThe debts agree with the control sheet of the file (to less than a dollar: the file keeps a third decimal, the debts here are whole cents)." : "\nTHE DEBTS DO NOT AGREE with the control sheet of the file: look at the months above before anybody works with them.");
         }
+        const closing = report.control.at(-1)?.closingMinor ?? 0;
+        const since = report.debtsNowMinor - closing;
+        console.log(
+          since === 0
+            ? `All the clients owe ${formatAmount(report.debtsNowMinor)} now: nothing was entered here since the file was closed.`
+            : `All the clients owe ${formatAmount(report.debtsNowMinor)} now: ${formatAmount(Math.abs(since))} ${since < 0 ? "less" : "more"} than the history closes with, by what was entered here since ` +
+                "(the entries of the cash book that name a client, the trips that arrived). Look at those in the journal: a test entry that names a client counts as a payment until it is deleted.",
+        );
         break;
       }
       case "telegram-chats": {

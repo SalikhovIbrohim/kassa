@@ -675,6 +675,14 @@ describe("the trips", () => {
       expect(report.trips).toEqual({ added: 0, there: 1, removed: 1, sums: 2 });
       expect(report.payments).toBe(5);
       expect(report.waybills).toEqual([{ number: 248, lines: 0, note: "left as it is: it has 2 lines already" }]);
+      // The control sheet of the load is of the history alone: the payment the cash desk took since is not in it,
+      // and it is in what the clients owe now.
+      expect(report.control.map((month) => [month.month, month.chargedMinor, month.paidMinor, month.closingMinor])).toEqual([
+        ["2026-01", 689_485, 108_000, 3_016_285],
+        ["2026-02", 0, 403_100, 2_613_185],
+        ["2026-03", 0, 1_000, 2_612_185],
+      ]);
+      expect(report.debtsNowMinor).toBe(2_612_185 - 28_573);
       expect(await debtOf(started, ivan, "132")).toEqual({ opening: 0, charged: 400_000, paid: 328_573, debt: 71_427 });
       expect(await debtOf(started, ivan, "70")).toEqual({ opening: -5_000, charged: 0, paid: 1_000, debt: -6_000 });
       const numbers = ((await (await get(started, "/api/trips", mudir)).json()) as { trips: Array<{ number: number }> }).trips.map((item) => item.number);

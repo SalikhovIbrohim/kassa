@@ -364,7 +364,7 @@ describe("admin command line: import-history", () => {
   };
 
   it("loads the file and prints the debts month by month next to the control sheet of the file", async () => {
-    const { path, env } = await world(history);
+    const { path, env, url } = await world(history);
     // The trips of the history are written down under an admin: there has to be one.
     const early = await runCli(["import-history", "--file", path], env);
     expect(early.code).toBe(1);
@@ -381,6 +381,19 @@ describe("admin command line: import-history", () => {
     expect(result.stdout).toMatch(/2026-01\s+24398\.00\s+7180\.58\s+1080\.00\s+30498\.58\s+30498\.58\s+the same/);
     expect(result.stdout).toMatch(/2026-02\s+30498\.58\s+0\.00\s+3000\.00\s+27498\.58\s+27498\.58\s+the same/);
     expect(result.stdout).toContain("The debts agree with the control sheet of the file");
+    expect(result.stdout).toContain("All the clients owe 27498.58 now: nothing was entered here since the file was closed.");
+
+    // The cash desk takes a payment of a client after the file was closed: the history still agrees with the file,
+    // which knows nothing of it, and what the clients owe now is less by it.
+    const pool = new pg.Pool({ connectionString: url, max: 1 });
+    try {
+      await pool.query(
+        `INSERT INTO operations (id, kind, amount_minor, currency, category, client_code, client_code_key, author_id, created_at, kassa)
+         SELECT gen_random_uuid(), 'income', 114300, 'USD', 'client_payment', '132 Иброхим', '132 иброхим', id, '2026-11-17T10:00:00Z', 'moscow' FROM users LIMIT 1`,
+      );
+    } finally {
+      await pool.end();
+    }
 
     // The file again: nothing is doubled.
     const again = await runCli(["import-history", "--file", path, "--login", "mudir"], env);
@@ -388,7 +401,9 @@ describe("admin command line: import-history", () => {
     expect(again.stdout).toContain("Clients: 0 added, 2 were there");
     expect(again.stdout).toContain("Trips of before: 0 added, 1 were there");
     expect(again.stdout).toContain("Trip 248 on the road: 0 lines (left as it is: it has 1 lines already).");
-    expect(again.stdout).toMatch(/2026-02\s+30498\.58\s+0\.00\s+3000\.00\s+27498\.58/);
+    expect(again.stdout).toMatch(/2026-02\s+30498\.58\s+0\.00\s+3000\.00\s+27498\.58\s+27498\.58\s+the same/);
+    expect(again.stdout).toContain("The debts agree with the control sheet of the file");
+    expect(again.stdout).toContain("All the clients owe 26355.58 now: 1143.00 less than the history closes with, by what was entered here since");
   }, 60_000);
 
   it("says so, loudly, when the debts do not come to what the control sheet of the file says", async () => {
