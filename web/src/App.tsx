@@ -28,6 +28,7 @@ import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } 
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 import { CategoriesAdmin } from "./CategoriesAdmin";
 import { ClientsAdmin } from "./ClientsAdmin";
+import { DebtReports } from "./DebtReports";
 import { Journal } from "./Journal";
 import { ReconcileBar } from "./ReconcileBar";
 import { ReconciliationsList } from "./ReconciliationsList";
@@ -542,6 +543,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           <ReconciliationsList onSessionExpired={onLoggedOut} onRefresh={loadBalances} active={section === "reconciliations"} />
         </>,
       )}
+      {page("reports", <DebtReports onSessionExpired={onLoggedOut} active={section === "reports"} />)}
       {page("trips", <Trips onSessionExpired={onLoggedOut} active={section === "trips"} />)}
       {page("clients", <ClientsAdmin canEdit={user.role === "admin"} onSessionExpired={onLoggedOut} active={section === "clients"} />)}
       {page("categories", <CategoriesAdmin onSessionExpired={onLoggedOut} active={section === "categories"} />)}

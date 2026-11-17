@@ -9,6 +9,7 @@ export type SectionKey =
   | "reconcile"
   | "totals"
   | "reconciliations"
+  | "reports"
   | "trips"
   | "clients"
   | "categories"
@@ -31,6 +32,7 @@ const ICONS = {
   reconcile: "M12 4v16M8 20h8M4 7h16M7 7l-3 7h6zM17 7l-3 7h6z",
   totals: "M5 20V11M10 20V5M15 20v-7M20 20v-4M3 20h18",
   reconciliations: "M9 3.5h6v3H9zM8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2M9 14l2 2 4-4",
+  reports: "M3 20h18M6 16l4-5 3 3 5-7M4 4v16",
   trips: "M2.5 6.5h11v10h-11zM13.5 10h4l3 3.2v3.3h-7zM6.5 19a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8zM17 19a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8z",
   clients: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14.8c1.8.7 3 2.6 3 5.2",
   categories: "M3.5 12V4.5a1 1 0 0 1 1-1H12l8.5 8.5-8.5 8.5zM8 8.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z",
@@ -79,7 +81,8 @@ export const SECTIONS: Record<SectionKey, SectionInfo> = {
   reconcile: { label: "Сверка", icon: "reconcile", roles: ["head_cashier"] },
   totals: { label: "Итоги", icon: "totals", roles: ["admin", "viewer"] },
   reconciliations: { label: "Сверки", icon: "reconciliations", roles: ["admin", "viewer"] },
-  // Only where the business keeps trips (see `sectionsOf`).
+  // These two only where the business keeps trips (see `sectionsOf`): the debts of the clients come from the trips.
+  reports: { label: "Отчёты", icon: "reports", roles: ["cashier", "head_cashier", "admin", "viewer"] },
   trips: { label: "Сборные грузы", tab: "Грузы", icon: "trips", roles: ["admin", "viewer", "warehouse"] },
   clients: { label: "Клиенты", icon: "clients", roles: ["admin", "viewer"] },
   categories: { label: "Категории", icon: "categories", roles: ["admin"] },
@@ -87,12 +90,12 @@ export const SECTIONS: Record<SectionKey, SectionInfo> = {
   settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer", "warehouse"] },
 };
 
-const ORDER: readonly SectionKey[] = ["income", "expense", "journal", "reconcile", "totals", "reconciliations", "trips", "clients", "categories", "users", "settings"];
+const ORDER: readonly SectionKey[] = ["income", "expense", "journal", "reconcile", "totals", "reconciliations", "reports", "trips", "clients", "categories", "users", "settings"];
 
 /** The menu of a computer, in groups as in the prototype. */
 export const GROUPS: ReadonlyArray<{ title: string | null; keys: readonly SectionKey[] }> = [
   { title: "Касса", keys: ["income", "expense"] },
-  { title: null, keys: ["journal", "reconcile", "totals", "reconciliations"] },
+  { title: null, keys: ["journal", "reconcile", "totals", "reconciliations", "reports"] },
   { title: "Грузы", keys: ["trips"] },
   { title: "Справочники", keys: ["clients"] },
   { title: "Настройки", keys: ["categories", "users", "settings"] },
@@ -100,9 +103,9 @@ export const GROUPS: ReadonlyArray<{ title: string | null; keys: readonly Sectio
 
 /**
  * The sections of a role. `trips`: the business keeps trips (its server names warehouses); where it does not, the
- * section «Сборные грузы» is nobody's.
+ * sections «Сборные грузы» and «Отчёты» are nobody's.
  */
-export const sectionsOf = (role: Role, trips = false): SectionKey[] => ORDER.filter((key) => SECTIONS[key].roles.includes(role) && (key !== "trips" || trips));
+export const sectionsOf = (role: Role, trips = false): SectionKey[] => ORDER.filter((key) => SECTIONS[key].roles.includes(role) && ((key !== "trips" && key !== "reports") || trips));
 
 /** The four buttons of the tab bar a role starts with (the fifth is always «Настройки»). */
 const DEFAULT_TABS: Record<Role, readonly SectionKey[]> = {

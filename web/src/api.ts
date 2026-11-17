@@ -1259,3 +1259,108 @@ export async function fetchDebtControl(year?: number): Promise<{ year: number; m
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/control`);
   return (await response.json()) as { year: number; months: ControlMonth[] };
 }
+
+export type Named = { code: string; name: string };
+
+/** A line of the thirty who owe most. */
+export type DebtTopRow = Named & {
+  place: number;
+  debtMinor: number;
+  /** The debt now less the debt on the day compared with. */
+  changeMinor: number;
+  /** The day of the last payment; null when there was none since the history began. */
+  lastPaidDay: string | null;
+  daysUnpaid: number;
+  /** Was not among the thirty on the day compared with. */
+  isNew: boolean;
+};
+
+/** A line of those who have not paid for long. */
+export type DebtOverdueRow = Named & {
+  debtMinor: number;
+  lastPaidDay: string | null;
+  daysUnpaid: number;
+  lastTripDay: string | null;
+  isNew: boolean;
+  /** Got cargo in the period of the report. */
+  gotCargo: boolean;
+};
+
+/**
+ * The report on the debts of the clients for a day of the cash desk (see debt-report.ts of the server): how the debt
+ * of all moved since the day compared with, the thirty who owe most, those who do not pay, the control sheet.
+ */
+export type DebtReport = {
+  day: string;
+  since: string;
+  /** The first day of the history: a client with no payment at all has not paid since then. */
+  historyFrom: string;
+  /** The main cash desk; what another desk took is marked with that desk. */
+  primaryKassa: string;
+  openingMinor: number;
+  closingMinor: number;
+  chargedMinor: number;
+  paidMinor: number;
+  trips: Array<{ number: number; day: string; amountMinor: number; clients: number }>;
+  chargedClients: number;
+  paidElsewhere: Array<{ kassa: string; amountMinor: number }>;
+  /** Day by day, when the period is longer than one. */
+  days: Array<{ day: string; trips: Array<{ number: number; amountMinor: number }>; chargedMinor: number; paidMinor: number; closingMinor: number }>;
+  payers: Array<Named & { amountMinor: number; kassas: string[]; debtMinor: number; closed: boolean }>;
+  refunds: Array<Named & { amountMinor: number }>;
+  charged: Array<Named & { amountMinor: number; trips: number[] }>;
+  events: {
+    closed: Named[];
+    paidTrip: Array<Named & { trip: number; amountMinor: number; daysAfter: number; closed: boolean }>;
+    firstPayment: Array<Named & { amountMinor: number; previousDay: string | null }>;
+    crossed: { boundaryMinor: number; down: boolean } | null;
+  };
+  /** What was written into the days already closed; null when no closing of `since` was kept. */
+  backdated: {
+    takenAt: string;
+    thenMinor: number;
+    changes: Array<Named & { changeMinor: number }>;
+    trips: Array<{ number: number; day: string; amountMinor: number; clients: number }>;
+    topIn: Named[];
+    topOut: Named[];
+    overdueIn: Named[];
+    overdueOut: Named[];
+  } | null;
+  debtors: { count: number; totalMinor: number };
+  top: {
+    rows: DebtTopRow[];
+    totalMinor: number;
+    left: Array<Named & { paidMinor: number; debtMinor: number; changeMinor: number }>;
+    entered: Array<Named & { chargedMinor: number; trips: number[]; changeMinor: number }>;
+    moved: Array<Named & { from: number; to: number }>;
+    near: Array<Named & { days: number }>;
+    crossed: Array<Named & { days: number }>;
+  };
+  overdue: {
+    rows: DebtOverdueRow[];
+    totalMinor: number;
+    long: number;
+    left: Array<Named & { paidMinor: number; debtMinor: number }>;
+    came: Array<Named & { debtMinor: number; daysUnpaid: number; lastPaidDay: string | null; reason: "days" | "debt" }>;
+  };
+  control: { year: number; months: ControlMonth[]; agrees: boolean };
+};
+
+/** The report of a day (today's, unless said), compared with the day before it or with an earlier one. */
+export async function fetchDebtReport(day?: string, since?: string): Promise<DebtReport> {
+  const query = new URLSearchParams();
+  if (day) query.set("day", day);
+  if (since) query.set("since", since);
+  const response = await request(query.size > 0 ? `/api/debts/report?${query}` : "/api/debts/report");
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/report`);
+  return (await response.json()) as DebtReport;
+}
+
+/** The sheet «Не платят больше 7 дней» of a day, as a workbook of Excel. */
+export async function fetchUnpaidSheet(day: string): Promise<Blob> {
+  const response = await request(`/api/debts/unpaid.xlsx?${new URLSearchParams({ day })}`, undefined, 30_000);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/unpaid.xlsx`);
+  return response.blob();
+}
