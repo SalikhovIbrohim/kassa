@@ -22,6 +22,8 @@ import { registerSummary } from "./summary.js";
 import { registerUserAdmin } from "./user-admin.js";
 import { registerClients, type ClientCodes } from "./clients.js";
 import { isApiPath, pathnameOf } from "./paths.js";
+import { registerTrips } from "./trips.js";
+import { NO_WAREHOUSES, type Warehouses } from "./warehouses.js";
 
 export type { LoginProtectionOptions };
 
@@ -31,6 +33,11 @@ export type AppOptions = {
   kassas?: Kassas;
   /** How the business writes the codes of its clients: «А707» unless said, or digits alone («707»). */
   clientCodes?: ClientCodes;
+  /**
+   * The warehouses where the business puts cargo on its trucks (see warehouses.ts). With them the app has the section
+   * «Сборные грузы» (trips.ts) and the clients have debts; without them, which is how it is unless said, neither.
+   */
+  warehouses?: Warehouses;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
   /** `true` logs to the console; a stream gets the log lines (for tests that read them). */
@@ -81,6 +88,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const database = createDatabase(options.databaseUrl);
   const kassas = options.kassas ?? DEFAULT_KASSAS;
   const clientCodes = options.clientCodes ?? "letter";
+  const warehouses = options.warehouses ?? NO_WAREHOUSES;
   const onecKassas = options.onecKassas ?? [kassas.primary];
 
   // JSON as Fastify reads it, except that nothing at all is no body, not an error: a client
@@ -182,7 +190,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   // The cash desks of the business, for the screens: what each is called, what money it keeps, and whether the payments
   // of its clients go to 1C. They are the installation's to say (its settings), so the screens ask and never assume.
-  app.get("/api/kassas", { onRequest: app.authenticate }, async () => ({
+  app.get("/api/kassas", { onRequest: app.authenticate, config: { warehouse: true } }, async () => ({
     kassas: kassas.list.map((item) => ({
       id: item.id,
       label: item.label,
@@ -203,8 +211,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   await registerCategoryAdmin(app, { pool: database.pool, kassas });
   await registerOneCAdmin(app, { pool: database.pool });
-  await registerUserAdmin(app, { pool: database.pool, kassas });
-  await registerClients(app, { pool: database.pool, codes: clientCodes });
+  await registerUserAdmin(app, { pool: database.pool, kassas, warehouses });
+  await registerClients(app, { pool: database.pool, codes: clientCodes, cargo: warehouses.enabled });
+  await registerTrips(app, { pool: database.pool, now: options.now ?? (() => new Date()), warehouses, clientCodes });
 
   await registerCorrections(app, {
     pool: database.pool,

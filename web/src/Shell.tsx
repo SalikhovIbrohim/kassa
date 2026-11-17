@@ -257,7 +257,7 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
             onClick={() => onOpen(key)}
           >
             <Icon name={SECTIONS[key].icon as never} size={23} />
-            <span className="max-w-full truncate px-0.5">{SECTIONS[key].label}</span>
+            <span className="max-w-full truncate px-0.5">{SECTIONS[key].tab ?? SECTIONS[key].label}</span>
           </button>
         ))}
       </div>

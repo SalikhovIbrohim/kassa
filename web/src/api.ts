@@ -1,5 +1,12 @@
-/** A cashier enters entries; the head cashier also counts the cash ("Сверить кассу"); an admin enters and keeps the users and the lists; the viewer is the owner, who only looks. */
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer";
+/**
+ * A cashier enters entries; the head cashier also counts the cash ("Сверить кассу"); an admin enters and keeps the users
+ * and the lists; the viewer is the owner, who only looks; the keeper of a warehouse writes the cargo of the trips
+ * (where the business keeps trips) and sees nothing of the cash.
+ */
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "warehouse";
+
+/** The roles that make entries of the cash desk: theirs is the queue of the phone, the balances, the lists of categories. */
+export const entersCash = (role: Role) => role === "cashier" || role === "head_cashier" || role === "admin";
 
 export type User = {
   login: string;
@@ -793,7 +800,7 @@ export type Account = {
   login: string;
   displayName: string;
   role: Role;
-  /** The city the person works in, for the reports and 1C; null is everywhere. */
+  /** The city the person works in, for the reports and 1C; null is everywhere. Of the keeper of a warehouse, the warehouse. */
   city?: City | null;
   active: boolean;
   createdAt: string;
@@ -805,7 +812,7 @@ export type AccountResult =
   | { ok: true }
   | {
       ok: false;
-      reason: "session-expired" | "forbidden" | "not-found" | "login-taken" | "bad-login" | "bad-password" | "bad-name" | "self" | "has-entries" | "rejected" | "server-error";
+      reason: "session-expired" | "forbidden" | "not-found" | "login-taken" | "bad-login" | "bad-password" | "bad-name" | "bad-city" | "self" | "has-entries" | "rejected" | "server-error";
     };
 
 async function accountResult(response: Response): Promise<AccountResult> {
@@ -820,6 +827,7 @@ async function accountResult(response: Response): Promise<AccountResult> {
     bad_login: "bad-login",
     bad_password: "bad-password",
     bad_name: "bad-name",
+    bad_city: "bad-city",
     self: "self",
     has_entries: "has-entries",
   };
@@ -863,8 +871,24 @@ export async function deleteAccount(id: string): Promise<AccountResult> {
 
 // ---- Clients ----
 
-/** A client of the directory: one to a code (А707, А34-2); the names may repeat. */
-export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
+/**
+ * A client of the directory: one to a code (А707, А34-2); the names may repeat. Where the business keeps trips, the
+ * directory also says what a kilogram costs the client (thousandths of a dollar) and what they owe, in cents: what
+ * they owed at the start, plus their cargo on the trips that have arrived, less what the cash desk took in from them.
+ */
+export type Client = {
+  code: string;
+  name: string;
+  phone: string | null;
+  note: string | null;
+  active: boolean;
+  priceMilli?: number | null;
+  openingDebtMinor?: number;
+  chargedMinor?: number;
+  paidMinor?: number;
+  /** More than nothing: the client owes; less: they have paid ahead. Not there where the business keeps no trips. */
+  debtMinor?: number;
+};
 
 /** How the business writes the codes of its clients: the letter А and digits («А707»), or digits alone («707»). */
 export type ClientCodes = "letter" | "digits";
@@ -910,7 +934,7 @@ async function clientResult(response: Response): Promise<ClientResult> {
 }
 
 /** A new client (the admin, in «Клиенты»). */
-export async function createClient(input: { code: string; name: string; phone?: string; note?: string }): Promise<ClientResult> {
+export async function createClient(input: { code: string; name: string; phone?: string; note?: string; priceMilli?: number | null; openingDebtMinor?: number }): Promise<ClientResult> {
   const response = await request("/api/admin/clients", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -920,7 +944,10 @@ export async function createClient(input: { code: string; name: string; phone?: 
 }
 
 /** The admin changes a client's name, phone, note, or switches them off. The code never changes. */
-export async function changeClient(code: string, change: { name?: string; phone?: string | null; note?: string | null; active?: boolean }): Promise<ClientResult> {
+export async function changeClient(
+  code: string,
+  change: { name?: string; phone?: string | null; note?: string | null; active?: boolean; priceMilli?: number | null; openingDebtMinor?: number },
+): Promise<ClientResult> {
   const response = await request(`/api/admin/clients/${encodeURIComponent(code)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -934,7 +961,7 @@ export type ImportResult =
   | { ok: false; reason: "session-expired" | "forbidden" | "server-error" | "rejected"; repeated?: Array<{ code: string; lines: number[] }>; bad?: Array<{ line: number; code: string }> };
 
 /** A whole list at once: new codes are added, codes already there are left alone. A code twice: nothing is loaded. */
-export async function importClients(clients: Array<{ code: string; name: string; phone?: string }>): Promise<ImportResult> {
+export async function importClients(clients: Array<{ code: string; name: string; phone?: string; priceMilli?: number; openingDebtMinor?: number }>): Promise<ImportResult> {
   const response = await request("/api/admin/clients/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -947,3 +974,208 @@ export async function importClients(clients: Array<{ code: string; name: string;
   const body = (await response.json().catch(() => null)) as { codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
   return { ok: false, reason: "rejected", repeated: body?.codes, bad: body?.rows };
 }
+
+// ---- Groupage: the warehouses, the trips and the cargo on them ----
+
+import type { TripStatus } from "./cargo";
+
+/** A warehouse where cargo is put on the trucks, as the server names it (the settings of its installation). */
+export type Warehouse = { id: string; label: string };
+
+const WAREHOUSES_KEY = "kassa.warehouses";
+
+function readWarehouses(value: unknown): Warehouse[] | null {
+  if (!Array.isArray(value)) return null;
+  const list: Warehouse[] = [];
+  for (const item of value as Array<Record<string, unknown>>) {
+    if (typeof item?.id !== "string" || typeof item.label !== "string") return null;
+    list.push({ id: item.id, label: item.label });
+  }
+  return list;
+}
+
+/**
+ * The warehouses of the business: with none it keeps no trips, and the app has no section «Сборные грузы». The last
+ * answer is kept on the phone, so that the menu is the same at once on the next visit. Never throws: a server that
+ * does not know the question (an older version) has none, and without a connection the ones kept are used.
+ */
+export async function fetchWarehouses(): Promise<Warehouse[]> {
+  try {
+    const response = await request("/api/warehouses", undefined, 5_000);
+    const warehouses = response.ok ? readWarehouses(((await response.json()) as { warehouses?: unknown }).warehouses) : response.status === 404 ? [] : null;
+    if (warehouses) {
+      try {
+        localStorage.setItem(WAREHOUSES_KEY, JSON.stringify(warehouses));
+      } catch {
+        // not kept; the next visit asks again
+      }
+      return warehouses;
+    }
+  } catch {
+    // no connection: what the phone kept
+  }
+  try {
+    return readWarehouses(JSON.parse(localStorage.getItem(WAREHOUSES_KEY) ?? "null")) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** A trip: a truck, and what is on it. Days are YYYY-MM-DD, the weight is grams, the money cents of a dollar. */
+export type Trip = {
+  number: number;
+  driverName: string | null;
+  driverPhone: string | null;
+  truckPlates: string | null;
+  note: string | null;
+  departureDay: string | null;
+  arrivalDay: string | null;
+  status: TripStatus;
+  lines: number;
+  bags: number;
+  weightG: number;
+  amountMinor: number;
+};
+
+/** A line of the waybill of a trip: the goods of one client, put on at one warehouse. */
+export type CargoLine = {
+  id: string;
+  warehouse: string;
+  clientCode: string;
+  clientName: string;
+  sender: string | null;
+  receiverPhone: string | null;
+  item: string | null;
+  brand: string | null;
+  size: string | null;
+  bags: number | null;
+  perBag: number | null;
+  pieces: number | null;
+  weightG: number;
+  /** The price of a kilogram, thousandths of a dollar. */
+  priceMilli: number;
+  amountMinor: number;
+  note: string | null;
+  createdAt: string;
+  author: string;
+  /** The person who is signed in may correct the line and take it off. */
+  mine: boolean;
+};
+
+export type TripDetail = {
+  trip: Trip;
+  cargo: CargoLine[];
+  /** What each client has on the truck, and what they owe in all (the cash book counted in). */
+  clients: Array<{ code: string; name: string; bags: number; weightG: number; amountMinor: number; debtMinor: number }>;
+  /** What the person who is signed in may do with this trip. */
+  may: { edit: boolean; warehouses: string[]; forward: TripStatus | null; back: TripStatus | null; admin: boolean; remove: boolean };
+  /** For the owner and the admin: what the cash desk spent on the trip, and what is left of its cargo after that. */
+  money?: { expenseMinor: number; profitMinor: number };
+};
+
+export type TripsPage = { trips: Trip[]; nextBefore: number | null; nextNumber: number; mayCreate: boolean };
+
+/** The trips, the newest number first. */
+export async function fetchTrips(before?: number): Promise<TripsPage> {
+  const response = await request(before === undefined ? "/api/trips" : `/api/trips?${new URLSearchParams({ before: String(before) })}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/trips`);
+  return (await response.json()) as TripsPage;
+}
+
+/** One trip with its waybill; null when there is no such trip (any more). */
+export async function fetchTrip(number: number): Promise<TripDetail | null> {
+  const response = await request(`/api/trips/${number}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/trips/${number}`);
+  return (await response.json()) as TripDetail;
+}
+
+export type TripRefusal =
+  | "session-expired"
+  | "forbidden"
+  | "not-found"
+  /** Another trip has this number. */
+  | "trip-exists"
+  /** The truck has arrived: its waybill is closed to the keepers of the warehouses. */
+  | "trip-arrived"
+  | "trip-has-cargo"
+  | "wrong-status"
+  | "arrival-before-departure"
+  | "unknown-client"
+  /** The client has no price of their own, and the line says none. */
+  | "price-required"
+  | "warehouse-forbidden"
+  | "rejected"
+  | "server-error";
+
+/** What a change of a trip answers: the trip as it is afterwards (none when it was taken away), or why not. */
+export type TripResult = { ok: true; detail: TripDetail | null } | { ok: false; reason: TripRefusal };
+
+const TRIP_REFUSALS: Record<string, TripRefusal> = {
+  trip_exists: "trip-exists",
+  trip_arrived: "trip-arrived",
+  trip_has_cargo: "trip-has-cargo",
+  wrong_status: "wrong-status",
+  not_arrived: "wrong-status",
+  arrival_before_departure: "arrival-before-departure",
+  unknown_client: "unknown-client",
+  price_required: "price-required",
+  warehouse_forbidden: "warehouse-forbidden",
+  cargo_id_conflict: "rejected",
+};
+
+async function tripResult(response: Response): Promise<TripResult> {
+  const body = (await response.json().catch(() => null)) as (Partial<TripDetail> & { error?: string; deleted?: boolean }) | null;
+  if (response.ok) return { ok: true, detail: body?.trip ? (body as TripDetail) : null };
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  const known = body?.error ? TRIP_REFUSALS[body.error] : undefined;
+  if (known) return { ok: false, reason: known };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  return { ok: false, reason: "rejected" };
+}
+
+const sendJson = (path: string, method: string, body?: unknown) =>
+  request(path, { method, ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+
+/** What the header of a trip says: who drives which truck, and when it left. */
+export type TripHeader = { driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; departureDay?: string | null };
+
+export const createTrip = async (input: TripHeader & { number: number }) => tripResult(await sendJson("/api/trips", "POST", input));
+
+/** The header of a trip; its number and the day it arrived are the admin's to put right. */
+export const changeTrip = async (number: number, change: TripHeader & { number?: number; arrivalDay?: string }) =>
+  tripResult(await sendJson(`/api/trips/${number}`, "PATCH", change));
+
+/** The truck left, the truck arrived (on `arrivalDay`: from then on its cargo is owed), or a step back by the admin. */
+export const setTripStatus = async (number: number, status: TripStatus, arrivalDay?: string) =>
+  tripResult(await sendJson(`/api/trips/${number}/status`, "POST", { status, ...(arrivalDay ? { arrivalDay } : {}) }));
+
+export const deleteTrip = async (number: number) => tripResult(await sendJson(`/api/trips/${number}`, "DELETE"));
+
+/** What a line of cargo says. Without a price, the client's own. */
+export type CargoInput = {
+  warehouse: string;
+  clientCode: string;
+  sender?: string | null;
+  receiverPhone?: string | null;
+  item?: string | null;
+  brand?: string | null;
+  size?: string | null;
+  bags?: number | null;
+  perBag?: number | null;
+  pieces?: number | null;
+  weightG: number;
+  priceMilli?: number;
+  note?: string | null;
+};
+
+/** A line onto the waybill. `id` is made here, so that a line sent twice is stored once. */
+export const addCargo = async (number: number, id: string, input: CargoInput) => tripResult(await sendJson(`/api/trips/${number}/cargo`, "POST", { id, ...input }));
+
+export const changeCargo = async (number: number, id: string, input: CargoInput) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "PUT", input));
+
+export const deleteCargo = async (number: number, id: string) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "DELETE"));

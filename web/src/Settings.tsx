@@ -18,6 +18,11 @@ type Props = {
   tabs: readonly SectionKey[];
   onTabsChange: (keys: SectionKey[] | null) => void;
   onOpen: (key: SectionKey) => void;
+  /**
+   * The person keeps a warehouse: what it is called («Коканд», or «Все склады»). Said where a cashier's cash desk is:
+   * the keeper of a warehouse has no cash desk.
+   */
+  warehouse?: string;
   /** Linking Telegram (inside Telegram only). */
   telegram?: ReactNode;
   onLeave: () => void;
@@ -43,7 +48,7 @@ export function Settings(props: Props) {
         <span className="grid min-w-0 gap-0.5">
           <span className="truncate text-[17px] font-semibold">{props.displayName}</span>
           <span className="truncate text-[13px] text-muted-foreground">
-            {props.roleLabel} · {choosable ? "Везде" : labelOf(kassa)} · {props.login}
+            {props.roleLabel} · {props.warehouse ?? (choosable ? "Везде" : labelOf(kassa))} · {props.login}
           </span>
         </span>
       </div>
@@ -90,7 +95,15 @@ export function Settings(props: Props) {
             options={THEME_CHOICES.map((choice) => ({ value: choice, label: choice === "system" ? "Авто" : THEME_LABEL[choice] }))}
           />
         </div>
-        {choosable ? (
+        {props.warehouse !== undefined ? (
+          <div className={cn(row, "justify-between")}>
+            <span className="grid gap-0.5">
+              <span className="font-semibold">Склад</span>
+              <span className="text-[12.5px] text-muted-foreground">Грузы какого склада вы вносите</span>
+            </span>
+            <span className="rounded-full bg-accent px-2.5 py-0.5 text-[12px] font-semibold text-muted-foreground">{props.warehouse}</span>
+          </div>
+        ) : choosable ? (
           <div className={cn(row, "flex-col items-stretch gap-2")}>
             <span className="font-semibold">Касса в журнале и итогах</span>
             {kassas.length > 3 ? (

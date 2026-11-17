@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { changeAccount, createAccount, deleteAccount, fetchAccounts, NetworkError, SessionExpiredError, type Account, type AccountResult, type City, type Role } from "./api";
 import { CitySelect } from "./CitySelect";
 import { useKassa } from "./kassa";
+import { useWarehouses } from "./warehouses";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -19,12 +20,13 @@ type Props = {
   active?: boolean;
 };
 
-const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", head_cashier: "Главный кассир", viewer: "Смотрящий", admin: "Админ" };
+const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", head_cashier: "Главный кассир", viewer: "Смотрящий", admin: "Админ", warehouse: "Завсклад" };
 const ROLE_HINT: Record<Role, string> = {
   cashier: "Кассир: вносит приходы и расходы, правит свои записи.",
   head_cashier: "Главный кассир: всё, что кассир, плюс кнопка «Сверить кассу». Сверяет кассу только он.",
   viewer: "Смотрящий (владелец): видит журнал, итоги, сверки, ведёт категории. Ничего не вносит.",
   admin: "Админ: вносит записи, видит всё, что смотрящий, ведёт пользователей. Кассу не сверяет.",
+  warehouse: "Завсклад: вносит грузы своего склада в рейсы («Сборные грузы»). Кассу, журнал и остатки не видит.",
 };
 
 const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> = {
@@ -35,6 +37,7 @@ const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> =
   "bad-login": "Логин: от 2 до 64 знаков, буквы, цифры, точка, дефис, подчёркивание, без пробелов.",
   "bad-password": "Пароль: не короче 8 знаков.",
   "bad-name": "Имя не должно быть пустым.",
+  "bad-city": "Город не подходит к роли: завскладу выбирают склад, остальным кассу.",
   self: "Себя нельзя отключить, удалить или лишить роли админа.",
   "has-entries": "У этого человека есть записи в журнале: удалить нельзя, только отключить.",
   rejected: "Проверьте поля: что-то заполнено неверно.",
@@ -47,6 +50,7 @@ const WHY_NOT: Record<Extract<AccountResult, { ok: false }>["reason"], string> =
  */
 export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
   const { labelOf } = useKassa();
+  const { labelOf: warehouseLabel } = useWarehouses();
   // null: loading, undefined: did not load.
   const [users, setUsers] = useState<Account[] | null | undefined>(null);
   const [busy, setBusy] = useState(false);
@@ -165,7 +169,7 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
                         </Badge>
                         {user.city && (
                           <Badge variant="secondary" className="text-xs font-medium">
-                            {labelOf(user.city)}
+                            {user.role === "warehouse" ? warehouseLabel(user.city) : labelOf(user.city)}
                           </Badge>
                         )}
                         {!user.active && (
@@ -202,6 +206,9 @@ export function UsersAdmin({ me, onSessionExpired, active = true }: Props) {
 }
 
 function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role: Role) => void; disabled?: boolean }) {
+  // The keeper of a warehouse is a role of a business that keeps trips; elsewhere it is not offered.
+  const { enabled: keepsTrips } = useWarehouses();
+  const roles: Role[] = ["cashier", "head_cashier", "viewer", "admin", ...(keepsTrips || value === "warehouse" ? (["warehouse"] as const) : [])];
   return (
     <Label>
       Роль
@@ -210,12 +217,51 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
         value={value}
         disabled={disabled}
         onChange={(next) => onChange(next as Role)}
-        options={(["cashier", "head_cashier", "viewer", "admin"] as const).map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
+        options={roles.map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
       />
       <span className="text-sm font-normal text-muted-foreground">{disabled ? "Свою роль админ не меняет." : ROLE_HINT[value]}</span>
     </Label>
   );
 }
+
+/**
+ * Where a person works: the keeper of a warehouse at one of the warehouses (or at any of them), anybody else in the
+ * city of a cash desk (or everywhere).
+ */
+function PlaceField({ role, value, onChange }: { role: Role; value: City | null; onChange: (city: City | null) => void }) {
+  const { warehouses } = useWarehouses();
+  if (role !== "warehouse") {
+    return (
+      <Label>
+        <span>
+          Город <LabelNote>(для отчётов и 1С)</LabelNote>
+        </span>
+        <CitySelect name="city" value={value} onChange={onChange} />
+      </Label>
+    );
+  }
+  return (
+    <Label>
+      <span>
+        Склад <LabelNote>(грузы какого склада вносит)</LabelNote>
+      </span>
+      <Select
+        name="city"
+        value={value ?? ""}
+        onChange={(next) => onChange(next || null)}
+        options={[
+          { value: "", label: "Все склады" },
+          ...warehouses.map((item) => ({ value: item.id, label: item.label })),
+          // A warehouse the business does not have any more is still shown as what it is, until another is chosen.
+          ...(value && !warehouses.some((item) => item.id === value) ? [{ value, label: value }] : []),
+        ]}
+      />
+    </Label>
+  );
+}
+
+/** A person who goes from the cash to a warehouse, or back, has no place there yet: the city they had is of the other kind. */
+const sameKind = (a: Role, b: Role) => (a === "warehouse") === (b === "warehouse");
 
 type Change = { login?: string; displayName?: string; role?: Role; password?: string; city?: City | null };
 
@@ -267,13 +313,15 @@ function EditAccount({
         Логин
         <Input name="login" autoComplete="off" autoCapitalize="none" maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
       </Label>
-      <RoleField value={role} onChange={setRole} disabled={self} />
-      <Label>
-        <span>
-          Город <LabelNote>(для отчётов и 1С)</LabelNote>
-        </span>
-        <CitySelect name="city" value={city} onChange={setCity} />
-      </Label>
+      <RoleField
+        value={role}
+        onChange={(next) => {
+          if (!sameKind(next, role)) setCity(null);
+          setRole(next);
+        }}
+        disabled={self}
+      />
+      <PlaceField role={role} value={city} onChange={setCity} />
       <Label>
         <span>
           Новый пароль <LabelNote>(пусто: не менять)</LabelNote>
@@ -387,13 +435,14 @@ function NewAccount({
             <Input name="password" type="text" autoComplete="new-password" autoCapitalize="none" minLength={8} maxLength={256} required value={password} onChange={(event) => setPassword(event.target.value)} />
             <span className="text-sm font-normal text-muted-foreground">Не короче 8 знаков.</span>
           </Label>
-          <RoleField value={role} onChange={setRole} />
-          <Label>
-            <span>
-              Город <LabelNote>(для отчётов и 1С)</LabelNote>
-            </span>
-            <CitySelect name="city" value={city} onChange={setCity} />
-          </Label>
+          <RoleField
+            value={role}
+            onChange={(next) => {
+              if (!sameKind(next, role)) setCity(null);
+              setRole(next);
+            }}
+          />
+          <PlaceField role={role} value={city} onChange={setCity} />
           {error && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
               {error}

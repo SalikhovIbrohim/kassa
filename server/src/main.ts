@@ -24,6 +24,7 @@ const app = await buildApp({
   trustProxy: config.trustProxy,
   kassas: config.kassas,
   clientCodes: config.clientCodes,
+  warehouses: config.warehouses,
   telegramBotToken: config.telegramBotToken,
   telegramGroupChatId: config.telegramGroupChatId,
   telegramIncomeThreadId: config.telegramIncomeThreadId,

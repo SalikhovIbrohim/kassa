@@ -7,6 +7,7 @@ import { clientCodeOf } from "./onec-pko.js";
 import type { OneCSettings } from "./onec-api.js";
 import { cashDayStart } from "./cash-day.js";
 import { readServiceAccountKey, type SheetSettings } from "./sheets-api.js";
+import { parseWarehouses, type Warehouses } from "./warehouses.js";
 
 export type Config = {
   host: string;
@@ -26,6 +27,8 @@ export type Config = {
   kassas: Kassas;
   /** How the business writes the codes of its clients (`CLIENT_CODES`): «А707» unless set, or digits alone. */
   clientCodes: ClientCodes;
+  /** The warehouses where cargo is put on the trucks (`WAREHOUSES`). None unless set: then the business keeps no trips. */
+  warehouses: Warehouses;
   /** The Telegram bot of the Mini App. Unset: signing in inside Telegram is off. */
   telegramBotToken: string | undefined;
   /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
@@ -121,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
     kassas,
     clientCodes: parseClientCodes(env.CLIENT_CODES),
+    warehouses: parseWarehouses(env.WAREHOUSES),
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
     telegramGroupChatId: groupChatId,
     telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),

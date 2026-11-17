@@ -8,7 +8,9 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { Input } from "@/components/ui/input";
 import { Label, LabelNote } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { clientsOfCsv } from "./clients-csv";
+import { debtWords, formatDebtInput, formatPrice, formatUsd, parseDebtInput, parsePriceInput } from "./cargo";
+import { clientsOfCsv, clientsWithDebtsOfCsv } from "./clients-csv";
+import { useWarehouses } from "./warehouses";
 
 type Props = {
   /** The admin changes clients and loads lists; the owner only looks. */
@@ -47,6 +49,9 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   // How a code is written in this business: the server says it with the list.
   const [codes, setCodes] = useState<ClientCodes>("letter");
   const digits = codes === "digits";
+  // Where the business keeps trips, a client has a price for a kilogram and a debt, and the list says them.
+  const { enabled: keepsTrips } = useWarehouses();
+  const [debtorsOnly, setDebtorsOnly] = useState(false);
 
   const load = useCallback(() => {
     fetchClientDirectory("", { all: true }).then(
@@ -67,9 +72,16 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
 
   const shown = useMemo(() => {
     const typed = search.trim().toLowerCase().replace(/^a/, "а");
-    if (!clients || typed === "") return clients;
-    return clients.filter((client) => client.code.toLowerCase().startsWith(typed) || client.name.toLowerCase().includes(typed) || (client.phone ?? "").includes(typed));
-  }, [clients, search]);
+    if (!clients) return clients;
+    return clients.filter(
+      (client) =>
+        (!debtorsOnly || (client.debtMinor ?? 0) > 0) &&
+        (typed === "" || client.code.toLowerCase().startsWith(typed) || client.name.toLowerCase().includes(typed) || (client.phone ?? "").includes(typed)),
+    );
+  }, [clients, search, debtorsOnly]);
+  // What all the clients owe together, and what was paid ahead: two sums, never one netted against the other.
+  const owed = useMemo(() => (clients ?? []).reduce((sum, client) => sum + Math.max(client.debtMinor ?? 0, 0), 0), [clients]);
+  const ahead = useMemo(() => (clients ?? []).reduce((sum, client) => sum + Math.max(-(client.debtMinor ?? 0), 0), 0), [clients]);
 
   async function apply(work: () => Promise<ClientResult>, success: string): Promise<boolean> {
     if (busy) return false;
@@ -106,9 +118,10 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
               onOpen={() => setError(null)}
               onCreate={(input) => apply(() => createClient(input), `Добавлен клиент ${input.code}${input.name ? ` ${input.name}` : ""}.`)}
               codes={codes}
+              keepsTrips={keepsTrips}
             />
           )}
-          {canEdit && <ImportClients codes={codes} onDone={(text) => (setDone(text), load())} onSessionExpired={onSessionExpired} />}
+          {canEdit && <ImportClients codes={codes} keepsTrips={keepsTrips} onDone={(text) => (setDone(text), load())} onSessionExpired={onSessionExpired} />}
           <Button type="button" variant="outline" size="sm" onClick={load}>
             Обновить
           </Button>
@@ -117,6 +130,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
       <p className="hint">
         У каждого клиента свой код ({digits ? "707, 34-2" : "А707, А34-2"}), имена могут повторяться. В приходе клиента выбирают из этого списка. Клиента не удаляют, а отключают: старые записи
         продолжают его называть.
+        {keepsTrips && " Долг клиента это его грузы в прибывших рейсах минус его оплаты в кассе (и то, что он был должен на старте)."}
       </p>
 
       <Label>
@@ -145,14 +159,30 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
       {shown && (
         <>
           <p className="hint" data-count>
-            {search.trim() ? `Найдено: ${shown.length} из ${clients!.length}` : `Всего клиентов: ${shown.length}`}
+            {search.trim() || debtorsOnly ? `Найдено: ${shown.length} из ${clients!.length}` : `Всего клиентов: ${shown.length}`}
           </p>
+          {keepsTrips && (
+            <div className="glass-card flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg px-4 py-3" data-debts>
+              <span>
+                Должны всего: <strong className="tabular-nums text-destructive">{formatUsd(owed)}</strong>
+              </span>
+              {ahead > 0 && (
+                <span>
+                  Предоплаты: <strong className="tabular-nums text-success">{formatUsd(ahead)}</strong>
+                </span>
+              )}
+              <Button type="button" variant={debtorsOnly ? "default" : "outline"} size="sm" className="ml-auto" aria-pressed={debtorsOnly} onClick={() => setDebtorsOnly((only) => !only)}>
+                Только должники
+              </Button>
+            </div>
+          )}
           <ul className="glass-card divide-y overflow-hidden rounded-[26px]">
             {shown.map((client) => (
               <li key={client.code} className={cn("flex flex-col gap-3 px-3 py-2 transition-colors", editing !== client.code && "hover:bg-muted/60")} data-client={client.code}>
                 {editing === client.code ? (
                   <EditClient
                     client={client}
+                    keepsTrips={keepsTrips}
                     busy={busy}
                     onCancel={() => setEditing(null)}
                     onSave={(change) => apply(() => changeClient(client.code, change), "Сохранено.")}
@@ -167,12 +197,20 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
                       <span className={cn("font-medium", !client.active && "text-muted-foreground line-through")}>{client.name || "без имени"}</span>
                       {client.phone && <span className="text-sm text-muted-foreground">{client.phone}</span>}
                       {client.note && <span className="text-sm text-muted-foreground">{client.note}</span>}
+                      {keepsTrips && client.priceMilli !== undefined && client.priceMilli !== null && (
+                        <span className="text-sm text-muted-foreground tabular-nums">{formatPrice(client.priceMilli)} $/кг</span>
+                      )}
                       {!client.active && (
                         <Badge variant="destructive" className="text-xs font-medium">
                           отключён
                         </Badge>
                       )}
                     </span>
+                    {keepsTrips && client.debtMinor !== undefined && client.debtMinor !== 0 && (
+                      <span className={cn("shrink-0 text-right text-sm font-semibold tabular-nums", client.debtMinor > 0 ? "text-destructive" : "text-success")} data-debt>
+                        {debtWords(client.debtMinor).text}
+                      </span>
+                    )}
                     {canEdit && (
                       <Button
                         type="button"
@@ -201,20 +239,47 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   );
 }
 
-type Change = { name?: string; phone?: string | null; note?: string | null };
+type Change = { name?: string; phone?: string | null; note?: string | null; priceMilli?: number | null; openingDebtMinor?: number };
 
-/** The name, the phone and the note of one client; the code stays (the entries and 1C know them by it). */
-function EditClient({ client, busy, onCancel, onSave, onToggle }: { client: Client; busy: boolean; onCancel: () => void; onSave: (change: Change) => Promise<boolean>; onToggle: () => void }) {
+/**
+ * The name, the phone and the note of one client; the code stays (the entries and 1C know them by it). Where the
+ * business keeps trips, also what a kilogram costs the client and what they owed at the start.
+ */
+function EditClient({
+  client,
+  keepsTrips,
+  busy,
+  onCancel,
+  onSave,
+  onToggle,
+}: {
+  client: Client;
+  keepsTrips: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (change: Change) => Promise<boolean>;
+  onToggle: () => void;
+}) {
   const [name, setName] = useState(client.name);
   const [phone, setPhone] = useState(client.phone ?? "");
   const [note, setNote] = useState(client.note ?? "");
+  const [price, setPrice] = useState(client.priceMilli === undefined || client.priceMilli === null ? "" : formatPrice(client.priceMilli));
+  const [openingDebt, setOpeningDebt] = useState(formatDebtInput(client.openingDebtMinor ?? 0));
+  const [problem, setProblem] = useState<string | null>(null);
 
   function save(event: FormEvent) {
     event.preventDefault();
+    setProblem(null);
+    const priceMilli = price.trim() === "" ? null : parsePriceInput(price);
+    const openingDebtMinor = parseDebtInput(openingDebt);
+    if (keepsTrips && price.trim() !== "" && priceMilli === null) return setProblem("Цена за кг: число, например 1,5 или 1,55.");
+    if (keepsTrips && openingDebtMinor === null) return setProblem("Начальный долг: сумма в долларах, например 1200,50; предоплата со знаком минус.");
     const change: Change = {
       ...(name.trim() === client.name ? {} : { name: name.trim() }),
       ...(phone.trim() === (client.phone ?? "") ? {} : { phone: phone.trim() || null }),
       ...(note.trim() === (client.note ?? "") ? {} : { note: note.trim() || null }),
+      ...(keepsTrips && priceMilli !== (client.priceMilli ?? null) ? { priceMilli } : {}),
+      ...(keepsTrips && openingDebtMinor !== null && openingDebtMinor !== (client.openingDebtMinor ?? 0) ? { openingDebtMinor } : {}),
     };
     if (Object.keys(change).length === 0) onCancel();
     else void onSave(change);
@@ -235,6 +300,34 @@ function EditClient({ client, busy, onCancel, onSave, onToggle }: { client: Clie
         Заметка
         <Input name="note" autoComplete="off" maxLength={500} value={note} onChange={(event) => setNote(event.target.value)} />
       </Label>
+      {keepsTrips && (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Label>
+              <span>
+                Цена за кг <LabelNote>$</LabelNote>
+              </span>
+              <Input name="price" inputMode="decimal" autoComplete="off" maxLength={9} placeholder="1,5" value={price} onChange={(event) => setPrice(event.target.value)} />
+            </Label>
+            <Label>
+              <span>
+                Начальный долг <LabelNote>$</LabelNote>
+              </span>
+              <Input name="openingDebt" inputMode="decimal" autoComplete="off" maxLength={14} value={openingDebt} onChange={(event) => setOpeningDebt(event.target.value)} />
+            </Label>
+          </div>
+          <p className="text-sm text-muted-foreground" data-debt-parts>
+            Начальный долг это сколько клиент был должен, когда рейсы начали вести здесь (предоплата со знаком минус). Сейчас: начислено по прибывшим рейсам{" "}
+            <span className="tabular-nums">{formatUsd(client.chargedMinor ?? 0)}</span>, оплачено в кассе <span className="tabular-nums">{formatUsd(client.paidMinor ?? 0)}</span>,{" "}
+            <strong>{debtWords(client.debtMinor ?? 0).text}</strong>.
+          </p>
+        </>
+      )}
+      {problem && (
+        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+          {problem}
+        </p>
+      )}
       <div className="queue-actions">
         <Button type="submit" disabled={busy}>
           Сохранить
@@ -259,25 +352,33 @@ function NewClient({
   onOpen,
   onCreate,
   codes,
+  keepsTrips,
 }: {
   busy: boolean;
   error: string | null;
   onOpen: () => void;
-  onCreate: (input: { code: string; name: string; phone?: string }) => Promise<boolean>;
+  onCreate: (input: { code: string; name: string; phone?: string; priceMilli?: number }) => Promise<boolean>;
   codes: ClientCodes;
+  keepsTrips: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [price, setPrice] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
 
   async function add(event: FormEvent) {
     event.preventDefault();
     event.stopPropagation();
-    if (await onCreate({ code: code.trim(), name: name.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}) })) {
+    setProblem(null);
+    const priceMilli = price.trim() === "" ? null : parsePriceInput(price);
+    if (keepsTrips && price.trim() !== "" && priceMilli === null) return setProblem("Цена за кг: число, например 1,5 или 1,55.");
+    if (await onCreate({ code: code.trim(), name: name.trim(), ...(phone.trim() ? { phone: phone.trim() } : {}), ...(keepsTrips && priceMilli !== null ? { priceMilli } : {}) })) {
       setCode("");
       setName("");
       setPhone("");
+      setPrice("");
       setOpen(false);
     }
   }
@@ -315,9 +416,17 @@ function NewClient({
             </span>
             <Input name="phone" type="tel" autoComplete="off" maxLength={100} value={phone} onChange={(event) => setPhone(event.target.value)} />
           </Label>
-          {error && (
+          {keepsTrips && (
+            <Label>
+              <span>
+                Цена за кг, $ <LabelNote>(подставляется в грузы клиента)</LabelNote>
+              </span>
+              <Input name="price" inputMode="decimal" autoComplete="off" maxLength={9} placeholder="1,5" value={price} onChange={(event) => setPrice(event.target.value)} />
+            </Label>
+          )}
+          {(problem ?? error) && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
-              {error}
+              {problem ?? error}
             </p>
           )}
           <div className="queue-actions">
@@ -337,14 +446,21 @@ function NewClient({
 }
 
 /** «Загрузить список»: the admin picks a CSV file (code, name, phone) and the new codes of it are added. */
-function ImportClients({ codes, onDone, onSessionExpired }: { codes: ClientCodes; onDone: (text: string) => void; onSessionExpired: () => void }) {
+function ImportClients({ codes, keepsTrips, onDone, onSessionExpired }: { codes: ClientCodes; keepsTrips: boolean; onDone: (text: string) => void; onSessionExpired: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load(file: File) {
     setProblem(null);
-    const clients = clientsOfCsv(await file.text(), codes);
+    // Where the business keeps trips, a line may also say the price of a kilogram and what the client owed at the start.
+    const read = keepsTrips ? clientsWithDebtsOfCsv(await file.text(), codes) : { clients: clientsOfCsv(await file.text(), codes), bad: [] };
+    if (read.bad.length > 0) {
+      setProblem(`Ничего не загружено: в строках ${read.bad.join(", ")} цена за кг или начальный долг не число. Цена как 1,5, долг как 1200,50 (предоплата со знаком минус).`);
+      if (input.current) input.current.value = "";
+      return;
+    }
+    const clients = read.clients;
     if (clients.length === 0) {
       setProblem(`В файле нет ни одного клиента: нужны строки вида «${codes === "digits" ? "707" : "А707"},Карим,телефон».`);
       return;

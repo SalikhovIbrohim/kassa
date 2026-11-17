@@ -183,7 +183,8 @@ export function IncomeForm({
 
       <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+      {/* Where the business keeps trips, what the client owes is said under the code: the cashier sees it before taking the money. */}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside debt />}
 
       <TripFields
         needsTrip={needsTrip}

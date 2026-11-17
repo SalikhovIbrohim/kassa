@@ -130,7 +130,7 @@ describe("the admin role", () => {
 
     await expect(started.admin.setRole("ivan", "boss")).rejects.toThrow(AdminError);
     await expect(started.admin.setRole("nobody", "admin")).rejects.toThrow(/No user with login "nobody"/);
-    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "head_cashier", "admin" or "viewer/);
+    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "head_cashier", "admin", "viewer" or "warehouse/);
   });
 
   it("takes an entry from a phone that was offline and still names a shift: the shifts are gone, the entry is not refused", async () => {

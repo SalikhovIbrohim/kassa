@@ -6,11 +6,14 @@ import type { Kassa, Kassas } from "./kassa.js";
 import { hashPassword } from "./passwords.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
 import { cleanText } from "./text.js";
+import { NO_WAREHOUSES, type Warehouses } from "./warehouses.js";
 
 export type UserAdminOptions = {
   pool: pg.Pool;
   /** The cash desks of the installation: the city of a person is one of them, or none (everywhere). */
   kassas: Kassas;
+  /** The warehouses of the installation: the city of the keeper of a warehouse is one of them, or none (any warehouse). */
+  warehouses?: Warehouses;
 };
 
 type City = Kassa;
@@ -21,7 +24,10 @@ const USER_SELECT = `SELECT u.id, u.login, u.display_name, u.role, u.city, u.act
        (EXISTS (SELECT 1 FROM operations o WHERE o.author_id = u.id OR o.deleted_by = u.id)
         OR EXISTS (SELECT 1 FROM operation_changes c WHERE c.changed_by = u.id)
         OR EXISTS (SELECT 1 FROM reconciliations r WHERE r.made_by = u.id)
-        OR EXISTS (SELECT 1 FROM shifts s WHERE s.cashier_id = u.id OR s.closed_by = u.id)) AS has_entries
+        OR EXISTS (SELECT 1 FROM shifts s WHERE s.cashier_id = u.id OR s.closed_by = u.id)
+        OR EXISTS (SELECT 1 FROM trips t WHERE t.created_by = u.id OR t.deleted_by = u.id)
+        OR EXISTS (SELECT 1 FROM trip_cargo g WHERE g.created_by = u.id OR g.deleted_by = u.id)
+        OR EXISTS (SELECT 1 FROM trip_changes h WHERE h.changed_by = u.id)) AS has_entries
   FROM users u`;
 
 const toUser = (row: UserRow) => ({
@@ -65,9 +71,22 @@ function badInput(input: { login?: string; password?: string }): string | null {
  * away his own role, block or delete himself, so that the desk is never left without an admin.
  */
 export async function registerUserAdmin(app: FastifyInstance, options: UserAdminOptions) {
-  const { pool } = options;
-  const { cityProperty } = options.kassas;
+  const { pool, kassas } = options;
+  const warehouses = options.warehouses ?? NO_WAREHOUSES;
+  // A city is a cash desk or, of the keeper of a warehouse, a warehouse: which of the two, the role says (see `badPlace`).
+  const cityProperty = { type: ["string", "null"], enum: [...new Set([...kassas.ids, ...warehouses.ids]), null] } as const;
   const admin = [app.authenticate, app.requireRole("admin")];
+  /**
+   * Says what is wrong with a role and a city together, or nothing. The keeper of a warehouse is a role of a business
+   * that keeps trips, and their city is one of its warehouses; the city of anybody else is one of the cash desks.
+   */
+  const badPlace = (role: Role, city: City | null): string | null => {
+    if (role === "warehouse") {
+      if (!warehouses.enabled) return "bad_role";
+      return city === null || warehouses.has(city) ? null : "bad_city";
+    }
+    return city === null || kassas.has(city) ? null : "bad_city";
+  };
   const params = { type: "object", required: ["id"], properties: { id: UUID } } as const;
 
   const readUser = async (client: pg.Pool | pg.ClientBase, id: string) =>
@@ -94,7 +113,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
     },
     async (request, reply) => {
       const login = request.body.login.trim();
-      const problem = badInput({ login, password: request.body.password });
+      const problem = badInput({ login, password: request.body.password }) ?? badPlace(request.body.role, request.body.city ?? null);
       if (problem) return reply.code(400).send({ error: problem });
       const displayName = cleanText(request.body.displayName ?? "") || login;
       const passwordHash = await hashPassword(request.body.password);
@@ -143,6 +162,16 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
         const result = await inTransaction(pool, async (client) => {
           const before = await readUser(client, id);
           if (!before) return null;
+          // The role and the city as they would be. A city is looked at when it is sent, and when the person goes
+          // from the cash to a warehouse or back (their city is then a place of the other kind); a city that stays
+          // with the same kind of role is left as it is (a desk taken out of the settings since).
+          const role = body.role ?? before.role;
+          const city = body.city !== undefined ? body.city : before.city;
+          if (body.role === "warehouse" && !warehouses.enabled) return "bad_role";
+          if (body.city !== undefined || (role === "warehouse") !== (before.role === "warehouse")) {
+            const place = badPlace(role, city);
+            if (place) return place;
+          }
           await client.query(
             `UPDATE users SET login = COALESCE($2, login), display_name = COALESCE($3, display_name), role = COALESCE($4, role),
                     password_hash = COALESCE($5, password_hash), active = COALESCE($6, active),
@@ -155,6 +184,7 @@ export async function registerUserAdmin(app: FastifyInstance, options: UserAdmin
           return readUser(client, id);
         });
         if (!result) return reply.code(404).send({ error: "not_found" });
+        if (typeof result === "string") return reply.code(400).send({ error: result });
         return { user: toUser(result) };
       } catch (error) {
         if (codeOf(error) === UNIQUE_VIOLATION) return reply.code(409).send({ error: "login_taken" });

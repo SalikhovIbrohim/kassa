@@ -159,7 +159,7 @@ export function ExpenseForm({
         onReload={onReloadCategories}
       />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside debt />}
 
       <TripFields
         needsTrip={needsTrip}

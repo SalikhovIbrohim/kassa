@@ -1,10 +1,12 @@
 import { DEFAULT_KASSAS, KassaProvider, useKassa, type KassaInfo } from "./kassa";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  entersCash,
   fetchBalances,
   fetchCategories,
   fetchCurrentUser,
   fetchKassas,
+  fetchWarehouses,
   keptKassas,
   loginWithTelegram,
   logOut,
@@ -14,6 +16,7 @@ import {
   type Operation,
   type Role,
   type User,
+  type Warehouse,
 } from "./api";
 import { BalanceNotes, BalanceStrip, ScopeBalances, ScopeSwitch, type BalancesState } from "./Balances";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,8 @@ import { sectionsOf, useTabs, type SectionKey } from "./sections";
 import { toast } from "@/components/ui/toast";
 import { Shell } from "./Shell";
 import { TelegramLink } from "./TelegramLink";
+import { Trips } from "./Trips";
+import { useWarehouses, WarehousesProvider } from "./warehouses";
 import { inTelegram, startTelegram, telegramLaunchData, useTelegramBackButton, useTelegramClosingConfirmation } from "./telegram";
 import { focusWhenShown } from "./focus-when-shown";
 import { alertVariants } from "@/components/ui/alert";
@@ -44,14 +49,18 @@ type State =
   | { kind: "loading" }
   | { kind: "unreachable" }
   | { kind: "logged-out" }
-  /** `desks`: the cash desks of the business, and whether the server said them now (`fresh`) or the phone remembered them. */
-  | { kind: "logged-in"; user: User; desks: { kassas: readonly KassaInfo[]; fresh: boolean } };
+  /**
+   * `desks`: the cash desks of the business, and whether the server said them now (`fresh`) or the phone remembered them.
+   * `warehouses`: where the business puts cargo on its trucks; none, and the app is the cash desk alone.
+   */
+  | { kind: "logged-in"; user: User; desks: { kassas: readonly KassaInfo[]; fresh: boolean }; warehouses: readonly Warehouse[] };
 
 const ROLE_LABEL: Record<Role, string> = {
   cashier: "Кассир",
   head_cashier: "Главный кассир",
   admin: "Админ",
   viewer: "Смотрящий",
+  warehouse: "Завсклад",
 };
 
 export function App() {
@@ -67,6 +76,7 @@ export function App() {
     setState({ kind: "loading" });
     // Asked together with who is signed in, so that the app opens no later than it did before it asked.
     const desksAsked = fetchKassas();
+    const warehousesAsked = fetchWarehouses();
     // Signed in only now (inside Telegram): there was no session yet when the desks were asked for.
     let signedInNow = false;
     fetchCurrentUser()
@@ -102,16 +112,19 @@ export function App() {
         // later (see `KassaProvider`): the app does not wait twice.
         let desks = await desksAsked;
         if (!desks.fresh && signedInNow) desks = await fetchKassas();
-        setState({ kind: "logged-in", user, desks });
+        // Asked before the sign-in, the warehouses were the ones the phone kept: asked again now.
+        const warehouses = signedInNow ? await fetchWarehouses() : await warehousesAsked;
+        setState({ kind: "logged-in", user, desks, warehouses });
       },
       () => {
         // The server could not be asked. A cashier who was signed in here before can still make
         // entries: they are kept on the phone and go out when the server answers. Whether the
         // session is still alive is found out then. The cash desks are the ones the phone remembers.
         const remembered = rememberedUser();
+        // (The trips need the server: without it the app opens as the cash desk alone.)
         setState(
-          remembered && remembered.role !== "viewer"
-            ? { kind: "logged-in", user: remembered, desks: { kassas: keptKassas() ?? DEFAULT_KASSAS, fresh: false } }
+          remembered && entersCash(remembered.role)
+            ? { kind: "logged-in", user: remembered, desks: { kassas: keptKassas() ?? DEFAULT_KASSAS, fresh: false }, warehouses: [] }
             : { kind: "unreachable" },
         );
       },
@@ -183,7 +196,7 @@ export function App() {
         onLoggedIn={(user) => {
           rememberUser(user);
           setState({ kind: "loading" });
-          void fetchKassas().then((desks) => setState({ kind: "logged-in", user, desks }));
+          void Promise.all([fetchKassas(), fetchWarehouses()]).then(([desks, warehouses]) => setState({ kind: "logged-in", user, desks, warehouses }));
         }}
       />
     );
@@ -191,7 +204,9 @@ export function App() {
 
   return (
     <KassaProvider city={state.user.city} initial={state.desks.kassas} fresh={state.desks.fresh} refresh={fetchKassas}>
-      <SignedIn user={state.user} onLoggedOut={showLoggedOut} />
+      <WarehousesProvider warehouses={state.warehouses}>
+        <SignedIn user={state.user} onLoggedOut={showLoggedOut} />
+      </WarehousesProvider>
     </KassaProvider>
   );
 }
@@ -212,6 +227,8 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   const { kassas, kassa, choosable, currenciesOf } = useKassa();
 
   const loadBalances = useCallback(() => {
+    // The keeper of a warehouse has nothing to do with the cash: no balances are theirs to see.
+    if (user.role === "warehouse") return;
     const mine = ++newest.current;
     setBalances(null);
     fetchBalances(kassa).then(
@@ -225,7 +242,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         else setBalances(caught instanceof NetworkError ? "offline" : undefined);
       },
     );
-  }, [onLoggedOut, kassa]);
+  }, [onLoggedOut, kassa, user.role]);
 
   const showSavedBalances = useCallback(
     (fresh: Balance[]) => {
@@ -250,7 +267,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // A cashier's entries go out under this login, as soon as the connection is there: when the screen
   // opens, when the phone says it is online again, when the app comes back to the front, and after a
   // while by itself (the queue sees to that).
-  const cashier = user.role !== "viewer";
+  const cashier = entersCash(user.role);
   useEffect(() => {
     if (!cashier) return;
     setQueueLogin(user.login);
@@ -286,8 +303,10 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
 
   // One menu for everybody: the sections of the role. On a phone four of them (the person's choice) and «Настройки»
   // are the tab bar; the others open from «Настройки», with the way back.
-  const sections = sectionsOf(user.role);
-  const { tabs, chosen, setChosen } = useTabs(user.role);
+  // «Сборные грузы» is there where the business keeps trips (its server names warehouses).
+  const { enabled: keepsTrips, labelOf: warehouseLabel } = useWarehouses();
+  const sections = sectionsOf(user.role, keepsTrips);
+  const { tabs, chosen, setChosen } = useTabs(user.role, keepsTrips);
   const computer = useComputer();
   const [section, setSection] = useState<SectionKey>(() => tabs[0]!);
   // Every section is made on first use and then stays alive, only hidden: what was typed into a form, the filters of the
@@ -523,6 +542,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           <ReconciliationsList onSessionExpired={onLoggedOut} onRefresh={loadBalances} active={section === "reconciliations"} />
         </>,
       )}
+      {page("trips", <Trips onSessionExpired={onLoggedOut} active={section === "trips"} />)}
       {page("clients", <ClientsAdmin canEdit={user.role === "admin"} onSessionExpired={onLoggedOut} active={section === "clients"} />)}
       {page("categories", <CategoriesAdmin onSessionExpired={onLoggedOut} active={section === "categories"} />)}
       {page("users", <UsersAdmin me={user.login} onSessionExpired={onLoggedOut} active={section === "users"} />)}
@@ -536,6 +556,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           tabs={chosen}
           onTabsChange={setChosen}
           onOpen={open}
+          warehouse={user.role === "warehouse" ? (user.city ? warehouseLabel(user.city) : "Все склады") : undefined}
           telegram={telegram}
           onLeave={() => void leave()}
         />,

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { buildApp, type LoginProtectionOptions } from "../../src/app.js";
 import type { Kassas } from "../../src/kassa.js";
+import type { Warehouses } from "../../src/warehouses.js";
 import { migrate } from "../../src/migrate.js";
 import type { OneCSettings } from "../../src/onec-api.js";
 import type { SheetSettings } from "../../src/sheets-api.js";
@@ -76,6 +77,8 @@ type StartOptions = {
   kassas?: Kassas;
   /** How the business writes the codes of its clients (CLIENT_CODES). */
   clientCodes?: "letter" | "digits";
+  /** The warehouses of the installation (see `parseWarehouses`); none without it, and then no trips. */
+  warehouses?: Warehouses;
   loginProtection?: LoginProtectionOptions;
   /** Gets the server's log lines, for tests that look at what is logged. */
   logStream?: NodeJS.WritableStream;
@@ -164,6 +167,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       trustProxy: options.trustProxy,
       kassas: options.kassas,
       clientCodes: options.clientCodes,
+      warehouses: options.warehouses,
       telegramBotToken: options.telegramBotToken,
       telegramGroupChatId: options.telegramGroupChatId,
       telegramIncomeThreadId: options.telegramIncomeThreadId,

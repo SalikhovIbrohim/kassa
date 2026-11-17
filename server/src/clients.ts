@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import type { Queryable } from "./balances.js";
+import { NO_DEBT, readDebts, type ClientDebt } from "./client-debts.js";
 import { inTransaction } from "./ledger.js";
 import { NO_NUL } from "./schemas.js";
 import { cleanText } from "./text.js";
@@ -9,12 +10,21 @@ export type ClientsOptions = {
   pool: pg.Pool;
   /** How the business writes the codes of its clients: «А707» unless said. */
   codes?: ClientCodes;
+  /**
+   * The business keeps trips (its settings name warehouses, see warehouses.ts): a client then has a price for a
+   * kilogram and a debt, and the directory says them. Without it the directory is as it always was.
+   */
+  cargo?: boolean;
 };
 
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
 
-type ClientRow = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
+/** A client of a business that keeps trips: what a kilogram costs them (thousandths of a dollar), and what they owe. */
+export type ClientWithDebt = Client & { priceMilli: number | null } & ClientDebt;
+
+type ClientRow = { code: string; name: string; phone: string | null; note: string | null; active: boolean; price_milli: number | null };
 const toClient = (row: ClientRow): Client => ({ code: row.code, name: row.name, phone: row.phone, note: row.note, active: row.active });
+const toClientWithDebt = (row: ClientRow, debt: ClientDebt | undefined): ClientWithDebt => ({ ...toClient(row), priceMilli: row.price_milli, ...(debt ?? NO_DEBT) });
 
 /**
  * How a business writes the codes of its clients (CLIENT_CODES in the settings of its installation): the letter А and
@@ -65,10 +75,14 @@ export async function clientOfEntry(db: Queryable, typed: string, keep?: string 
 }
 
 const UNIQUE_VIOLATION = "23505";
-const codeProperty = { type: "string", minLength: 2, maxLength: 20, pattern: NO_NUL } as const;
+// One sign is a code too where the codes are digits alone (the client 3); what is a code, `clientCodeIn` says.
+const codeProperty = { type: "string", minLength: 1, maxLength: 20, pattern: NO_NUL } as const;
 const nameProperty = { type: "string", maxLength: 100, pattern: NO_NUL } as const;
 const optionalText = (max: number) => ({ type: ["string", "null"], maxLength: max, pattern: NO_NUL }) as const;
 const MAX_IMPORT = 5000;
+/** The price of a kilogram in thousandths of a dollar (1,55 $ is 1550), or none; and what a client owed at the start, in cents. */
+const priceProperty = { type: ["integer", "null"], minimum: 0, maximum: 1_000_000 } as const;
+const openingDebtProperty = { type: "integer", minimum: -10_000_000_000, maximum: 10_000_000_000 } as const;
 
 const blankToNull = (text: string | null | undefined) => (text === undefined || text === null ? null : cleanText(text) || null);
 
@@ -79,6 +93,16 @@ const blankToNull = (text: string | null | undefined) => (text === undefined || 
 export async function registerClients(app: FastifyInstance, options: ClientsOptions) {
   const { pool } = options;
   const codes = options.codes ?? "letter";
+  const cargo = options.cargo ?? false;
+  // What only a business that keeps trips sets on a client; any other is refused these fields, as it always was.
+  const cargoProperties = cargo ? { priceMilli: priceProperty, openingDebtMinor: openingDebtProperty } : {};
+  /** The clients as the directory says them: with what each owes where the business keeps trips. */
+  const present = async (db: Queryable, rows: ClientRow[]): Promise<Client[]> => {
+    if (!cargo) return rows.map(toClient);
+    // A few clients are asked for by their codes; the whole list is read whole.
+    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined);
+    return rows.map((row) => toClientWithDebt(row, debts.get(row.code)));
+  };
 
   // A search by the beginning of the code or by a part of the name: the clients whose code starts with what was typed
   // first, then those whose name has it. Without `q`, all of them (the list of «Управление»). Switched off ones only
@@ -87,6 +111,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
     "/api/clients",
     {
       onRequest: app.authenticate,
+      // The keeper of a warehouse names the client of every line of cargo.
+      config: { warehouse: true },
       schema: {
         querystring: {
           type: "object",
@@ -114,11 +140,11 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
         [request.query.all === "1", typed, codePrefix, limit],
       );
       // `codes` tells the screen of the clients how a code is written here (what it says of a code, which lines of a file are clients).
-      return { clients: found.rows.map(toClient), codes };
+      return { clients: await present(pool, found.rows), codes };
     },
   );
 
-  app.post<{ Body: { code: string; name?: string; phone?: string | null; note?: string | null } }>(
+  app.post<{ Body: { code: string; name?: string; phone?: string | null; note?: string | null; priceMilli?: number | null; openingDebtMinor?: number } }>(
     "/api/admin/clients",
     {
       onRequest: [app.authenticate, app.requireRole("admin")],
@@ -127,7 +153,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
           type: "object",
           required: ["code"],
           additionalProperties: false,
-          properties: { code: codeProperty, name: nameProperty, phone: optionalText(100), note: optionalText(500) },
+          properties: { code: codeProperty, name: nameProperty, phone: optionalText(100), note: optionalText(500), ...cargoProperties },
         },
       },
     },
@@ -139,10 +165,10 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       }
       try {
         const made = await pool.query<ClientRow>(
-          "INSERT INTO clients (code, name, phone, note) VALUES ($1, $2, $3, $4) RETURNING *",
-          [code, cleanText(request.body.name ?? ""), blankToNull(request.body.phone), blankToNull(request.body.note)],
+          "INSERT INTO clients (code, name, phone, note, price_milli, opening_debt_minor) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+          [code, cleanText(request.body.name ?? ""), blankToNull(request.body.phone), blankToNull(request.body.note), request.body.priceMilli ?? null, request.body.openingDebtMinor ?? 0],
         );
-        return reply.code(201).send({ client: toClient(made.rows[0]!) });
+        return reply.code(201).send({ client: (await present(pool, made.rows))[0]! });
       } catch (error) {
         if ((error as { code?: string }).code === UNIQUE_VIOLATION) return reply.code(409).send({ error: "client_exists" });
         throw error;
@@ -152,7 +178,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
 
   // The admin changes the name, the phone, the note, or switches a client off (and on again). The code never changes:
   // the entries and 1C know the client by it.
-  app.patch<{ Params: { code: string }; Body: { name?: string; phone?: string | null; note?: string | null; active?: boolean } }>(
+  app.patch<{ Params: { code: string }; Body: { name?: string; phone?: string | null; note?: string | null; active?: boolean; priceMilli?: number | null; openingDebtMinor?: number } }>(
     "/api/admin/clients/:code",
     {
       onRequest: [app.authenticate, app.requireRole("admin")],
@@ -162,7 +188,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
           type: "object",
           additionalProperties: false,
           minProperties: 1,
-          properties: { name: nameProperty, phone: optionalText(100), note: optionalText(500), active: { type: "boolean" } },
+          properties: { name: nameProperty, phone: optionalText(100), note: optionalText(500), active: { type: "boolean" }, ...cargoProperties },
         },
       },
     },
@@ -174,7 +200,9 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
             SET name = COALESCE($2, name),
                 phone = CASE WHEN $3::boolean THEN $4 ELSE phone END,
                 note = CASE WHEN $5::boolean THEN $6 ELSE note END,
-                active = COALESCE($7, active)
+                active = COALESCE($7, active),
+                price_milli = CASE WHEN $8::boolean THEN $9 ELSE price_milli END,
+                opening_debt_minor = COALESCE($10, opening_debt_minor)
           WHERE code = $1 RETURNING *`,
         [
           code,
@@ -184,17 +212,20 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
           body.note !== undefined,
           blankToNull(body.note),
           body.active ?? null,
+          body.priceMilli !== undefined,
+          body.priceMilli ?? null,
+          body.openingDebtMinor ?? null,
         ],
       );
       const row = changed.rows[0];
       if (!row) return reply.code(404).send({ error: "not_found" });
-      return { client: toClient(row) };
+      return { client: (await present(pool, [row]))[0]! };
     },
   );
 
   // A whole list at once (the clients of the old tables): new codes are added, codes already there are left as they
   // are. A code twice in the list is a mistake in the list: nothing is loaded, and the answer says which.
-  app.post<{ Body: { clients: Array<{ code: string; name?: string; phone?: string | null }> } }>(
+  app.post<{ Body: { clients: Array<{ code: string; name?: string; phone?: string | null; priceMilli?: number | null; openingDebtMinor?: number }> } }>(
     "/api/admin/clients/import",
     {
       onRequest: [app.authenticate, app.requireRole("admin")],
@@ -213,7 +244,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
                 type: "object",
                 required: ["code"],
                 additionalProperties: false,
-                properties: { code: codeProperty, name: nameProperty, phone: optionalText(100) },
+                properties: { code: codeProperty, name: nameProperty, phone: optionalText(100), ...cargoProperties },
               },
             },
           },
@@ -221,7 +252,15 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       },
     },
     async (request, reply) => {
-      const rows = request.body.clients.map((item, index) => ({ line: index + 1, code: clientCodeIn(item.code, codes), typed: item.code, name: cleanText(item.name ?? ""), phone: blankToNull(item.phone) }));
+      const rows = request.body.clients.map((item, index) => ({
+        line: index + 1,
+        code: clientCodeIn(item.code, codes),
+        typed: item.code,
+        name: cleanText(item.name ?? ""),
+        phone: blankToNull(item.phone),
+        priceMilli: item.priceMilli ?? null,
+        openingDebtMinor: item.openingDebtMinor ?? 0,
+      }));
       const bad = rows.filter((row) => !row.code).map((row) => ({ line: row.line, code: row.typed }));
       if (bad.length > 0) return reply.code(400).send({ error: "bad_codes", rows: bad });
       const seen = new Map<string, number[]>();
@@ -232,7 +271,10 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       const added = await inTransaction(pool, async (client) => {
         let count = 0;
         for (const row of rows) {
-          const inserted = await client.query("INSERT INTO clients (code, name, phone) VALUES ($1, $2, $3) ON CONFLICT (code) DO NOTHING", [row.code, row.name, row.phone]);
+          const inserted = await client.query(
+            "INSERT INTO clients (code, name, phone, price_milli, opening_debt_minor) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (code) DO NOTHING",
+            [row.code, row.name, row.phone, row.priceMilli, row.openingDebtMinor],
+          );
           count += inserted.rowCount ?? 0;
         }
         return count;
