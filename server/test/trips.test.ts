@@ -531,6 +531,7 @@ describe("the trips", () => {
   describe("with the history of a card file", () => {
     /** A small card file: three clients, two trips of before with sums, payments in two cities, a trip on the road. */
     const history = (): HistoryFile => ({
+      clientCodes: "digits",
       clients: [
         { code: "1", name: "Улугбек", openingDebtMinor: 2_439_800 },
         { code: "132", name: "Иброхим" },
@@ -693,6 +694,8 @@ describe("the trips", () => {
       expect(refused).toBeInstanceOf(AdminError);
       const said = (refused as Error).message;
       for (const part of ["(584): a client has a name", 'clients[4]: "" is not a code', 'trip 67: "2026-02-30" is not the day it arrived', '"kokand" is not a cash desk', '"moscow" is not a warehouse']) expect(said).toContain(part);
+      // A file of codes written another way than this installation writes them: every code would be taken for another.
+      await expect(load(started, { ...history(), clientCodes: "letter" })).rejects.toThrow(/the letter А and digits \(А707\), and this installation writes them as digits alone \(CLIENT_CODES=digits/);
       // Somebody the file and the directory do not have; and a trip that is kept here under the same number.
       const stranger = history();
       stranger.payments.push({ code: "999", day: "2026-03-01", amountMinor: 1_000 });

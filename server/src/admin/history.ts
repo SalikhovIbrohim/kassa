@@ -15,6 +15,11 @@ import { AdminError } from "./users.js";
  * waybills of the trips that are still on the road. Nothing of it is an entry of the cash book.
  */
 export type HistoryFile = {
+  /**
+   * How the codes of the clients of the file are written: «707» (digits) or «А707» (letter). An installation that
+   * writes them the other way would take every code of the file for another code, without a word: it refuses the file.
+   */
+  clientCodes?: ClientCodes;
   clients: Array<{ code: string; name: string; openingDebtMinor?: number }>;
   /** The trips of before, which have arrived: a sum to a client, in millionths of a dollar. */
   trips: Array<{ number: number; arrivalDay: string; sums: Array<{ code: string; amountMicro: number; note?: string | null }> }>;
@@ -98,6 +103,12 @@ export async function importHistory(
     return code ?? "";
   };
   if (!warehouses.enabled) throw new AdminError("The settings name no warehouse (WAREHOUSES): this installation keeps no trips to load a history of.");
+  if (file.clientCodes !== undefined && file.clientCodes !== clientCodes) {
+    throw new AdminError(
+      `The codes of the clients of the history file are ${file.clientCodes === "digits" ? "digits alone (707)" : "the letter А and digits (А707)"}, and this installation writes them ` +
+        `${clientCodes === "digits" ? "as digits alone" : "with the letter А"} (CLIENT_CODES=${clientCodes} in the settings file). Nothing was loaded: is this the settings file of the company the history is of?`,
+    );
+  }
 
   // What the file says, checked before anything is written.
   const clients = (file.clients ?? []).map((item, index) => {

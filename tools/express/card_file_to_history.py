@@ -169,7 +169,8 @@ def read_card(path, names):
         fail(f"these clients have trips or payments and no name: {', '.join(nameless)}. Say their names: --name {nameless[0]}=Имя")
     late = [(code, clients[code]["openingMonth"]) for code in order if clients[code].get("openingMonth", 1) > 1]
     trips = [{"number": trip, "arrivalDay": day, "sums": sums[trip]} for _, trip, day in trip_columns]
-    return {"clients": kept, "trips": trips, "payments": payments, "control": control}, passed_over, late
+    # The codes of this card file are numbers: an installation that writes its codes with a letter refuses the file.
+    return {"clientCodes": "digits", "clients": kept, "trips": trips, "payments": payments, "control": control}, passed_over, late
 
 
 def split_cities(formula, note):
