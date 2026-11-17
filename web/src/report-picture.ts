@@ -70,10 +70,15 @@ box-sizing:border-box;width:100%;margin:0;padding:18px 16px 14px;background:var(
 .dr-hit{fill:transparent}
 `;
 
-/** How a block folds on a narrow screen. The page only: a picture is never narrow. */
+/**
+ * What is the page's alone: how a block folds on a narrow screen, and its colors in the light theme of the app. A
+ * picture is never narrow and is always dark, as the business has always sent it.
+ */
 export const NARROW_CSS = `
 .dr-wrap{container-type:inline-size;container-name:dr;width:100%;max-width:${PICTURE_WIDTH}px}
 .dr-scroll{overflow-x:auto}
+html:not(.dark) .dr-wrap{border:1px solid rgba(14,15,18,.09)}
+html:not(.dark) .dr-wrap .dr-block{--bg:#ffffff;--t1:#0e0f12;--t2:#3d4047;--tm:#6b6e76;--bd:rgba(14,15,18,.09);--bds:rgba(14,15,18,.22);--ok:#1e8a4c;--bad:#d0362c;--acc:#1f6fd0;--accbg:#e3eefc;--wbg:#fbefd9;--w:#9a5a06;--dbg:#fbe1de;--d:#c0291f}
 @container dr (max-width: 700px){
 .dr-block{padding:14px 10px 12px}
 .dr-tiles,.dr-tiles.dr-three{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
