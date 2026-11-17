@@ -1,4 +1,5 @@
 import type { Queryable } from "./balances.js";
+import { cashDayStart } from "./cash-day.js";
 import type { ClientCodes } from "./clients.js";
 import { dayAverageRateSql } from "./ledger.js";
 
@@ -7,13 +8,17 @@ import { dayAverageRateSql } from "./ledger.js";
  * from the trips (what the cargo of the client on the trucks that have arrived comes to) and from the cash book (what
  * the entries that name the client took in and gave back). So the cash desk and the trips can never say two different
  * debts of one client.
+ *
+ * A business whose cash book is older than its trips says the day the debts are counted from (`DEBTS_FROM` in its
+ * settings, see `readDebts`): what a client owed on the morning of that day is their opening debt, and only what
+ * arrived and what was paid from that day on is added to it. Without the day, everything the database has counts.
  */
 export type ClientDebt = {
-  /** What the client owed on the day the trips began to be kept here; less than nothing is money paid ahead. */
+  /** What the client owed when the debts began to be counted here; less than nothing is money paid ahead. */
   openingDebtMinor: number;
-  /** What the cargo of the client comes to on the trips that have arrived. */
+  /** What the cargo of the client comes to on the trips that have arrived (from the day the debts are counted from). */
   chargedMinor: number;
-  /** What the client paid into the cash desks, less what was given back to them. */
+  /** What the client paid into the cash desks, less what was given back to them (from that day too). */
   paidMinor: number;
   /** Opening + charged - paid: more than nothing, the client owes; less, they have paid ahead. */
   debtMinor: number;
@@ -53,7 +58,8 @@ function paidSql(codes: ClientCodes): string {
                               WHEN r.rate IS NOT NULL THEN (2 * o.amount_minor * 10000 + r.rate) / (2 * r.rate) END AS usd
                     FROM operations o
                    CROSS JOIN LATERAL (SELECT COALESCE(o.rate_e4, ${dayAverageRateSql("o")}) AS rate) r
-                   WHERE o.client_code IS NOT NULL AND o.deleted_at IS NULL) named
+                   WHERE o.client_code IS NOT NULL AND o.deleted_at IS NULL
+                     AND ($2::timestamptz IS NULL OR o.created_at >= $2)) named
            WHERE code IS NOT NULL AND usd IS NOT NULL
            GROUP BY code`;
 }
@@ -63,21 +69,26 @@ const CHARGED_SQL = `SELECT client_code AS code, SUM(minor) AS minor
             FROM (SELECT c.client_code, ${centsOfMicroSql("SUM(c.weight_g::numeric * c.price_milli)")} AS minor
                     FROM trip_cargo c JOIN trips t ON t.id = c.trip_id
                    WHERE c.deleted_at IS NULL AND t.deleted_at IS NULL AND t.status = 'arrived'
+                     AND ($3::date IS NULL OR t.arrival_day >= $3)
                    GROUP BY c.client_code, c.trip_id) per_trip
            GROUP BY client_code`;
 
 /**
  * The debts of the clients of the directory, by code: of `only` these, or of all of them. Read in one statement, so
  * the three parts of a debt are of one moment.
+ *
+ * `from` is the day the debts are counted from (YYYY-MM-DD), when the business has said one: an entry of the cash desk
+ * made before that day of the cash desk began, and a trip that arrived before that day, are behind the opening debts
+ * and count for nothing here.
  */
-export async function readDebts(db: Queryable, codes: ClientCodes, only?: readonly string[]): Promise<Map<string, ClientDebt>> {
+export async function readDebts(db: Queryable, codes: ClientCodes, only?: readonly string[], from?: string): Promise<Map<string, ClientDebt>> {
   const found = await db.query<{ code: string; opening: string; charged: string; paid: string }>(
     `SELECT cl.code, cl.opening_debt_minor AS opening, COALESCE(ch.minor, 0) AS charged, COALESCE(p.minor, 0) AS paid
        FROM clients cl
        LEFT JOIN (${CHARGED_SQL}) ch ON ch.code = cl.code
        LEFT JOIN (${paidSql(codes)}) p ON p.code = cl.code
       WHERE $1::text[] IS NULL OR cl.code = ANY($1)`,
-    [only ?? null],
+    [only ?? null, from ? cashDayStart(from) : null, from ?? null],
   );
   return new Map(
     found.rows.map((row) => {

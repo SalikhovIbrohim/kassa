@@ -16,6 +16,8 @@ export type TripsOptions = {
   warehouses: Warehouses;
   /** How the business writes the codes of its clients: «А707» unless said. */
   clientCodes?: ClientCodes;
+  /** The day the debts of the clients are counted from (YYYY-MM-DD), when the business has said one. */
+  debtsFrom?: string;
 };
 
 /** A truck is being loaded, then it is on the road, then it has arrived: from then on its cargo is owed. */
@@ -288,7 +290,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       sum.micro += Number(row.weight_g) * row.price_milli;
       byClient.set(row.client_code, sum);
     }
-    const debts: Map<string, ClientDebt> = byClient.size > 0 ? await readDebts(db, codes, [...byClient.keys()]) : new Map();
+    const debts: Map<string, ClientDebt> = byClient.size > 0 ? await readDebts(db, codes, [...byClient.keys()], options.debtsFrom) : new Map();
     const order = (code: string) => Number(/[0-9]+/.exec(code)?.[0] ?? 0);
     const clients = [...byClient.values()]
       .sort((a, b) => order(a.code) - order(b.code) || a.code.localeCompare(b.code))

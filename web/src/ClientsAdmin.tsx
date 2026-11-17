@@ -8,7 +8,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { Input } from "@/components/ui/input";
 import { Label, LabelNote } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { debtWords, formatDebtInput, formatPrice, formatUsd, parseDebtInput, parsePriceInput } from "./cargo";
+import { debtWords, formatDebtInput, formatPrice, formatTripDay, formatUsd, parseDebtInput, parsePriceInput } from "./cargo";
 import { clientsOfCsv, clientsWithDebtsOfCsv } from "./clients-csv";
 import { useWarehouses } from "./warehouses";
 
@@ -52,12 +52,15 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   // Where the business keeps trips, a client has a price for a kilogram and a debt, and the list says them.
   const { enabled: keepsTrips } = useWarehouses();
   const [debtorsOnly, setDebtorsOnly] = useState(false);
+  // The day the debts are counted from, where the business has said one: what was paid before it is in the opening debts.
+  const [debtsFrom, setDebtsFrom] = useState<string | undefined>(undefined);
 
   const load = useCallback(() => {
     fetchClientDirectory("", { all: true }).then(
       (directory) => {
         setClients(directory.clients);
         setCodes(directory.codes);
+        setDebtsFrom(directory.debtsFrom);
       },
       (caught: unknown) => {
         if (caught instanceof SessionExpiredError) onSessionExpired();
@@ -131,6 +134,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
         У каждого клиента свой код ({digits ? "707, 34-2" : "А707, А34-2"}), имена могут повторяться. В приходе клиента выбирают из этого списка. Клиента не удаляют, а отключают: старые записи
         продолжают его называть.
         {keepsTrips && " Долг клиента это его грузы в прибывших рейсах минус его оплаты в кассе (и то, что он был должен на старте)."}
+        {keepsTrips && debtsFrom && ` Долги считаются с ${formatTripDay(debtsFrom)}: оплаты и рейсы до этого дня уже учтены в начальном долге.`}
       </p>
 
       <Label>
@@ -183,6 +187,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
                   <EditClient
                     client={client}
                     keepsTrips={keepsTrips}
+                    debtsFrom={debtsFrom}
                     busy={busy}
                     onCancel={() => setEditing(null)}
                     onSave={(change) => apply(() => changeClient(client.code, change), "Сохранено.")}
@@ -248,6 +253,7 @@ type Change = { name?: string; phone?: string | null; note?: string | null; pric
 function EditClient({
   client,
   keepsTrips,
+  debtsFrom,
   busy,
   onCancel,
   onSave,
@@ -255,6 +261,7 @@ function EditClient({
 }: {
   client: Client;
   keepsTrips: boolean;
+  debtsFrom?: string;
   busy: boolean;
   onCancel: () => void;
   onSave: (change: Change) => Promise<boolean>;
@@ -317,7 +324,8 @@ function EditClient({
             </Label>
           </div>
           <p className="text-sm text-muted-foreground" data-debt-parts>
-            Начальный долг это сколько клиент был должен, когда рейсы начали вести здесь (предоплата со знаком минус). Сейчас: начислено по прибывшим рейсам{" "}
+            Начальный долг это сколько клиент был должен {debtsFrom ? `на утро ${formatTripDay(debtsFrom)}` : "когда рейсы начали вести здесь"} (предоплата со знаком минус). Сейчас: начислено по
+            прибывшим рейсам{" "}
             <span className="tabular-nums">{formatUsd(client.chargedMinor ?? 0)}</span>, оплачено в кассе <span className="tabular-nums">{formatUsd(client.paidMinor ?? 0)}</span>,{" "}
             <strong>{debtWords(client.debtMinor ?? 0).text}</strong>.
           </p>

@@ -38,6 +38,11 @@ export type AppOptions = {
    * «Сборные грузы» (trips.ts) and the clients have debts; without them, which is how it is unless said, neither.
    */
   warehouses?: Warehouses;
+  /**
+   * The day the debts of the clients are counted from (YYYY-MM-DD): what was paid and what arrived before it is behind
+   * the opening debts. For a business whose cash book is older than its trips; without it, everything counts.
+   */
+  debtsFrom?: string;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
   /** `true` logs to the console; a stream gets the log lines (for tests that read them). */
@@ -212,8 +217,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerCategoryAdmin(app, { pool: database.pool, kassas });
   await registerOneCAdmin(app, { pool: database.pool });
   await registerUserAdmin(app, { pool: database.pool, kassas, warehouses });
-  await registerClients(app, { pool: database.pool, codes: clientCodes, cargo: warehouses.enabled });
-  await registerTrips(app, { pool: database.pool, now: options.now ?? (() => new Date()), warehouses, clientCodes });
+  await registerClients(app, { pool: database.pool, codes: clientCodes, cargo: warehouses.enabled, debtsFrom: options.debtsFrom });
+  await registerTrips(app, { pool: database.pool, now: options.now ?? (() => new Date()), warehouses, clientCodes, debtsFrom: options.debtsFrom });
 
   await registerCorrections(app, {
     pool: database.pool,

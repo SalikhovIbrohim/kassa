@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, parseDebtsFrom } from "../src/config.js";
 import { parseKassas } from "../src/kassa.js";
 import { parseWarehouses } from "../src/warehouses.js";
 import { deleteRequest, get, loginAs, patchJson, postJson, putJson } from "./helpers/http.js";
@@ -485,6 +485,39 @@ describe("the trips", () => {
     expect((await postJson(started, "/api/operations", withRate({ id: randomUUID(), type: "income", amountMinor: 3_950_000, currency: "RUB", category: "client_payment", clientCode: "707" }), mudir)).status).toBe(201);
     expect((await postJson(started, "/api/operations", payment("А707 Карим", 10_000), mudir)).status).toBe(201);
     expect(await debtOf(started, mudir, "А707")).toEqual({ opening: 0, charged: 100_000, paid: 60_000, debt: 40_000 });
+  });
+
+  it("count the debts from the day the settings say, where the cash book is older than the trips", async () => {
+    expect(parseDebtsFrom(undefined)).toBeUndefined();
+    expect(parseDebtsFrom(" 2026-08-10 ")).toBe("2026-08-10");
+    for (const bad of ["10.08.2026", "2026-02-30", "завтра"]) expect(() => parseDebtsFrom(bad), bad).toThrow(/DEBTS_FROM must be a day/);
+    expect(loadConfig({ DATABASE_URL: "postgres://x/y", DEBTS_FROM: "2026-08-10" }).debtsFrom).toBe("2026-08-10");
+
+    const { started, mudir, sklad, ivan } = await business({ debtsFrom: "2026-08-10" });
+    await clients(started, mudir, [{ code: "132", name: "Иброхим", priceMilli: 1500, openingDebtMinor: 200_000 }]);
+    // The cash desk took payments before the trips were kept here: they are behind what the client owed on the 10th.
+    started.setNow(new Date("2026-08-05T09:00:00Z"));
+    expect((await postJson(started, "/api/operations", payment("132", 70_000), ivan)).status).toBe(201);
+    // 02:59 of the 10th in Moscow is still the 9th of the cash desk; 03:00 is the 10th.
+    started.setNow(new Date("2026-08-09T23:59:00Z"));
+    expect((await postJson(started, "/api/operations", payment("132", 1_000), ivan)).status).toBe(201);
+    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 0, paid: 0, debt: 200_000 });
+    started.setNow(new Date("2026-08-10T00:00:00Z"));
+    expect((await postJson(started, "/api/operations", payment("132", 30_000), ivan)).status).toBe(201);
+    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 0, paid: 30_000, debt: 170_000 });
+
+    // A trip that arrived before that day is written down for the record and owed for nothing more; one that
+    // arrives on that day or after is owed for.
+    await trip(started, sklad, 189, { departureDay: "2026-07-20" });
+    await added(started, sklad, 189, line("132", 1_000_000));
+    await arrive(started, sklad, 189, "2026-08-09");
+    await trip(started, sklad, 190, { departureDay: "2026-07-31" });
+    await added(started, sklad, 190, line("132", 2_000_000)); // 3 000 $
+    await arrive(started, sklad, 190, "2026-08-10");
+    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 300_000, paid: 30_000, debt: 470_000 });
+    expect((await detail(started, sklad, 189)).clients).toMatchObject([{ code: "132", amountMinor: 150_000, debtMinor: 470_000 }]);
+    // The screen of the clients is told the day.
+    expect((await (await get(started, "/api/clients", mudir)).json()).debtsFrom).toBe("2026-08-10");
   });
 
   it("show the owner and the admin what the cash desk spent on a trip, and nobody else", async () => {

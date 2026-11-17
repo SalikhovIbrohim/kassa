@@ -905,13 +905,14 @@ export async function fetchClients(q = "", options: { all?: boolean; limit?: num
 }
 
 /** The same, with how a code is written in this business (a server that does not say writes «А707»). */
-export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes }> {
+export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes; debtsFrom?: string }> {
   const query = new URLSearchParams({ ...(q ? { q } : {}), ...(options.all ? { all: "1" } : {}), ...(options.limit ? { limit: String(options.limit) } : {}) });
   const response = await request(`/api/clients${query.toString() ? `?${query}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/clients`);
-  const body = (await response.json()) as { clients: Client[]; codes?: string };
-  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter" };
+  const body = (await response.json()) as { clients: Client[]; codes?: string; debtsFrom?: string };
+  // `debtsFrom`: the day the debts are counted from (YYYY-MM-DD), where the business has said one.
+  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter", ...(typeof body.debtsFrom === "string" ? { debtsFrom: body.debtsFrom } : {}) };
 }
 
 export type ClientResult =

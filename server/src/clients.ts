@@ -15,6 +15,8 @@ export type ClientsOptions = {
    * kilogram and a debt, and the directory says them. Without it the directory is as it always was.
    */
   cargo?: boolean;
+  /** The day the debts are counted from (YYYY-MM-DD), when the business has said one (see client-debts.ts). */
+  debtsFrom?: string;
 };
 
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
@@ -100,7 +102,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
   const present = async (db: Queryable, rows: ClientRow[]): Promise<Client[]> => {
     if (!cargo) return rows.map(toClient);
     // A few clients are asked for by their codes; the whole list is read whole.
-    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined);
+    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined, options.debtsFrom);
     return rows.map((row) => toClientWithDebt(row, debts.get(row.code)));
   };
 
@@ -140,7 +142,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
         [request.query.all === "1", typed, codePrefix, limit],
       );
       // `codes` tells the screen of the clients how a code is written here (what it says of a code, which lines of a file are clients).
-      return { clients: await present(pool, found.rows), codes };
+      // `debtsFrom`: the day the debts are counted from, where the business has said one; the screen of the clients says it.
+      return { clients: await present(pool, found.rows), codes, ...(cargo && options.debtsFrom ? { debtsFrom: options.debtsFrom } : {}) };
     },
   );
 

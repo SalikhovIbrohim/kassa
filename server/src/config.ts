@@ -29,6 +29,8 @@ export type Config = {
   clientCodes: ClientCodes;
   /** The warehouses where cargo is put on the trucks (`WAREHOUSES`). None unless set: then the business keeps no trips. */
   warehouses: Warehouses;
+  /** The day the debts of the clients are counted from (`DEBTS_FROM`, YYYY-MM-DD). Unset: everything the database has counts. */
+  debtsFrom: string | undefined;
   /** The Telegram bot of the Mini App. Unset: signing in inside Telegram is off. */
   telegramBotToken: string | undefined;
   /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
@@ -125,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     kassas,
     clientCodes: parseClientCodes(env.CLIENT_CODES),
     warehouses: parseWarehouses(env.WAREHOUSES),
+    debtsFrom: parseDebtsFrom(env.DEBTS_FROM),
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
     telegramGroupChatId: groupChatId,
     telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),
@@ -136,6 +139,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...sheetOrProblem(env),
     warnings,
   };
+}
+
+/**
+ * `DEBTS_FROM`: the day the debts of the clients are counted from, 2026-11-20. For a business that kept its cash book
+ * here before it began to keep its trips: the payments of before that day are behind the opening debts of the clients.
+ */
+export function parseDebtsFrom(setting: string | undefined): string | undefined {
+  const day = setting?.trim();
+  if (!day) return undefined;
+  const at = Date.parse(`${day}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== day) {
+    throw new Error(`DEBTS_FROM must be a day like 2026-11-20, got "${day}"`);
+  }
+  return day;
 }
 
 /**

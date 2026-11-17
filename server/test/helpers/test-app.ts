@@ -79,6 +79,8 @@ type StartOptions = {
   clientCodes?: "letter" | "digits";
   /** The warehouses of the installation (see `parseWarehouses`); none without it, and then no trips. */
   warehouses?: Warehouses;
+  /** The day the debts of the clients are counted from (DEBTS_FROM). */
+  debtsFrom?: string;
   loginProtection?: LoginProtectionOptions;
   /** Gets the server's log lines, for tests that look at what is logged. */
   logStream?: NodeJS.WritableStream;
@@ -168,6 +170,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       kassas: options.kassas,
       clientCodes: options.clientCodes,
       warehouses: options.warehouses,
+      debtsFrom: options.debtsFrom,
       telegramBotToken: options.telegramBotToken,
       telegramGroupChatId: options.telegramGroupChatId,
       telegramIncomeThreadId: options.telegramIncomeThreadId,
