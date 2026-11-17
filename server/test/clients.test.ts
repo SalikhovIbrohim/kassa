@@ -44,13 +44,31 @@ describe("the clients", () => {
     const first = await load(started, mudir, [
       { code: "А707", name: "Карим" },
       { code: "a70", name: "Самад", phone: "7 999 000 00 00" },
-      { code: "А-45" },
+      { code: "А-45", name: "Вали" },
       { code: "А34-2", name: "Эркин" },
     ]);
     expect(await first.json()).toEqual({ added: 4, skipped: 0 });
     const again = await load(started, mudir, [{ code: "А707", name: "Другой" }, { code: "А7", name: "Новый" }]);
     expect(await again.json()).toEqual({ added: 1, skipped: 1 });
-    expect(await search(started, mudir)).toEqual(["А7 Новый", "А34-2 Эркин", "А45", "А70 Самад", "А707 Карим"]);
+    expect(await search(started, mudir)).toEqual(["А7 Новый", "А34-2 Эркин", "А45 Вали", "А70 Самад", "А707 Карим"]);
+  });
+
+  it("takes no client without a name: not in a list, which is then not loaded at all, not in the form, not by a change", async () => {
+    const { started, mudir } = await desk();
+    // A client is a code and a name, both. A list with a nameless line says which lines, and nothing of it is loaded.
+    const refused = await load(started, mudir, [{ code: "А707", name: "Карим" }, { code: "А413" }, { code: "А584", name: "  " }]);
+    expect([refused.status, await refused.json()]).toEqual([400, { error: "nameless", rows: [{ line: 2, code: "А413" }, { line: 3, code: "А584" }] }]);
+    expect(await search(started, mudir)).toEqual([]);
+    for (const body of [{ code: "А413" }, { code: "А413", name: "" }, { code: "А413", name: "   " }]) {
+      const answer = await postJson(started, "/api/admin/clients", body, mudir);
+      expect([answer.status, ((await answer.json()) as { error: string }).error], JSON.stringify(body)).toEqual([400, "bad_name"]);
+    }
+    expect((await postJson(started, "/api/admin/clients", { name: "Ахмад" }, mudir)).status).toBe(400);
+    expect((await postJson(started, "/api/admin/clients", { code: "А413", name: "Ахмад" }, mudir)).status).toBe(201);
+    // The name may be changed and never taken away.
+    const emptied = await patchJson(started, `/api/admin/clients/${encodeURIComponent("А413")}`, { name: " " }, mudir);
+    expect([emptied.status, ((await emptied.json()) as { error: string }).error]).toEqual([400, "bad_name"]);
+    expect(await search(started, mudir)).toEqual(["А413 Ахмад"]);
   });
 
   it("refuses a list with a code twice, saying which, and loads nothing of it", async () => {
@@ -124,16 +142,17 @@ describe("the clients", () => {
 
     it("loads a list of such codes as they are, without a letter, and says so to the screen", async () => {
       const { started, mudir } = await digitsDesk();
-      const loaded = await load(started, mudir, [{ code: "707", name: "Карим" }, { code: " 70 ", name: "Самад" }, { code: "34-2", name: "Эркин" }, { code: "123456" }]);
-      expect(await loaded.json()).toEqual({ added: 4, skipped: 0 });
-      expect(await search(started, mudir)).toEqual(["34-2 Эркин", "70 Самад", "707 Карим", "123456"]);
+      // One digit is a code too (the client 3).
+      const loaded = await load(started, mudir, [{ code: "707", name: "Карим" }, { code: " 70 ", name: "Самад" }, { code: "34-2", name: "Эркин" }, { code: "123456", name: "Зариф" }, { code: "3", name: "Рахимберди" }]);
+      expect(await loaded.json()).toEqual({ added: 5, skipped: 0 });
+      expect(await search(started, mudir)).toEqual(["3 Рахимберди", "34-2 Эркин", "70 Самад", "707 Карим", "123456 Зариф"]);
       expect(await search(started, mudir, "70")).toEqual(["70 Самад", "707 Карим"]);
       expect((await (await get(started, "/api/clients", mudir)).json()).codes).toBe("digits");
     });
 
     it("refuses a code with a letter, in a list and in the form of a client", async () => {
       const { started, mudir } = await digitsDesk();
-      const loaded = await load(started, mudir, [{ code: "707" }, { code: "А708" }]);
+      const loaded = await load(started, mudir, [{ code: "707", name: "Карим" }, { code: "А708", name: "Самад" }]);
       expect([loaded.status, await loaded.json()]).toEqual([400, { error: "bad_codes", rows: [{ line: 2, code: "А708" }] }]);
       const typed = await postJson(started, "/api/admin/clients", { code: "А708", name: "Кто-то" }, mudir);
       expect([typed.status, (await typed.json()).error]).toEqual([400, "bad_code"]);

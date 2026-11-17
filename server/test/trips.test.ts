@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadConfig, parseDebtsFrom } from "../src/config.js";
+import { importHistory, type HistoryFile } from "../src/admin/history.js";
+import { AdminError } from "../src/admin/users.js";
+import { loadConfig } from "../src/config.js";
 import { parseKassas } from "../src/kassa.js";
 import { parseWarehouses } from "../src/warehouses.js";
 import { deleteRequest, get, loginAs, patchJson, postJson, putJson } from "./helpers/http.js";
+import pg from "pg";
 import { startTestApp, type TestApp } from "./helpers/test-app.js";
 import { withRate } from "./helpers/entries.js";
 
 type Json = Record<string, unknown>;
 type Detail = {
-  trip: { number: number; status: string; departureDay: string | null; arrivalDay: string | null; lines: number; bags: number; weightG: number; amountMinor: number; driverName: string | null };
-  cargo: Array<Json & { id: string; amountMinor: number; mine: boolean; warehouse: string; clientCode: string; priceMilli: number }>;
+  trip: { number: number; status: string; loadingDay: string | null; departureDay: string | null; arrivalDay: string | null; direction: string | null; lines: number; bags: number; weightG: number; amountMinor: number; driverName: string | null };
+  cargo: Array<Json & { id: string; amountMinor: number; mine: boolean; warehouse: string; truckPart: string | null; place: number | null; clientCode: string; priceMilli: number }>;
   clients: Array<{ code: string; name: string; bags: number; weightG: number; amountMinor: number; debtMinor: number }>;
+  places: { head: number; trailer: number };
   may: { edit: boolean; warehouses: string[]; forward: string | null; back: string | null; admin: boolean; remove: boolean };
   money?: { expenseMinor: number; profitMinor: number };
 };
@@ -166,8 +170,8 @@ describe("the trips", () => {
 
     const first = await trip(started, mudir, 190, { driverName: " Жахонгир ", departureDay: "2026-07-31" });
     expect(first.trip).toEqual({
-      number: 190, driverName: "Жахонгир", driverPhone: null, truckPlates: null, note: null,
-      departureDay: "2026-07-31", arrivalDay: null, status: "loading", lines: 0, bags: 0, weightG: 0, amountMinor: 0,
+      number: 190, driverName: "Жахонгир", driverPhone: null, truckPlates: null, note: null, direction: null,
+      loadingDay: null, departureDay: "2026-07-31", arrivalDay: null, status: "loading", fromCardFile: false, lines: 0, bags: 0, weightG: 0, amountMinor: 0,
     });
     await trip(started, sklad, 191, { truckPlates: "01 019 OKA / 01 55 39 BA" });
     const again = await postJson(started, "/api/trips", { number: 190 }, sklad);
@@ -487,37 +491,218 @@ describe("the trips", () => {
     expect(await debtOf(started, mudir, "А707")).toEqual({ opening: 0, charged: 100_000, paid: 60_000, debt: 40_000 });
   });
 
-  it("count the debts from the day the settings say, where the cash book is older than the trips", async () => {
-    expect(parseDebtsFrom(undefined)).toBeUndefined();
-    expect(parseDebtsFrom(" 2026-08-10 ")).toBe("2026-08-10");
-    for (const bad of ["10.08.2026", "2026-02-30", "завтра"]) expect(() => parseDebtsFrom(bad), bad).toThrow(/DEBTS_FROM must be a day/);
-    expect(loadConfig({ DATABASE_URL: "postgres://x/y", DEBTS_FROM: "2026-08-10" }).debtsFrom).toBe("2026-08-10");
+  it("keep a line of the waybill column for column: the part of the truck with its turn there, the day, the receiver, the packaging", async () => {
+    const { started, mudir, sklad } = await business();
+    await clients(started, mudir, [{ code: "641", name: "Е Шерва", priceMilli: 1400 }, { code: "804", name: "Баходир", priceMilli: 1400 }]);
+    const made = await trip(started, sklad, 248, { loadingDay: "2026-10-07", departureDay: "2026-10-08", direction: " АНДИЖОН - МОСКВА (через КЗХ) " });
+    expect(made.trip).toMatchObject({ loadingDay: "2026-10-07", departureDay: "2026-10-08", direction: "АНДИЖОН - МОСКВА (через КЗХ)" });
+    expect((await postJson(started, "/api/trips", { number: 249, loadingDay: "2026-11-31" }, sklad)).status).toBe(400);
 
-    const { started, mudir, sklad, ivan } = await business({ debtsFrom: "2026-08-10" });
-    await clients(started, mudir, [{ code: "132", name: "Иброхим", priceMilli: 1500, openingDebtMinor: 200_000 }]);
-    // The cash desk took payments before the trips were kept here: they are behind what the client owed on the 10th.
-    started.setNow(new Date("2026-08-05T09:00:00Z"));
-    expect((await postJson(started, "/api/operations", payment("132", 70_000), ivan)).status).toBe(201);
-    // 02:59 of the 10th in Moscow is still the 9th of the cash desk; 03:00 is the 10th.
-    started.setNow(new Date("2026-08-09T23:59:00Z"));
-    expect((await postJson(started, "/api/operations", payment("132", 1_000), ivan)).status).toBe(201);
-    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 0, paid: 0, debt: 200_000 });
-    started.setNow(new Date("2026-08-10T00:00:00Z"));
-    expect((await postJson(started, "/api/operations", payment("132", 30_000), ivan)).status).toBe(201);
-    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 0, paid: 30_000, debt: 170_000 });
+    const head = (code: string, more: Json) => line(code, 100_000, { truckPart: "head", ...more });
+    await added(started, sklad, 248, head("641", { acceptedDay: "2026-10-04", receiver: "Е Шерва", brand: "моднова", item: "Футболка мужская", bags: 138, packaging: "пэ меш", pieces: 21_167, sender: "Иномидин" }));
+    await added(started, sklad, 248, line("804", 50_000, { truckPart: "trailer", bags: 51, receiver: "Бобур" }));
+    await added(started, sklad, 248, head("804", { bags: 25 }));
+    // The cargo of Kokand is numbered by itself, as the waybill writes «КУКОН ГОЛОВА 1»; a line that names no part has no turn.
+    await added(started, sklad, 248, head("641", { warehouse: "kokand", bags: 9 }));
+    const loaded = await added(started, sklad, 248, line("641", 10_000, { bags: 3 }));
+    expect(loaded.cargo.map((item) => [item.warehouse, item.truckPart, item.place])).toEqual([
+      ["andijan", "head", 1],
+      ["andijan", "trailer", 1],
+      ["andijan", "head", 2],
+      ["kokand", "head", 1],
+      ["andijan", null, null],
+    ]);
+    expect(loaded.cargo[0]).toMatchObject({ acceptedDay: "2026-10-04", receiver: "Е Шерва", clientName: "Е Шерва", packaging: "пэ меш", bags: 138, pieces: 21_167, sender: "Иномидин" });
+    // The receiver is whoever the waybill names, under the code of the client who owes.
+    expect(loaded.cargo[1]).toMatchObject({ receiver: "Бобур", clientCode: "804", clientName: "Баходир" });
+    // The foot of the waybill: the places on the head and on the trailer.
+    expect(loaded.places).toEqual({ head: 172, trailer: 51 });
+    expect(loaded.trip).toMatchObject({ bags: 226, lines: 5 });
 
-    // A trip that arrived before that day is written down for the record and owed for nothing more; one that
-    // arrives on that day or after is owed for.
-    await trip(started, sklad, 189, { departureDay: "2026-07-20" });
-    await added(started, sklad, 189, line("132", 1_000_000));
-    await arrive(started, sklad, 189, "2026-08-09");
-    await trip(started, sklad, 190, { departureDay: "2026-07-31" });
-    await added(started, sklad, 190, line("132", 2_000_000)); // 3 000 $
-    await arrive(started, sklad, 190, "2026-08-10");
-    expect(await debtOf(started, ivan, "132")).toEqual({ opening: 200_000, charged: 300_000, paid: 30_000, debt: 470_000 });
-    expect((await detail(started, sklad, 189)).clients).toMatchObject([{ code: "132", amountMinor: 150_000, debtMinor: 470_000 }]);
-    // The screen of the clients is told the day.
-    expect((await (await get(started, "/api/clients", mudir)).json()).debtsFrom).toBe("2026-08-10");
+    // A correction says the whole line again: what it leaves out is emptied.
+    const corrected = (await (await putJson(started, `/api/trips/248/cargo/${loaded.cargo[1]!.id}`, fields("804", 50_000, { truckPart: "head", packaging: "коробка" }), sklad)).json()) as Detail;
+    expect(corrected.cargo[1]).toMatchObject({ truckPart: "head", place: 2, receiver: null, packaging: "коробка", bags: null });
+    expect((await add(started, sklad, 248, line("641", 1000, { truckPart: "roof" }))).status).toBe(400);
+    expect((await add(started, sklad, 248, line("641", 1000, { acceptedDay: "2026-02-30" }))).status).toBe(400);
+    // The two days of the header are kept apart, and either may be taken away again.
+    expect(((await (await patchJson(started, "/api/trips/248", { loadingDay: "2026-11-06", direction: null }, sklad)).json()) as Detail).trip).toMatchObject({ loadingDay: "2026-11-06", departureDay: "2026-10-08", direction: null });
+  });
+
+  describe("with the history of a card file", () => {
+    /** A small card file: three clients, two trips of before with sums, payments in two cities, a trip on the road. */
+    const history = (): HistoryFile => ({
+      clients: [
+        { code: "1", name: "Улугбек", openingDebtMinor: 2_439_800 },
+        { code: "132", name: "Иброхим" },
+        { code: "413", name: "Ахмад" },
+      ],
+      trips: [
+        { number: 67, arrivalDay: "2026-01-03", sums: [{ code: "1", amountMicro: 2_894_850_000 }, { code: "132", amountMicro: 4_285_728_000, note: "перенесено с кода 13" }] },
+        { number: 68, arrivalDay: "2026-02-06", sums: [{ code: "132", amountMicro: 1_000_004_000 }, { code: "413", amountMicro: 31_260_000 }] },
+      ],
+      payments: [
+        { code: "1", day: "2026-01-05", amountMinor: 108_000, kassa: "moscow" },
+        { code: "1", day: "2026-02-08", amountMinor: 100_000, kassa: "tashkent" },
+        { code: "132", day: "2026-02-06", amountMinor: 300_000 },
+        { code: "413", day: "2026-02-25", amountMinor: 3_100, kassa: "andijan", note: "оплата в Андижане" },
+      ],
+      waybills: [
+        {
+          number: 248, status: "in_transit", loadingDay: "2026-10-07", departureDay: "2026-10-08", direction: "АНДИЖОН - МОСКВА (через КЗХ)", driverName: "Икромжон", driverPhone: "+998947243232", truckPlates: "60 J531KB/508196BA",
+          lines: [
+            { warehouse: "andijan", truckPart: "head", acceptedDay: "2026-10-04", code: "132", receiver: "Иброхим", brand: "без эти", item: "Трусы мужская", bags: 51, packaging: "пэ меш", pieces: 15_300, weightG: 1_578_300, priceMilli: 1400, sender: "Кобилжон" },
+            { warehouse: "kokand", truckPart: "head", code: "1", receiver: "Улугбек", weightG: 500_000, priceMilli: 1500 },
+          ],
+        },
+      ],
+      control: [
+        { month: "2026-01", openingMinor: 2_439_800, chargedMinor: 718_058, paidMinor: 108_000, closingMinor: 3_049_858 },
+        { month: "2026-02", openingMinor: 3_049_858, chargedMinor: 103_126, paidMinor: 403_100, closingMinor: 2_749_884 },
+      ],
+    });
+    const settings = { warehouses: parseWarehouses("andijan,kokand,tashkent"), kassas: parseKassas("moscow:USD,andijan:USD,tashkent:USD"), clientCodes: "digits" as const };
+    async function load(started: TestApp, file: HistoryFile) {
+      const pool = new pg.Pool({ connectionString: started.databaseUrl, max: 2 });
+      try {
+        return await importHistory(pool, file, settings);
+      } finally {
+        await pool.end();
+      }
+    }
+
+    it("load the clients, the trips of before, the payments of before and the waybills on the road, and the debts are those of the file", async () => {
+      const { started, mudir, owner, ivan, sklad } = await business();
+      const report = await load(started, history());
+      expect(report.clients).toEqual({ added: 3, there: 0 });
+      expect(report.trips).toEqual({ added: 2, there: 0, removed: 0, sums: 4 });
+      expect(report.payments).toBe(4);
+      expect(report.waybills).toEqual([{ number: 248, lines: 2, note: "made" }]);
+      // Month by month the debts are what the control sheet of the file says, to the cent.
+      expect(report.control.map((month) => [month.month, month.openingMinor, month.chargedMinor, month.paidMinor, month.closingMinor])).toEqual([
+        ["2026-01", 2_439_800, 718_058, 108_000, 3_049_858],
+        ["2026-02", 3_049_858, 103_126, 403_100, 2_749_884],
+      ]);
+      expect(report.control.every((month) => month.file?.closingMinor === month.closingMinor)).toBe(true);
+      expect(await (await get(started, "/api/debts/control?year=2026", owner)).json()).toEqual({ year: 2026, months: report.control.map(({ file: _file, ...month }) => month) });
+
+      // A sum with a third decimal is owed to the nearest cent: 4 285,728 is 4 285,73, and 1 000,004 is 1 000,00.
+      expect(await debtOf(started, ivan, "132")).toEqual({ opening: 0, charged: 528_573, paid: 300_000, debt: 228_573 });
+      expect(await debtOf(started, ivan, "1")).toEqual({ opening: 2_439_800, charged: 289_485, paid: 208_000, debt: 2_521_285 });
+      expect(await debtOf(started, ivan, "413")).toEqual({ opening: 0, charged: 3_126, paid: 3_100, debt: 26 });
+
+      // The trips of before are there as arrived, with the sum of each client and no waybill; nobody writes cargo onto them.
+      const list = (await (await get(started, "/api/trips", owner)).json()) as { trips: Array<{ number: number; status: string; fromCardFile: boolean; amountMinor: number; arrivalDay: string | null; lines: number }> };
+      expect(list.trips.map((item) => [item.number, item.status, item.fromCardFile, item.amountMinor, item.lines])).toEqual([
+        [248, "in_transit", false, 295_962, 2],
+        [68, "arrived", true, 103_126, 0],
+        [67, "arrived", true, 718_058, 0],
+      ]);
+      const old = await detail(started, mudir, 67);
+      expect(old.cargo).toEqual([]);
+      expect(old.clients).toEqual([
+        { code: "1", name: "Улугбек", bags: 0, weightG: 0, amountMinor: 289_485, debtMinor: 2_521_285 },
+        { code: "132", name: "Иброхим", bags: 0, weightG: 0, amountMinor: 428_573, debtMinor: 228_573 },
+      ]);
+      expect(old.may).toMatchObject({ warehouses: [], remove: false });
+      expect(await (await add(started, mudir, 67, line("132", 1000, { priceMilli: 1500 }))).json()).toEqual({ error: "trip_from_card_file" });
+      expect(await (await deleteRequest(started, "/api/trips/67", mudir)).json()).toEqual({ error: "trip_has_cargo" });
+
+      // The trip on the road has its whole waybill, and is owed for when it arrives, like any trip kept here.
+      const road = await detail(started, sklad, 248);
+      expect(road.trip).toMatchObject({ status: "in_transit", loadingDay: "2026-10-07", departureDay: "2026-10-08", driverName: "Икромжон", truckPlates: "60 J531KB/508196BA", direction: "АНДИЖОН - МОСКВА (через КЗХ)" });
+      expect(road.cargo.map((item) => [item.warehouse, item.truckPart, item.place, item.clientCode, item.amountMinor])).toEqual([["andijan", "head", 1, "132", 220_962], ["kokand", "head", 1, "1", 75_000]]);
+      expect(road.cargo[0]).toMatchObject({ acceptedDay: "2026-10-04", receiver: "Иброхим", packaging: "пэ меш", bags: 51, pieces: 15_300, sender: "Кобилжон", mine: true });
+      started.setNow(new Date("2026-10-20T09:00:00Z"));
+      expect((await status(started, sklad, 248, { status: "arrived", arrivalDay: "2026-10-20" })).status).toBe(200);
+      expect((await debtOf(started, ivan, "132")).debt).toBe(228_573 + 220_962);
+
+      // The payments of before are in no cash desk: no balance has moved, and the journal has none of them.
+      expect(await (await get(started, "/api/balances?kassa=moscow", mudir)).json()).toEqual({ balances: [{ currency: "USD", amountMinor: 0 }] });
+      expect(((await (await get(started, "/api/operations?from=2026-01-01&to=2026-12-31", mudir)).json()) as { operations: unknown[] }).operations).toEqual([]);
+    });
+
+    it("show the card of a client: every trip and every payment since the start, with the debt after each", async () => {
+      const { started, mudir, owner, ivan, sklad } = await business();
+      await load(started, history());
+      // A payment taken in the cash desk today, and money given back: entries of the cash book, on the same card.
+      started.setNow(new Date("2026-10-17T09:00:00Z"));
+      expect((await postJson(started, "/api/operations", payment("1", 50_000, { kassa: "moscow" }), mudir)).status).toBe(201);
+      started.setNow(new Date("2026-10-17T09:05:00Z"));
+      expect((await postJson(started, "/api/operations", { id: randomUUID(), type: "expense", amountMinor: 2_000, currency: "USD", category: "client_refund", clientCode: "1", kassa: "moscow" }, mudir)).status).toBe(201);
+
+      const card = (await (await get(started, "/api/clients/1/statement", owner)).json()) as Json;
+      expect(card).toEqual({
+        code: "1",
+        name: "Улугбек",
+        openingDebtMinor: 2_439_800,
+        movements: [
+          { day: "2026-01-03", kind: "trip", tripNumber: 67, amountMinor: 289_485, kassa: null, past: false, note: null, debtMinor: 2_729_285 },
+          { day: "2026-01-05", kind: "payment", tripNumber: null, amountMinor: 108_000, kassa: "moscow", past: true, note: null, debtMinor: 2_621_285 },
+          { day: "2026-02-08", kind: "payment", tripNumber: null, amountMinor: 100_000, kassa: "tashkent", past: true, note: null, debtMinor: 2_521_285 },
+          { day: "2026-10-17", kind: "payment", tripNumber: null, amountMinor: 50_000, kassa: "moscow", past: false, note: null, debtMinor: 2_471_285 },
+          { day: "2026-10-17", kind: "refund", tripNumber: null, amountMinor: 2_000, kassa: "moscow", past: false, note: null, debtMinor: 2_473_285 },
+        ],
+        debtMinor: 2_473_285,
+      });
+      // On the day a trip arrives it comes before the payment of that day; a payment of the history says its note.
+      const other = (await (await get(started, "/api/clients/132/statement", mudir)).json()) as { movements: Array<{ day: string; kind: string; note: string | null }> };
+      expect(other.movements.map((line) => [line.day, line.kind])).toEqual([["2026-01-03", "trip"], ["2026-02-06", "trip"], ["2026-02-06", "payment"]]);
+      expect(((await (await get(started, "/api/clients/413/statement", mudir)).json()) as { movements: Array<{ note: string | null }> }).movements[1]!.note).toBe("оплата в Андижане");
+      // The card is the owner's and the admin's to look into.
+      for (const cookie of [ivan, sklad]) expect((await get(started, "/api/clients/1/statement", cookie)).status).toBe(403);
+      expect((await get(started, "/api/debts/control", ivan)).status).toBe(403);
+      expect((await get(started, "/api/clients/999/statement", mudir)).status).toBe(404);
+    });
+
+    it("load a file that was put right again without doubling anything, and leave alone what was entered here since", async () => {
+      const { started, mudir, ivan, sklad } = await business();
+      await load(started, history());
+      started.setNow(new Date("2026-10-17T09:00:00Z"));
+      expect((await postJson(started, "/api/operations", payment("132", 28_573), ivan)).status).toBe(201);
+      await trip(started, sklad, 252);
+      await added(started, sklad, 252, line("132", 100_000, { priceMilli: 1500 }));
+
+      // The file again, put right: a sum changed, a trip gone, a payment more, a client more.
+      const again = history();
+      again.clients.push({ code: "70", name: "Лочин", openingDebtMinor: -5_000 });
+      again.trips[0]!.sums[1]!.amountMicro = 4_000_000_000;
+      again.trips.pop();
+      again.payments.push({ code: "70", day: "2026-03-01", amountMinor: 1_000 });
+      delete again.control;
+      const report = await load(started, again);
+      expect(report.clients).toEqual({ added: 1, there: 3 });
+      expect(report.trips).toEqual({ added: 0, there: 1, removed: 1, sums: 2 });
+      expect(report.payments).toBe(5);
+      expect(report.waybills).toEqual([{ number: 248, lines: 0, note: "left as it is: it has 2 lines already" }]);
+      expect(await debtOf(started, ivan, "132")).toEqual({ opening: 0, charged: 400_000, paid: 328_573, debt: 71_427 });
+      expect(await debtOf(started, ivan, "70")).toEqual({ opening: -5_000, charged: 0, paid: 1_000, debt: -6_000 });
+      const numbers = ((await (await get(started, "/api/trips", mudir)).json()) as { trips: Array<{ number: number }> }).trips.map((item) => item.number);
+      expect(numbers).toEqual([252, 248, 67]);
+      expect((await detail(started, mudir, 248)).cargo).toHaveLength(2);
+      expect((await detail(started, mudir, 252)).cargo).toHaveLength(1);
+    });
+
+    it("refuse a file that cannot be right, whole, and say what is wrong with it", async () => {
+      const { started, sklad } = await business();
+      const broken = history();
+      broken.clients.push({ code: "584", name: " " }, { code: "", name: "Без кода" });
+      broken.trips[0]!.arrivalDay = "2026-02-30";
+      broken.payments[0]!.kassa = "kokand";
+      broken.waybills![0]!.lines[0]!.warehouse = "moscow";
+      const refused = await load(started, broken).catch((error: unknown) => error);
+      expect(refused).toBeInstanceOf(AdminError);
+      const said = (refused as Error).message;
+      for (const part of ["(584): a client has a name", 'clients[4]: "" is not a code', 'trip 67: "2026-02-30" is not the day it arrived', '"kokand" is not a cash desk', '"moscow" is not a warehouse']) expect(said).toContain(part);
+      // Somebody the file and the directory do not have; and a trip that is kept here under the same number.
+      const stranger = history();
+      stranger.payments.push({ code: "999", day: "2026-03-01", amountMinor: 1_000 });
+      await expect(load(started, stranger)).rejects.toThrow(/neither in it nor in the directory: 999/);
+      await clients(started, await loginAs(started, "mudir", "admin password"), [{ code: "132", name: "Иброхим", priceMilli: 1500 }]);
+      await trip(started, sklad, 67);
+      await expect(load(started, history())).rejects.toThrow(/kept here already, with waybills of their own: 67/);
+      // Nothing of a refused file is in the database.
+      expect(await started.query("SELECT (SELECT count(*)::int FROM past_payments) AS payments, (SELECT count(*)::int FROM trip_sums) AS sums")).toEqual([{ payments: 0, sums: 0 }]);
+    });
   });
 
   it("show the owner and the admin what the cash desk spent on a trip, and nobody else", async () => {

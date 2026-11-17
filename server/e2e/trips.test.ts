@@ -76,7 +76,9 @@ describe("the trips on the screen", () => {
     await seeValue(dialog.locator("input[name=number]"), "1");
     await dialog.locator("input[name=number]").fill("190");
     await dialog.locator("input[name=driverName]").fill("Жахонгир");
+    await dialog.locator("input[name=loadingDay]").fill("2026-07-30");
     await dialog.locator("input[name=departureDay]").fill("2026-07-31");
+    await dialog.locator("input[name=direction]").fill("АНДИЖОН - МОСКВА (через КЗХ)");
     await dialog.getByRole("button", { name: "Создать рейс" }).click();
     await seeVisible(tripPage(page, 190));
     await seeText(tripPage(page, 190), "Грузится");
@@ -85,7 +87,11 @@ describe("the trips on the screen", () => {
     const form = cargoForm(page);
     await form.locator("input[name=clientCode]").fill("132");
     await seeValue(form.locator("input[name=price]"), "1,5");
+    // The receiver is the client, until the waybill names somebody else under the client's code.
+    await seeValue(form.locator("input[name=receiver]"), "Иброхим");
     await seeText(form.locator("[data-client-debt]"), "Иброхим: долга нет");
+    await form.locator("input[name=acceptedDay]").fill("2026-07-28");
+    await form.locator("input[name=packaging]").fill("пэ меш");
     await form.locator("input[name=sender]").fill("Абдурашид");
     await form.locator("input[name=item]").fill("Трусы мужская");
     await form.locator("input[name=brand]").fill("вучт");
@@ -97,20 +103,27 @@ describe("the trips on the screen", () => {
     const table = page.locator("table[data-cargo]:visible");
     await seeText(table, "Трусы мужская");
     const row = plain(await table.locator("tbody tr").first().innerText());
-    expect(row).toContain("Андижан");
-    expect(row).toContain("Иброхим 132");
+    // The columns of the waybill of the business: the place on the truck, the day, the receiver, the code, ...
+    expect(plain(await table.locator("thead").innerText()).split(/\s*\t\s*/).filter(Boolean)).toEqual(["Место", "Дата", "Получатель", "Код", "Телефон", "Бренд", "Наименование", "Места", "В мешке", "Вид упк.", "Кол-во", "Общий вес", "Цена", "Отправитель", "Сумма"]);
+    expect(row).toContain("Голова 1");
+    expect(row).toContain("28.07");
+    expect(row.split(/\s*\t\s*/)).toEqual(expect.arrayContaining(["Иброхим", "132", "пэ меш", "Абдурашид"]));
     // The pieces in all are what the bags come to, since nobody typed another number.
     expect(row).toContain("36 000");
     expect(row).toContain("3 686,5");
     expect(row).toContain("5 529,75 $");
-    // The client and the sender stay for the next line; the goods are emptied.
+    // The client, the receiver and the sender stay for the next line; the goods are emptied.
     await seeValue(form.locator("input[name=clientCode]"), "132");
+    await seeValue(form.locator("input[name=receiver]"), "Иброхим");
     await seeValue(form.locator("input[name=sender]"), "Абдурашид");
     await seeValue(form.locator("input[name=item]"), "");
     await seeValue(form.locator("input[name=weight]"), "");
 
-    // A client without a price of their own: the line has to say one.
+    // A client without a price of their own: the line has to say one. Another client brings their own name for the receiver.
     await form.locator("input[name=clientCode]").fill("3 Рахимберди");
+    await seeValue(form.locator("input[name=receiver]"), "Рахимберди");
+    await form.locator("[data-slot=select-trigger][data-name=truckPart]").click();
+    await page.getByRole("option", { name: "Прицеп", exact: true }).click();
     await form.locator("input[name=price]").fill("");
     await form.locator("input[name=weight]").fill("204,82");
     await form.getByRole("button", { name: "Добавить строку" }).click();
@@ -118,6 +131,7 @@ describe("the trips on the screen", () => {
     await form.locator("input[name=price]").fill("1,5");
     await form.getByRole("button", { name: "Добавить строку" }).click();
     await expect.poll(() => table.locator("tbody tr").count()).toBe(2);
+    expect(plain(await table.locator("tbody tr").nth(1).innerText())).toContain("Прицеп 1");
 
     // The second line is corrected and then taken off.
     await page.getByRole("button", { name: "Изменить груз: Рахимберди 3" }).locator("visible=true").first().click();
@@ -143,12 +157,18 @@ describe("the trips on the screen", () => {
     expect(totals).toContain("Иброхим");
     expect(totals.match(/5 529,75 \$/g)).toHaveLength(2); // what is on the truck, and what the client owes now
     expect(plain(await page.locator("[data-trip-totals]:visible").innerText())).toContain("Сумма в фуре");
+    expect(plain(await page.locator("[data-trip-totals]:visible").innerText())).toMatch(/Голова \/ Прицеп, мест\s+120 \/ 0/);
+    // The header keeps the day of the loading apart from the day the truck left.
+    await seeValue(page.locator("form[aria-label='Фура и водитель'] input[name=loadingDay]"), "2026-07-30");
+    await seeValue(page.locator("form[aria-label='Фура и водитель'] input[name=departureDay]"), "2026-07-31");
+    await seeValue(page.locator("form[aria-label='Фура и водитель'] input[name=direction]"), "АНДИЖОН - МОСКВА (через КЗХ)");
 
     // The list of the trips, and the same debt in «Клиенты».
     await page.getByRole("button", { name: "Все рейсы" }).click();
     const listed = plain(await page.locator("table[data-trips]:visible tbody tr").first().innerText());
     expect(listed).toContain("190");
     expect(listed).toContain("Жахонгир");
+    expect(listed).toContain("30.07.2026");
     expect(listed).toContain("31.07.2026");
     expect(listed).toContain("16.08.2026");
     expect(listed).toContain("Прибыл");
@@ -159,6 +179,27 @@ describe("the trips on the screen", () => {
     expect(plain(await client.innerText())).toContain("долг 5 529,75 $");
     expect(plain(await client.innerText())).toContain("1,5 $/кг");
     expect(plain(await page.locator("[data-debts]:visible").innerText())).toContain("Должны всего: 5 529,75 $");
+
+    // The card of the client: the trip that arrived, and the debt after it. The control sheet: the month it arrived in.
+    await page.getByRole("button", { name: "Карточка: 132", exact: true }).click();
+    const card = page.getByRole("dialog", { name: "132 Иброхим" });
+    await seeText(card, "Рейс 190");
+    const statement = plain(await card.locator("table[data-statement]").innerText());
+    expect(statement).toContain("Долг на начало");
+    expect(statement).toMatch(/16\.08\.2026\s+Рейс 190\s+5 529,75 \$\s+5 529,75 \$/);
+    await card.getByRole("button", { name: "Закрыть" }).click();
+    await page.locator("[data-control]:visible").getByRole("button", { name: "Показать" }).click();
+    await seeText(page.locator('[data-month="2026-08"]:visible'), "Август");
+    expect(plain(await page.locator('[data-month="2026-08"]:visible').innerText())).toMatch(/Август\s+0,00 \$\s+5 529,75 \$\s+0,00 \$\s+5 529,75 \$/);
+
+    // A client is a code and a name: with the name empty there is nothing to add.
+    await page.getByRole("button", { name: "+ Новый", exact: true }).click();
+    const fresh = page.getByRole("dialog", { name: "Новый клиент" });
+    await fresh.getByRole("textbox", { name: /Код/ }).fill("900");
+    expect(await fresh.getByRole("button", { name: "Добавить" }).isDisabled()).toBe(true);
+    await fresh.getByRole("textbox", { name: "Имя" }).fill("Вали");
+    expect(await fresh.getByRole("button", { name: "Добавить" }).isDisabled()).toBe(false);
+    await fresh.getByRole("button", { name: "Отмена" }).click();
 
     // The cashier takes a payment on a phone: the form says the debt under the code, before and after.
     const phone = await newPhone(browser);
@@ -179,6 +220,8 @@ describe("the trips on the screen", () => {
     // The same number on the trip, read again.
     const detail = (await (await get(started, "/api/trips/190", mudir)).json()) as { clients: Array<{ code: string; debtMinor: number }> };
     expect(detail.clients).toMatchObject([{ code: "132", debtMinor: 252_975 }]);
+    const lines = ((await (await get(started, "/api/clients/132/statement", mudir)).json()) as { movements: Array<{ kind: string; amountMinor: number; debtMinor: number }> }).movements;
+    expect(lines.map((line) => [line.kind, line.amountMinor, line.debtMinor])).toEqual([["trip", 552_975, 552_975], ["payment", 300_000, 252_975]]);
   }, 180_000);
 
   it("give the keeper of a warehouse the trips alone, with the cargo of their own warehouse to write", async () => {

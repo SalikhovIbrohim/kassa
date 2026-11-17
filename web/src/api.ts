@@ -905,19 +905,18 @@ export async function fetchClients(q = "", options: { all?: boolean; limit?: num
 }
 
 /** The same, with how a code is written in this business (a server that does not say writes «А707»). */
-export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes; debtsFrom?: string }> {
+export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes }> {
   const query = new URLSearchParams({ ...(q ? { q } : {}), ...(options.all ? { all: "1" } : {}), ...(options.limit ? { limit: String(options.limit) } : {}) });
   const response = await request(`/api/clients${query.toString() ? `?${query}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/clients`);
-  const body = (await response.json()) as { clients: Client[]; codes?: string; debtsFrom?: string };
-  // `debtsFrom`: the day the debts are counted from (YYYY-MM-DD), where the business has said one.
-  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter", ...(typeof body.debtsFrom === "string" ? { debtsFrom: body.debtsFrom } : {}) };
+  const body = (await response.json()) as { clients: Client[]; codes?: string };
+  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter" };
 }
 
 export type ClientResult =
   | { ok: true; client?: Client }
-  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "bad-code" | "rejected" | "server-error" };
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "bad-code" | "bad-name" | "rejected" | "server-error" };
 
 async function clientResult(response: Response): Promise<ClientResult> {
   if (response.ok) {
@@ -931,6 +930,7 @@ async function clientResult(response: Response): Promise<ClientResult> {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   if (body?.error === "client_exists") return { ok: false, reason: "exists" };
   if (body?.error === "bad_code") return { ok: false, reason: "bad-code" };
+  if (body?.error === "bad_name") return { ok: false, reason: "bad-name" };
   return { ok: false, reason: "rejected" };
 }
 
@@ -959,7 +959,14 @@ export async function changeClient(
 
 export type ImportResult =
   | { ok: true; added: number; skipped: number }
-  | { ok: false; reason: "session-expired" | "forbidden" | "server-error" | "rejected"; repeated?: Array<{ code: string; lines: number[] }>; bad?: Array<{ line: number; code: string }> };
+  | {
+      ok: false;
+      reason: "session-expired" | "forbidden" | "server-error" | "rejected";
+      repeated?: Array<{ code: string; lines: number[] }>;
+      bad?: Array<{ line: number; code: string }>;
+      /** The lines of the list that have a code and no name: a client is both. */
+      nameless?: Array<{ line: number; code: string }>;
+    };
 
 /** A whole list at once: new codes are added, codes already there are left alone. A code twice: nothing is loaded. */
 export async function importClients(clients: Array<{ code: string; name: string; phone?: string; priceMilli?: number; openingDebtMinor?: number }>): Promise<ImportResult> {
@@ -972,7 +979,8 @@ export async function importClients(clients: Array<{ code: string; name: string;
   if (response.status === 401) return { ok: false, reason: "session-expired" };
   if (response.status === 403) return { ok: false, reason: "forbidden" };
   if (response.status >= 500) return { ok: false, reason: "server-error" };
-  const body = (await response.json().catch(() => null)) as { codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
+  const body = (await response.json().catch(() => null)) as { error?: string; codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
+  if (body?.error === "nameless") return { ok: false, reason: "rejected", nameless: body.rows };
   return { ok: false, reason: "rejected", repeated: body?.codes, bad: body?.rows };
 }
 
@@ -1029,9 +1037,15 @@ export type Trip = {
   driverPhone: string | null;
   truckPlates: string | null;
   note: string | null;
+  /** Where it goes: «АНДИЖОН - МОСКВА (через КЗХ)». */
+  direction: string | null;
+  /** The day it was loaded; it leaves (`departureDay`) a day or two later. */
+  loadingDay: string | null;
   departureDay: string | null;
   arrivalDay: string | null;
   status: TripStatus;
+  /** A trip of the history, taken over from the card file: no waybill, only what each client owed for it. */
+  fromCardFile?: boolean;
   lines: number;
   bags: number;
   weightG: number;
@@ -1039,11 +1053,20 @@ export type Trip = {
 };
 
 /** A line of the waybill of a trip: the goods of one client, put on at one warehouse. */
+export type TruckPart = "head" | "trailer";
+
 export type CargoLine = {
   id: string;
   warehouse: string;
+  /** Where on the truck it lies: the head (the front part) or the trailer; and its turn there («Голова 3»). */
+  truckPart: TruckPart | null;
+  place: number | null;
+  /** The day the warehouse took it in. */
+  acceptedDay: string | null;
   clientCode: string;
   clientName: string;
+  /** Who receives it, by name: most often the client, sometimes somebody else under the client's code. */
+  receiver: string | null;
   sender: string | null;
   receiverPhone: string | null;
   item: string | null;
@@ -1051,6 +1074,8 @@ export type CargoLine = {
   size: string | null;
   bags: number | null;
   perBag: number | null;
+  /** What it is packed in: «пэ меш», «коробка». */
+  packaging: string | null;
   pieces: number | null;
   weightG: number;
   /** The price of a kilogram, thousandths of a dollar. */
@@ -1068,6 +1093,8 @@ export type TripDetail = {
   cargo: CargoLine[];
   /** What each client has on the truck, and what they owe in all (the cash book counted in). */
   clients: Array<{ code: string; name: string; bags: number; weightG: number; amountMinor: number; debtMinor: number }>;
+  /** The places on the head and on the trailer, as the foot of the waybill says them. */
+  places?: { head: number; trailer: number };
   /** What the person who is signed in may do with this trip. */
   may: { edit: boolean; warehouses: string[]; forward: TripStatus | null; back: TripStatus | null; admin: boolean; remove: boolean };
   /** For the owner and the admin: what the cash desk spent on the trip, and what is left of its cargo after that. */
@@ -1125,6 +1152,7 @@ const TRIP_REFUSALS: Record<string, TripRefusal> = {
   price_required: "price-required",
   warehouse_forbidden: "warehouse-forbidden",
   cargo_id_conflict: "rejected",
+  trip_from_card_file: "trip-arrived",
 };
 
 async function tripResult(response: Response): Promise<TripResult> {
@@ -1143,7 +1171,15 @@ const sendJson = (path: string, method: string, body?: unknown) =>
   request(path, { method, ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
 
 /** What the header of a trip says: who drives which truck, and when it left. */
-export type TripHeader = { driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; departureDay?: string | null };
+export type TripHeader = {
+  driverName?: string | null;
+  driverPhone?: string | null;
+  truckPlates?: string | null;
+  note?: string | null;
+  direction?: string | null;
+  loadingDay?: string | null;
+  departureDay?: string | null;
+};
 
 export const createTrip = async (input: TripHeader & { number: number }) => tripResult(await sendJson("/api/trips", "POST", input));
 
@@ -1160,7 +1196,10 @@ export const deleteTrip = async (number: number) => tripResult(await sendJson(`/
 /** What a line of cargo says. Without a price, the client's own. */
 export type CargoInput = {
   warehouse: string;
+  truckPart?: TruckPart | null;
+  acceptedDay?: string | null;
   clientCode: string;
+  receiver?: string | null;
   sender?: string | null;
   receiverPhone?: string | null;
   item?: string | null;
@@ -1168,6 +1207,7 @@ export type CargoInput = {
   size?: string | null;
   bags?: number | null;
   perBag?: number | null;
+  packaging?: string | null;
   pieces?: number | null;
   weightG: number;
   priceMilli?: number;
@@ -1180,3 +1220,42 @@ export const addCargo = async (number: number, id: string, input: CargoInput) =>
 export const changeCargo = async (number: number, id: string, input: CargoInput) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "PUT", input));
 
 export const deleteCargo = async (number: number, id: string) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "DELETE"));
+
+// ---- The card of a client, and the control sheet of a year ----
+
+/** One line of the card of a client: a trip that arrived, a payment, or money given back to the client. */
+export type Movement = {
+  day: string;
+  kind: "trip" | "payment" | "refund";
+  tripNumber: number | null;
+  amountMinor: number;
+  /** The cash desk that took a payment, where it is known. */
+  kassa: string | null;
+  /** A payment of before the cash book was kept here (taken over from the card file). */
+  past: boolean;
+  note: string | null;
+  /** The debt after this line. */
+  debtMinor: number;
+};
+
+export type ClientStatement = { code: string; name: string; openingDebtMinor: number; movements: Movement[]; debtMinor: number };
+
+/** Everything behind the debt of one client, oldest first; null when there is no such client. */
+export async function fetchClientStatement(code: string): Promise<ClientStatement | null> {
+  const response = await request(`/api/clients/${encodeURIComponent(code)}/statement`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from the statement of a client`);
+  return (await response.json()) as ClientStatement;
+}
+
+/** A month of the control sheet: what all the clients owed when it began, what arrived, what was paid, what they owed when it ended. */
+export type ControlMonth = { month: string; openingMinor: number; chargedMinor: number; paidMinor: number; closingMinor: number };
+
+/** The control sheet of a year (the one that is running, unless said), month by month. */
+export async function fetchDebtControl(year?: number): Promise<{ year: number; months: ControlMonth[] }> {
+  const response = await request(year === undefined ? "/api/debts/control" : `/api/debts/control?${new URLSearchParams({ year: String(year) })}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/control`);
+  return (await response.json()) as { year: number; months: ControlMonth[] };
+}

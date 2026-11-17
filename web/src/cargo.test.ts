@@ -4,7 +4,10 @@ import {
   debtWords,
   formatCount,
   formatDebtInput,
+  formatMonth,
+  formatPlace,
   formatPrice,
+  formatShortDay,
   formatTripDay,
   formatWeight,
   formatWeightInput,
@@ -91,6 +94,17 @@ describe("the numbers of the cargo", () => {
     expect(plain(debtWords(-5_000).text)).toBe("предоплата 50,00 $");
     expect(debtWords(-5_000).tone).toBe("ahead");
     expect(debtWords(0)).toEqual({ text: "долга нет", tone: "even" });
+  });
+
+  it("writes the place of a line as the waybill does, and a month as the control sheet does", () => {
+    expect(formatPlace("head", 3)).toBe("Голова 3");
+    expect(formatPlace("trailer", 12)).toBe("Прицеп 12");
+    expect(formatPlace("head", null)).toBe("Голова");
+    expect(formatPlace(null, null)).toBe("");
+    expect(formatShortDay("2026-11-04")).toBe("04.11");
+    expect(formatShortDay(null)).toBe("");
+    expect(formatMonth("2026-01")).toBe("Январь");
+    expect(formatMonth("2026-11")).toBe("Ноябрь");
   });
 
   it("takes today from the calendar of Moscow", () => {

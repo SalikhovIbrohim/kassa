@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
@@ -23,7 +24,10 @@ import { kassaSettingName, loadOneC, loadOneCKassas, onecSetting, strangerSettin
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
+import { parseClientCodes } from "../clients.js";
+import { parseWarehouses } from "../warehouses.js";
 import { readCategoryFile, setCategories } from "./categories.js";
+import { importHistory, type HistoryFile } from "./history.js";
 import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
@@ -71,6 +75,15 @@ Commands:
                                       { "income": [ { "label": "Оплата от покупателей", "code": "client_payment", "requiresClient": true } ],
                                         "expense": [ { "label": "Обед", "city": "andijan" }, { "label": "Толкач", "city": "tashkent", "requiresTrip": true } ] }
                                       (also requiresCounterparty, requiresEmployee; no "city" is everywhere)
+  import-history --file <history.json> [--login <admin>]
+                                      load the history of before the trips were kept here (where WAREHOUSES is set):
+                                      the clients with what each owed at the start, the trips of before with the sum
+                                      of each client, the payments of before, and the waybills of the trips on the
+                                      road. All of it or nothing; loading the file again replaces what was loaded
+                                      before and touches nothing that was entered here since. The payments of before
+                                      are no entries of the cash book: no balance of a cash desk changes. At the end
+                                      it prints the debts month by month next to the control sheet of the file.
+                                      tools/express makes the file from the spreadsheets of the business
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
@@ -192,6 +205,43 @@ async function main(): Promise<void> {
         const wanted = readCategoryFile(required(values.file, "--file"), kassasOfSettings());
         for (const line of await setCategories(pool, wanted)) console.log(line);
         console.log("The lists of categories are those of the file.");
+        break;
+      }
+      case "import-history": {
+        const path = required(values.file, "--file");
+        let file: HistoryFile;
+        try {
+          file = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as HistoryFile;
+        } catch (error) {
+          throw new AdminError(`The history file ${path} cannot be read: ${(error as Error).message}`);
+        }
+        let warehouses;
+        let clientCodes;
+        try {
+          warehouses = parseWarehouses(process.env.WAREHOUSES);
+          clientCodes = parseClientCodes(process.env.CLIENT_CODES);
+        } catch (error) {
+          throw new AdminError(`${(error as Error).message} (in the settings file)`);
+        }
+        const report = await importHistory(pool, file, { warehouses, kassas: kassasOfSettings(), clientCodes, actorLogin: values.login });
+        console.log(`Clients: ${report.clients.added} added, ${report.clients.there} were there (their opening debts are those of the file).`);
+        console.log(`Trips of before: ${report.trips.added} added, ${report.trips.there} were there, ${report.trips.removed} taken away; ${report.trips.sums} sums of clients.`);
+        console.log(`Payments of before: ${report.payments}.`);
+        for (const waybill of report.waybills) console.log(`Trip ${waybill.number} on the road: ${waybill.lines} lines (${waybill.note}).`);
+        // The debts month by month, as the control sheet of the card file has them: the proof that the load is whole.
+        const money = (minor: number) => formatAmount(minor).padStart(13);
+        console.log("\nMonth        opening       charged          paid       closing   the file says");
+        let apart = 0;
+        for (const month of report.control) {
+          const difference = month.file ? month.closingMinor - month.file.closingMinor : 0;
+          apart = Math.max(apart, Math.abs(difference));
+          const said = month.file ? `${money(month.file.closingMinor)}  ${difference === 0 ? "the same" : `apart by ${formatAmount(difference)}`}` : "   (not in the file)";
+          console.log(`${month.month} ${money(month.openingMinor)} ${money(month.chargedMinor)} ${money(month.paidMinor)} ${money(month.closingMinor)} ${said}`);
+        }
+        // The card file adds up sums with a third decimal, the debts here are whole cents: a cent here and there, never dollars.
+        if (report.control.some((month) => month.file)) {
+          console.log(apart < 100 ? "\nThe debts agree with the control sheet of the file (to less than a dollar: the file keeps a third decimal, the debts here are whole cents)." : "\nTHE DEBTS DO NOT AGREE with the control sheet of the file: look at the months above before anybody works with them.");
+        }
         break;
       }
       case "telegram-chats": {

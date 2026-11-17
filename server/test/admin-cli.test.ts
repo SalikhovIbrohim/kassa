@@ -328,3 +328,91 @@ describe("admin command line: set-categories", () => {
     expect(result.stdout).toContain('"code": "client_payment"');
   }, 30_000);
 });
+
+describe("admin command line: import-history", () => {
+  const cleanups: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  /** The history file of a business with codes of digits, three desks of dollars and two warehouses, on a database of its own. */
+  async function world(file: unknown) {
+    const database = await createBlankDatabase();
+    const folder = mkdtempSync(join(tmpdir(), "kassa-history-"));
+    cleanups.push(async () => {
+      rmSync(folder, { recursive: true, force: true });
+      await database.drop();
+    });
+    const path = join(folder, "history.json");
+    // A file saved by Notepad starts with a byte order mark: read all the same.
+    writeFileSync(path, `﻿${JSON.stringify(file)}`);
+    const env = { DATABASE_URL: database.url, KASSAS: "moscow:USD,andijan:USD,tashkent:USD", CLIENT_CODES: "digits", WAREHOUSES: "andijan,kokand" };
+    return { path, env, url: database.url };
+  }
+
+  const history = {
+    clients: [{ code: "1", name: "Улугбек", openingDebtMinor: 2_439_800 }, { code: "132", name: "Иброхим" }],
+    trips: [{ number: 67, arrivalDay: "2026-01-03", sums: [{ code: "1", amountMicro: 2_894_850_000 }, { code: "132", amountMicro: 4_285_728_000 }] }],
+    payments: [{ code: "1", day: "2026-01-05", amountMinor: 108_000, kassa: "moscow" }, { code: "132", day: "2026-02-06", amountMinor: 300_000, kassa: "tashkent" }],
+    waybills: [{ number: 248, status: "in_transit", loadingDay: "2026-11-07", lines: [{ warehouse: "kokand", truckPart: "head", code: "132", weightG: 1_578_300, priceMilli: 1400 }] }],
+    // What the card file says: sums with a third decimal, where the debts here are whole cents.
+    control: [
+      { month: "2026-01", openingMinor: 2_439_800, chargedMinor: 718_058, paidMinor: 108_000, closingMinor: 3_049_858 },
+      { month: "2026-02", openingMinor: 3_049_858, chargedMinor: 0, paidMinor: 300_000, closingMinor: 2_749_858 },
+    ],
+  };
+
+  it("loads the file and prints the debts month by month next to the control sheet of the file", async () => {
+    const { path, env } = await world(history);
+    // The trips of the history are written down under an admin: there has to be one.
+    const early = await runCli(["import-history", "--file", path], env);
+    expect(early.code).toBe(1);
+    expect(early.stderr).toContain("There is no admin yet");
+    expect((await runCli(["create-user", "--login", "mudir", "--role", "admin"], { ...env, KASSA_PASSWORD: "admin password" })).code).toBe(0);
+
+    const result = await runCli(["import-history", "--file", path], env);
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Clients: 2 added, 0 were there");
+    expect(result.stdout).toContain("Trips of before: 1 added, 0 were there, 0 taken away; 2 sums of clients.");
+    expect(result.stdout).toContain("Payments of before: 2.");
+    expect(result.stdout).toContain("Trip 248 on the road: 1 lines (made).");
+    expect(result.stdout).toMatch(/2026-01\s+24398\.00\s+7180\.58\s+1080\.00\s+30498\.58\s+30498\.58\s+the same/);
+    expect(result.stdout).toMatch(/2026-02\s+30498\.58\s+0\.00\s+3000\.00\s+27498\.58\s+27498\.58\s+the same/);
+    expect(result.stdout).toContain("The debts agree with the control sheet of the file");
+
+    // The file again: nothing is doubled.
+    const again = await runCli(["import-history", "--file", path, "--login", "mudir"], env);
+    expect(again.code).toBe(0);
+    expect(again.stdout).toContain("Clients: 0 added, 2 were there");
+    expect(again.stdout).toContain("Trips of before: 0 added, 1 were there");
+    expect(again.stdout).toContain("Trip 248 on the road: 0 lines (left as it is: it has 1 lines already).");
+    expect(again.stdout).toMatch(/2026-02\s+30498\.58\s+0\.00\s+3000\.00\s+27498\.58/);
+  }, 60_000);
+
+  it("says so, loudly, when the debts do not come to what the control sheet of the file says", async () => {
+    const off = { ...history, control: [{ month: "2026-01", openingMinor: 2_439_800, chargedMinor: 718_058, paidMinor: 108_000, closingMinor: 3_549_858 }] };
+    const { path, env } = await world(off);
+    expect((await runCli(["create-user", "--login", "mudir", "--role", "admin"], { ...env, KASSA_PASSWORD: "admin password" })).code).toBe(0);
+    const result = await runCli(["import-history", "--file", path], env);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/2026-01 .*apart by -5000\.00/);
+    expect(result.stdout).toContain("THE DEBTS DO NOT AGREE");
+  }, 60_000);
+
+  it("refuses a file it cannot read, a business without warehouses, and a file that cannot be right", async () => {
+    const { path, env } = await world({ ...history, clients: [{ code: "1", name: "" }] });
+    expect((await runCli(["create-user", "--login", "mudir", "--role", "admin"], { ...env, KASSA_PASSWORD: "admin password" })).code).toBe(0);
+    const nameless = await runCli(["import-history", "--file", path], env);
+    expect(nameless.code).toBe(1);
+    expect(nameless.stderr).toContain("a client has a name");
+    const missing = await runCli(["import-history", "--file", join(path, "no-such.json")], env);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toContain("cannot be read");
+    const noTrips = await runCli(["import-history", "--file", path], { ...env, WAREHOUSES: undefined });
+    expect(noTrips.code).toBe(1);
+    expect(noTrips.stderr).toContain("keeps no trips");
+    expect((await runCli(["import-history"], env)).code).toBe(1);
+  }, 60_000);
+});

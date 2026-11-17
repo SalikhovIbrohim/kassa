@@ -15,8 +15,6 @@ export type ClientsOptions = {
    * kilogram and a debt, and the directory says them. Without it the directory is as it always was.
    */
   cargo?: boolean;
-  /** The day the debts are counted from (YYYY-MM-DD), when the business has said one (see client-debts.ts). */
-  debtsFrom?: string;
 };
 
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
@@ -102,7 +100,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
   const present = async (db: Queryable, rows: ClientRow[]): Promise<Client[]> => {
     if (!cargo) return rows.map(toClient);
     // A few clients are asked for by their codes; the whole list is read whole.
-    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined, options.debtsFrom);
+    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined);
     return rows.map((row) => toClientWithDebt(row, debts.get(row.code)));
   };
 
@@ -142,8 +140,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
         [request.query.all === "1", typed, codePrefix, limit],
       );
       // `codes` tells the screen of the clients how a code is written here (what it says of a code, which lines of a file are clients).
-      // `debtsFrom`: the day the debts are counted from, where the business has said one; the screen of the clients says it.
-      return { clients: await present(pool, found.rows), codes, ...(cargo && options.debtsFrom ? { debtsFrom: options.debtsFrom } : {}) };
+      return { clients: await present(pool, found.rows), codes };
     },
   );
 
@@ -166,6 +163,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       if (!code || cleanText(request.body.code).replace(/\s/g, "").length > code.length + (codes === "letter" ? 1 : 0)) {
         return reply.code(400).send({ error: "bad_code", message: `body/code must be a code like ${clientCodeExample(codes)}` });
       }
+      // A client is a code and a name, both: a code alone tells nobody who it is.
+      if (cleanText(request.body.name ?? "") === "") return reply.code(400).send({ error: "bad_name", message: "body/name is required: a client has a code and a name" });
       try {
         const made = await pool.query<ClientRow>(
           "INSERT INTO clients (code, name, phone, note, price_milli, opening_debt_minor) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
@@ -198,6 +197,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
     async (request, reply) => {
       const code = clientCodeIn(request.params.code, codes);
       const body = request.body;
+      // The name may be changed, never taken away.
+      if (body.name !== undefined && cleanText(body.name) === "") return reply.code(400).send({ error: "bad_name", message: "body/name cannot be empty" });
       const changed = await pool.query<ClientRow>(
         `UPDATE clients
             SET name = COALESCE($2, name),
@@ -266,6 +267,9 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       }));
       const bad = rows.filter((row) => !row.code).map((row) => ({ line: row.line, code: row.typed }));
       if (bad.length > 0) return reply.code(400).send({ error: "bad_codes", rows: bad });
+      // A client is a code and a name, both: a list with a nameless line is put right first, and nothing of it is loaded.
+      const nameless = rows.filter((row) => row.name === "").map((row) => ({ line: row.line, code: row.code }));
+      if (nameless.length > 0) return reply.code(400).send({ error: "nameless", rows: nameless });
       const seen = new Map<string, number[]>();
       for (const row of rows) seen.set(row.code!, [...(seen.get(row.code!) ?? []), row.line]);
       const twice = [...seen.entries()].filter(([, lines]) => lines.length > 1).map(([code, lines]) => ({ code, lines }));

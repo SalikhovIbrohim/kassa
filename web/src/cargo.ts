@@ -106,3 +106,18 @@ export const formatTripDay = (day: string | null) => (day ? day.split("-").rever
 export function moscowToday(now: Date = new Date()): string {
   return new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
+
+/** The front part of the truck and the back one, as the waybills of the business call them. */
+export const TRUCK_PART_LABEL: Record<"head" | "trailer", string> = { head: "Голова", trailer: "Прицеп" };
+
+/** Where a line lies on the truck, as the waybill writes it: «Голова 3», «Прицеп 5»; nothing for a line that says no part. */
+export const formatPlace = (part: "head" | "trailer" | null, place: number | null) => (part ? `${TRUCK_PART_LABEL[part]}${place === null ? "" : ` ${place}`}` : "");
+
+/** "2026-11-04" -> "04.11": the day a warehouse took the cargo in, short, for a column of a table. */
+export const formatShortDay = (day: string | null) => (day ? `${day.slice(8, 10)}.${day.slice(5, 7)}` : "");
+
+/** "2026-01" -> "Январь": a month of the control sheet. */
+export function formatMonth(month: string): string {
+  const names = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+  return names[Number(month.slice(5, 7)) - 1] ?? month;
+}

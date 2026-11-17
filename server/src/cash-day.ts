@@ -33,3 +33,8 @@ export function cashDayStartSql(column: string): string {
   const shift = `make_interval(secs => ${DAY_SHIFT_MS / 1000})`;
   return `((date_trunc('day', (${column} AT TIME ZONE 'UTC') + ${shift}) - ${shift}) AT TIME ZONE 'UTC')`;
 }
+
+/** SQL for the day of the cash desk (a date) that the timestamptz expression `column` falls on: the same as `cashDayOf`. */
+export function cashDaySql(column: string): string {
+  return `(((${column}) AT TIME ZONE 'UTC') + make_interval(secs => ${DAY_SHIFT_MS / 1000}))::date`;
+}

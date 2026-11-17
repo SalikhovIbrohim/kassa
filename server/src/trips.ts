@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import type { SessionUser } from "./auth.js";
 import type { Queryable } from "./balances.js";
-import { centsOfMicro, centsOfMicroSql, readDebts, type ClientDebt } from "./client-debts.js";
+import { centsOfMicro, readDebts, type ClientDebt } from "./client-debts.js";
 import { clientCodeIn, type ClientCodes } from "./clients.js";
 import { dayAverageRateSql, inTransaction } from "./ledger.js";
 import { NO_NUL, NO_QUERY, UUID } from "./schemas.js";
@@ -16,8 +16,6 @@ export type TripsOptions = {
   warehouses: Warehouses;
   /** How the business writes the codes of its clients: «А707» unless said. */
   clientCodes?: ClientCodes;
-  /** The day the debts of the clients are counted from (YYYY-MM-DD), when the business has said one. */
-  debtsFrom?: string;
 };
 
 /** A truck is being loaded, then it is on the road, then it has arrived: from then on its cargo is owed. */
@@ -38,23 +36,32 @@ type TripRow = {
   driver_phone: string | null;
   truck_plates: string | null;
   note: string | null;
+  direction: string | null;
+  loading_day: string | null;
   departure_day: string | null;
   arrival_day: string | null;
   status: TripStatus;
+  from_card_file: boolean;
   lines: string;
   bags: string;
   weight_g: string;
   amount_minor: string;
 };
 
-/** A trip with what is on the truck: how many lines, bags and grams, and what they come to in cents. */
-const TRIP_SELECT = `SELECT t.id, t.number, t.driver_name, t.driver_phone, t.truck_plates, t.note, t.status,
+/**
+ * A trip with what is on the truck: how many lines, places and grams, and what it all comes to in cents. A trip of the
+ * history has no lines: what it comes to is the sums of its clients (`trip_sums`).
+ */
+const TRIP_SELECT = `SELECT t.id, t.number, t.driver_name, t.driver_phone, t.truck_plates, t.note, t.status, t.direction, t.from_card_file,
+       to_char(t.loading_day, 'YYYY-MM-DD') AS loading_day,
        to_char(t.departure_day, 'YYYY-MM-DD') AS departure_day, to_char(t.arrival_day, 'YYYY-MM-DD') AS arrival_day,
-       COALESCE(s.lines, 0) AS lines, COALESCE(s.bags, 0) AS bags, COALESCE(s.weight_g, 0) AS weight_g, COALESCE(s.minor, 0) AS amount_minor
+       COALESCE(s.lines, 0) AS lines, COALESCE(s.bags, 0) AS bags, COALESCE(s.weight_g, 0) AS weight_g,
+       floor((COALESCE(s.micro, 0) + COALESCE(h.micro, 0) + 5000) / 10000) AS amount_minor
   FROM trips t
   LEFT JOIN (SELECT trip_id, count(*) AS lines, COALESCE(SUM(bags), 0) AS bags, SUM(weight_g) AS weight_g,
-                    ${centsOfMicroSql("SUM(weight_g::numeric * price_milli)")} AS minor
-               FROM trip_cargo WHERE deleted_at IS NULL GROUP BY trip_id) s ON s.trip_id = t.id`;
+                    SUM(weight_g::numeric * price_milli) AS micro
+               FROM trip_cargo WHERE deleted_at IS NULL GROUP BY trip_id) s ON s.trip_id = t.id
+  LEFT JOIN (SELECT trip_id, SUM(amount_micro::numeric) AS micro FROM trip_sums GROUP BY trip_id) h ON h.trip_id = t.id`;
 
 const toTrip = (row: TripRow) => ({
   number: row.number,
@@ -62,10 +69,15 @@ const toTrip = (row: TripRow) => ({
   driverPhone: row.driver_phone,
   truckPlates: row.truck_plates,
   note: row.note,
-  /** Days as YYYY-MM-DD. */
+  /** Where it goes: «АНДИЖОН - МОСКВА (через КЗХ)». */
+  direction: row.direction,
+  /** Days as YYYY-MM-DD: the day it was loaded, the day it left, the day it arrived. */
+  loadingDay: row.loading_day,
   departureDay: row.departure_day,
   arrivalDay: row.arrival_day,
   status: row.status,
+  /** A trip of the history, taken over from the card file: no waybill, only what each client owed for it. */
+  fromCardFile: row.from_card_file,
   lines: Number(row.lines),
   bags: Number(row.bags),
   weightG: Number(row.weight_g),
@@ -73,11 +85,17 @@ const toTrip = (row: TripRow) => ({
   amountMinor: Number(row.amount_minor),
 });
 
+/** The front part of the truck («голова») or the back one («прицеп»). */
+type TruckPart = "head" | "trailer";
+
 type CargoRow = {
   id: string;
   warehouse: Warehouse;
+  truck_part: TruckPart | null;
+  accepted_day: string | null;
   client_code: string;
   client_name: string;
+  receiver: string | null;
   sender: string | null;
   receiver_phone: string | null;
   item: string | null;
@@ -85,6 +103,7 @@ type CargoRow = {
   size: string | null;
   bags: number | null;
   per_bag: number | null;
+  packaging: string | null;
   pieces: number | null;
   weight_g: string;
   price_milli: number;
@@ -96,7 +115,10 @@ type CargoRow = {
 /** What a line of cargo says, as its history keeps it. */
 type CargoState = {
   warehouse: Warehouse;
+  truckPart: TruckPart | null;
+  acceptedDay: string | null;
   clientCode: string;
+  receiver: string | null;
   sender: string | null;
   receiverPhone: string | null;
   item: string | null;
@@ -104,6 +126,7 @@ type CargoState = {
   size: string | null;
   bags: number | null;
   perBag: number | null;
+  packaging: string | null;
   pieces: number | null;
   weightG: number;
   priceMilli: number;
@@ -112,7 +135,10 @@ type CargoState = {
 
 const cargoState = (row: CargoRow): CargoState => ({
   warehouse: row.warehouse,
+  truckPart: row.truck_part,
+  acceptedDay: row.accepted_day,
   clientCode: row.client_code,
+  receiver: row.receiver,
   sender: row.sender,
   receiverPhone: row.receiver_phone,
   item: row.item,
@@ -120,6 +146,7 @@ const cargoState = (row: CargoRow): CargoState => ({
   size: row.size,
   bags: row.bags,
   perBag: row.per_bag,
+  packaging: row.packaging,
   pieces: row.pieces,
   weightG: Number(row.weight_g),
   priceMilli: row.price_milli,
@@ -132,6 +159,8 @@ const tripState = (row: TripRow) => ({
   driverPhone: row.driver_phone,
   truckPlates: row.truck_plates,
   note: row.note,
+  direction: row.direction,
+  loadingDay: row.loading_day,
   departureDay: row.departure_day,
   arrivalDay: row.arrival_day,
   status: row.status,
@@ -139,7 +168,10 @@ const tripState = (row: TripRow) => ({
 
 type CargoBody = {
   warehouse: Warehouse;
+  truckPart?: TruckPart | null;
+  acceptedDay?: string | null;
   clientCode: string;
+  receiver?: string | null;
   sender?: string | null;
   receiverPhone?: string | null;
   item?: string | null;
@@ -147,6 +179,7 @@ type CargoBody = {
   size?: string | null;
   bags?: number | null;
   perBag?: number | null;
+  packaging?: string | null;
   pieces?: number | null;
   weightG: number;
   /** Without it, the price of the client. */
@@ -171,6 +204,8 @@ const headerProperties = {
   driverPhone: text(100),
   truckPlates: text(100),
   note: text(500),
+  direction: text(100),
+  loadingDay: DAY_OR_NONE,
   departureDay: DAY_OR_NONE,
 } as const;
 
@@ -230,8 +265,9 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
   const readCargo = async (db: Queryable, tripId: string, id?: string): Promise<CargoRow[]> =>
     (
       await db.query<CargoRow>(
-        `SELECT c.id, c.warehouse, c.client_code, cl.name AS client_name, c.sender, c.receiver_phone, c.item, c.brand, c.size,
-                c.bags, c.per_bag, c.pieces, c.weight_g, c.price_milli, c.note, c.created_at, u.display_name AS author
+        `SELECT c.id, c.warehouse, c.truck_part, to_char(c.accepted_day, 'YYYY-MM-DD') AS accepted_day, c.client_code, cl.name AS client_name,
+                c.receiver, c.sender, c.receiver_phone, c.item, c.brand, c.size,
+                c.bags, c.per_bag, c.packaging, c.pieces, c.weight_g, c.price_milli, c.note, c.created_at, u.display_name AS author
            FROM trip_cargo c JOIN clients cl ON cl.code = c.client_code JOIN users u ON u.id = c.created_by
           WHERE c.trip_id = $1 AND c.deleted_at IS NULL AND ($2::uuid IS NULL OR c.id = $2)
           ORDER BY c.position`,
@@ -245,8 +281,11 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       [entry.tripId, entry.cargoId ?? null, entry.action, entry.at, entry.by, entry.before === undefined ? null : JSON.stringify(entry.before), entry.after === undefined ? null : JSON.stringify(entry.after)],
     );
 
-  /** Whether this person writes cargo onto this trip at all: the admin always, a keeper until the truck has arrived. */
-  const writesCargo = (user: SessionUser, trip: TripRow) => user.role === "admin" || (user.role === "warehouse" && trip.status !== "arrived");
+  /**
+   * Whether this person writes cargo onto this trip at all: the admin always, a keeper until the truck has arrived.
+   * Nobody onto a trip of the history: it has the sums of its clients, and lines would be owed for a second time.
+   */
+  const writesCargo = (user: SessionUser, trip: TripRow) => !trip.from_card_file && (user.role === "admin" || (user.role === "warehouse" && trip.status !== "arrived"));
   /** Whether this person writes the cargo of this warehouse onto this trip. */
   const writesCargoOf = (user: SessionUser, trip: TripRow, warehouse: Warehouse) =>
     writesCargo(user, trip) && (user.role === "admin" ? true : warehouses.mayUse(user.city, warehouse));
@@ -257,11 +296,25 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
    */
   const readDetail = async (db: Queryable, trip: TripRow, user: SessionUser) => {
     const rows = await readCargo(db, trip.id);
+    // The number of a line on its part of the truck is its turn there, warehouse by warehouse, as the waybill of the
+    // business numbers them: «ГОЛОВА 3», and for the cargo of Kokand «КУКОН ГОЛОВА 1» again.
+    const turns = new Map<string, number>();
+    const placeOf = (row: CargoRow) => {
+      if (row.truck_part === null) return null;
+      const key = `${row.warehouse} ${row.truck_part}`;
+      turns.set(key, (turns.get(key) ?? 0) + 1);
+      return turns.get(key)!;
+    };
     const cargo = rows.map((row) => ({
       id: row.id,
       warehouse: row.warehouse,
+      truckPart: row.truck_part,
+      /** The turn of the line on its part of the truck (see above); none for a line that says no part. */
+      place: placeOf(row),
+      acceptedDay: row.accepted_day,
       clientCode: row.client_code,
       clientName: row.client_name,
+      receiver: row.receiver,
       sender: row.sender,
       receiverPhone: row.receiver_phone,
       item: row.item,
@@ -269,6 +322,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       size: row.size,
       bags: row.bags,
       perBag: row.per_bag,
+      packaging: row.packaging,
       pieces: row.pieces,
       weightG: Number(row.weight_g),
       priceMilli: row.price_milli,
@@ -290,7 +344,20 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       sum.micro += Number(row.weight_g) * row.price_milli;
       byClient.set(row.client_code, sum);
     }
-    const debts: Map<string, ClientDebt> = byClient.size > 0 ? await readDebts(db, codes, [...byClient.keys()], options.debtsFrom) : new Map();
+    // A trip of the history: no lines, a sum to a client.
+    const sums = await db.query<{ client_code: string; client_name: string; amount_micro: string; note: string | null }>(
+      "SELECT s.client_code, cl.name AS client_name, s.amount_micro, s.note FROM trip_sums s JOIN clients cl ON cl.code = s.client_code WHERE s.trip_id = $1",
+      [trip.id],
+    );
+    for (const row of sums.rows) {
+      const sum = byClient.get(row.client_code) ?? { code: row.client_code, name: row.client_name, bags: 0, weightG: 0, micro: 0 };
+      sum.micro += Number(row.amount_micro);
+      byClient.set(row.client_code, sum);
+    }
+    // The places on each part of the truck, as the foot of the waybill says them («ГОЛОВА 382 мест ПРИЦЕП 353 мест»).
+    const places = { head: 0, trailer: 0 };
+    for (const row of rows) if (row.truck_part) places[row.truck_part] += row.bags ?? 0;
+    const debts: Map<string, ClientDebt> = byClient.size > 0 ? await readDebts(db, codes, [...byClient.keys()]) : new Map();
     const order = (code: string) => Number(/[0-9]+/.exec(code)?.[0] ?? 0);
     const clients = [...byClient.values()]
       .sort((a, b) => order(a.code) - order(b.code) || a.code.localeCompare(b.code))
@@ -306,10 +373,11 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       warehouses: warehouses.ids.filter((id) => writesCargoOf(user, trip, id)),
       /** The next status this person may give the trip, and the one before (the admin takes a wrong step back). */
       forward: (admin || keeper) && position < STATUSES.length - 1 ? STATUSES[position + 1]! : null,
-      back: admin && position > 0 ? STATUSES[position - 1]! : null,
+      // A trip of the history arrived long ago: it is not sent back on the road.
+      back: admin && position > 0 && !trip.from_card_file ? STATUSES[position - 1]! : null,
       /** The number and the day of arrival are the admin's to put right; a trip without cargo is the admin's to take away. */
       admin,
-      remove: admin && rows.length === 0,
+      remove: admin && rows.length === 0 && sums.rows.length === 0,
     };
 
     // What the cash desk spent on this trip (its expenses that name the number), for those who see the money.
@@ -325,7 +393,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       const expenseMinor = Number(spent.rows[0]?.minor ?? 0);
       money = { expenseMinor, profitMinor: Number(trip.amount_minor) - expenseMinor };
     }
-    return { trip: toTrip(trip), cargo, clients, may, ...(money ? { money } : {}) };
+    return { trip: toTrip(trip), cargo, clients, places, may, ...(money ? { money } : {}) };
   };
 
   /** Runs a change of one trip in a transaction that holds the trip, and answers with the trip as it is afterwards. */
@@ -384,7 +452,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
     },
   );
 
-  app.post<{ Body: { number: number; driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; departureDay?: string | null } }>(
+  app.post<{ Body: { number: number; driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; direction?: string | null; loadingDay?: string | null; departureDay?: string | null } }>(
     "/api/trips",
     {
       onRequest: writers,
@@ -396,15 +464,15 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
     },
     async (request, reply) => {
       const body = request.body;
-      if (body.departureDay && !isDay(body.departureDay)) return reply.code(400).send({ error: "bad_day" });
+      for (const day of [body.loadingDay, body.departureDay]) if (day && !isDay(day)) return reply.code(400).send({ error: "bad_day" });
       const user = request.user!;
       try {
         const made = await inTransaction(pool, async (db) => {
           const at = now();
           const inserted = await db.query<{ id: string }>(
-            `INSERT INTO trips (number, driver_name, driver_phone, truck_plates, note, departure_day, created_by, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-            [body.number, blankToNull(body.driverName), blankToNull(body.driverPhone), blankToNull(body.truckPlates), blankToNull(body.note), body.departureDay ?? null, user.id, at],
+            `INSERT INTO trips (number, driver_name, driver_phone, truck_plates, note, direction, loading_day, departure_day, created_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+            [body.number, blankToNull(body.driverName), blankToNull(body.driverPhone), blankToNull(body.truckPlates), blankToNull(body.note), blankToNull(body.direction), body.loadingDay ?? null, body.departureDay ?? null, user.id, at],
           );
           const trip = (await findTrip(db, body.number))!;
           await log(db, { tripId: inserted.rows[0]!.id, action: "create", at, by: user.id, after: tripState(trip) });
@@ -435,7 +503,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
 
   // The header of a trip. The number and the day of arrival are the admin's to put right: the entries of the cash desk
   // name the trip by its number, and the day of arrival is the day the cargo is owed from.
-  app.patch<{ Params: { number: string }; Body: { number?: number; driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; departureDay?: string | null; arrivalDay?: string } }>(
+  app.patch<{ Params: { number: string }; Body: { number?: number; driverName?: string | null; driverPhone?: string | null; truckPlates?: string | null; note?: string | null; direction?: string | null; loadingDay?: string | null; departureDay?: string | null; arrivalDay?: string } }>(
     "/api/trips/:number",
     {
       onRequest: writers,
@@ -449,7 +517,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
     async (request, reply) => {
       const body = request.body;
       const user = request.user!;
-      for (const day of [body.departureDay, body.arrivalDay]) if (day && !isDay(day)) return reply.code(400).send({ error: "bad_day" });
+      for (const day of [body.loadingDay, body.departureDay, body.arrivalDay]) if (day && !isDay(day)) return reply.code(400).send({ error: "bad_day" });
       if ((body.number !== undefined || body.arrivalDay !== undefined) && user.role !== "admin") return reply.code(403).send({ error: "forbidden" });
       try {
         return await change(request, reply, Number(request.params.number), async (db, trip, at) => {
@@ -462,6 +530,8 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
             driverPhone: body.driverPhone === undefined ? trip.driver_phone : blankToNull(body.driverPhone),
             truckPlates: body.truckPlates === undefined ? trip.truck_plates : blankToNull(body.truckPlates),
             note: body.note === undefined ? trip.note : blankToNull(body.note),
+            direction: body.direction === undefined ? trip.direction : blankToNull(body.direction),
+            loadingDay: kept(body.loadingDay, trip.loading_day),
             departureDay: kept(body.departureDay, trip.departure_day),
             arrivalDay: kept(body.arrivalDay, trip.arrival_day),
           };
@@ -469,8 +539,8 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
           const after = { ...before, ...next };
           if (JSON.stringify(before) === JSON.stringify(after)) return;
           await db.query(
-            "UPDATE trips SET number = $2, driver_name = $3, driver_phone = $4, truck_plates = $5, note = $6, departure_day = $7, arrival_day = $8 WHERE id = $1",
-            [trip.id, next.number, next.driverName, next.driverPhone, next.truckPlates, next.note, next.departureDay, next.arrivalDay],
+            "UPDATE trips SET number = $2, driver_name = $3, driver_phone = $4, truck_plates = $5, note = $6, departure_day = $7, arrival_day = $8, direction = $9, loading_day = $10 WHERE id = $1",
+            [trip.id, next.number, next.driverName, next.driverPhone, next.truckPlates, next.note, next.departureDay, next.arrivalDay, next.direction, next.loadingDay],
           );
           await log(db, { tripId: trip.id, action: "edit", at, by: user.id, before, after });
           return { number: next.number };
@@ -507,6 +577,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
         if (step === 0 && user.role !== "admin") throw new Refusal(403, "forbidden");
         if (step > 1 || step < -1) throw new Refusal(409, "wrong_status");
         if (step < 0 && user.role !== "admin") throw new Refusal(403, "forbidden");
+        if (step < 0 && trip.from_card_file) throw new Refusal(409, "trip_from_card_file");
         if (status === "arrived" && step === 1 && arrivalDay === undefined) throw new Refusal(400, "arrival_day_required");
         const day = status === "arrived" ? (arrivalDay ?? trip.arrival_day) : null;
         // A truck that is on its way left some day: today, when nobody said which.
@@ -522,7 +593,8 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
   // A trip made by mistake: the admin takes it away while there is no cargo on it. Its number is free again.
   app.delete<{ Params: { number: string } }>("/api/trips/:number", { onRequest: adminOnly, config, schema: { params: NUMBER_PARAM, querystring: NO_QUERY } }, async (request, reply) =>
     change(request, reply, Number(request.params.number), async (db, trip, at) => {
-      if (Number(trip.lines) > 0) throw new Refusal(409, "trip_has_cargo");
+      const sums = await db.query("SELECT 1 FROM trip_sums WHERE trip_id = $1 LIMIT 1", [trip.id]);
+      if (Number(trip.lines) > 0 || (sums.rowCount ?? 0) > 0) throw new Refusal(409, "trip_has_cargo");
       await db.query("UPDATE trips SET deleted_at = $2, deleted_by = $3 WHERE id = $1", [trip.id, at, request.user!.id]);
       await log(db, { tripId: trip.id, action: "delete", at, by: request.user!.id, before: tripState(trip) });
     }),
@@ -531,7 +603,10 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
   const cargoProperties = {
     // Whether it is a warehouse of the business is looked at with who may write its cargo (see `cargoFields`).
     warehouse: { type: "string", minLength: 1, maxLength: 32, pattern: "^[a-z][a-z0-9_]*$" },
+    truckPart: { type: ["string", "null"], enum: ["head", "trailer", null] },
+    acceptedDay: DAY_OR_NONE,
     clientCode: { type: "string", minLength: 1, maxLength: 64, pattern: NO_NUL },
+    receiver: text(100),
     sender: text(100),
     receiverPhone: text(100),
     item: text(200),
@@ -539,6 +614,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
     size: text(50),
     bags: count(1_000_000),
     perBag: count(1_000_000),
+    packaging: text(50),
     pieces: count(1_000_000_000),
     weightG: { type: "integer", minimum: 1, maximum: MAX_WEIGHT_G },
     priceMilli: { type: "integer", minimum: 0, maximum: MAX_PRICE_MILLI },
@@ -551,8 +627,10 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
    * is the one sent or the client's own.
    */
   async function cargoFields(db: Queryable, user: SessionUser, trip: TripRow, body: CargoBody, stored?: CargoRow): Promise<CargoState> {
+    if (trip.from_card_file) throw new Refusal(409, "trip_from_card_file");
     if (!writesCargo(user, trip)) throw new Refusal(409, "trip_arrived");
     if (!warehouses.has(body.warehouse)) throw new Refusal(400, "bad_warehouse");
+    if (body.acceptedDay && !isDay(body.acceptedDay)) throw new Refusal(400, "bad_day");
     if (!writesCargoOf(user, trip, body.warehouse) || (stored && !writesCargoOf(user, trip, stored.warehouse))) throw new Refusal(403, "warehouse_forbidden");
     const code = clientCodeIn(body.clientCode, codes);
     const client = code ? (await db.query<{ code: string; active: boolean; price_milli: number | null }>("SELECT code, active, price_milli FROM clients WHERE code = $1", [code])).rows[0] : undefined;
@@ -561,7 +639,10 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
     if (priceMilli === null || priceMilli === undefined) throw new Refusal(400, "price_required");
     return {
       warehouse: body.warehouse,
+      truckPart: body.truckPart ?? null,
+      acceptedDay: body.acceptedDay ?? null,
       clientCode: client.code,
+      receiver: blankToNull(body.receiver),
       sender: blankToNull(body.sender),
       receiverPhone: blankToNull(body.receiverPhone),
       item: blankToNull(body.item),
@@ -569,6 +650,7 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       size: blankToNull(body.size),
       bags: body.bags ?? null,
       perBag: body.perBag ?? null,
+      packaging: blankToNull(body.packaging),
       pieces: body.pieces ?? null,
       weightG: body.weightG,
       priceMilli,
@@ -601,9 +683,9 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
         const fields = await cargoFields(db, user, trip, body);
         await db.query(
           `INSERT INTO trip_cargo (id, trip_id, warehouse, client_code, sender, receiver_phone, item, brand, size, bags, per_bag, pieces,
-                                   weight_g, price_milli, note, created_by, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-          [id, trip.id, fields.warehouse, fields.clientCode, fields.sender, fields.receiverPhone, fields.item, fields.brand, fields.size, fields.bags, fields.perBag, fields.pieces, fields.weightG, fields.priceMilli, fields.note, user.id, at],
+                                   weight_g, price_milli, note, created_by, created_at, truck_part, accepted_day, receiver, packaging)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
+          [id, trip.id, fields.warehouse, fields.clientCode, fields.sender, fields.receiverPhone, fields.item, fields.brand, fields.size, fields.bags, fields.perBag, fields.pieces, fields.weightG, fields.priceMilli, fields.note, user.id, at, fields.truckPart, fields.acceptedDay, fields.receiver, fields.packaging],
         );
         await log(db, { tripId: trip.id, cargoId: id, action: "add_cargo", at, by: user.id, after: fields });
         return { status: 201 };
@@ -633,9 +715,10 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
         if (JSON.stringify(before) === JSON.stringify(after)) return;
         await db.query(
           `UPDATE trip_cargo SET warehouse = $2, client_code = $3, sender = $4, receiver_phone = $5, item = $6, brand = $7, size = $8,
-                  bags = $9, per_bag = $10, pieces = $11, weight_g = $12, price_milli = $13, note = $14
+                  bags = $9, per_bag = $10, pieces = $11, weight_g = $12, price_milli = $13, note = $14,
+                  truck_part = $15, accepted_day = $16, receiver = $17, packaging = $18
             WHERE id = $1`,
-          [stored.id, after.warehouse, after.clientCode, after.sender, after.receiverPhone, after.item, after.brand, after.size, after.bags, after.perBag, after.pieces, after.weightG, after.priceMilli, after.note],
+          [stored.id, after.warehouse, after.clientCode, after.sender, after.receiverPhone, after.item, after.brand, after.size, after.bags, after.perBag, after.pieces, after.weightG, after.priceMilli, after.note, after.truckPart, after.acceptedDay, after.receiver, after.packaging],
         );
         await log(db, { tripId: trip.id, cargoId: stored.id, action: "edit_cargo", at, by: user.id, before, after });
       });
