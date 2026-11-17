@@ -23,6 +23,7 @@ import { kassaSettingName, loadOneC, loadOneCKassas, onecSetting, strangerSettin
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
+import { readCategoryFile, setCategories } from "./categories.js";
 import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
@@ -62,6 +63,12 @@ Commands:
                                       KASSAS in the settings file, the first of them unless said
   balances [--kassa <moscow|andijan>] current balance per currency (opening balance + income), of one cash
                                       desk or of all of them added up
+  set-categories --file <categories.json>
+                                      make the lists of categories those of the file, in its order: what is not in
+                                      it goes to the archive, nothing is deleted. The file:
+                                      { "income": [ { "label": "Оплата от покупателей", "code": "client_payment", "requiresClient": true } ],
+                                        "expense": [ { "label": "Обед", "city": "andijan" }, { "label": "Толкач", "city": "tashkent", "requiresTrip": true } ] }
+                                      (also requiresCounterparty, requiresEmployee; no "city" is everywhere)
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
@@ -99,6 +106,7 @@ async function main(): Promise<void> {
       amount: { type: "string" },
       id: { type: "string" },
       limit: { type: "string" },
+      file: { type: "string" },
     },
   });
 
@@ -176,6 +184,12 @@ async function main(): Promise<void> {
         for (const balance of await getBalances(pool, kassa === undefined ? kassas.currencies : kassas.currenciesOf(kassa), kassa)) {
           console.log(`${balance.currency}  ${formatAmount(balance.amountMinor)}`);
         }
+        break;
+      }
+      case "set-categories": {
+        const wanted = readCategoryFile(required(values.file, "--file"), kassasOfSettings());
+        for (const line of await setCategories(pool, wanted)) console.log(line);
+        console.log("The lists of categories are those of the file.");
         break;
       }
       case "telegram-chats": {

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseKassas, type Kassa, type Kassas } from "./kassa.js";
+import { clientCodeExample, parseClientCodes, type ClientCodes } from "./clients.js";
 import { clientCodeOf } from "./onec-pko.js";
 import type { OneCSettings } from "./onec-api.js";
 import { cashDayStart } from "./cash-day.js";
@@ -23,6 +24,8 @@ export type Config = {
   allowNewerSchema: boolean;
   /** The cash desks of the business (`KASSAS`): Moscow in rubles and dollars and Andijan in dollars, unless set. */
   kassas: Kassas;
+  /** How the business writes the codes of its clients (`CLIENT_CODES`): «А707» unless set, or digits alone. */
+  clientCodes: ClientCodes;
   /** The Telegram bot of the Mini App. Unset: signing in inside Telegram is off. */
   telegramBotToken: string | undefined;
   /** The Telegram group that is told about the incomes of clients (its number, negative). Unset: nothing is sent. */
@@ -117,6 +120,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: trustedProxies.length > 0 ? trustedProxies : undefined,
     allowNewerSchema: env.ALLOW_NEWER_SCHEMA === "1",
     kassas,
+    clientCodes: parseClientCodes(env.CLIENT_CODES),
     telegramBotToken: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
     telegramGroupChatId: groupChatId,
     telegramIncomeThreadId: threadOf("TELEGRAM_THREAD_INCOME"),
@@ -265,14 +269,15 @@ export function loadOneC(env: NodeJS.ProcessEnv, kassas: Kassas = parseKassas(en
   const sendSetting = read("ONEC_SEND");
   const send = sendSetting.value?.trim().toLowerCase() || "night";
   if (send !== "night" && send !== "now") throw new Error(`${sendSetting.name} must be night or now, got "${sendSetting.value}"`);
+  const clientCodes = parseClientCodes(env.CLIENT_CODES);
   const clientsSetting = read("ONEC_CLIENTS");
   const clients = (clientsSetting.value ?? "")
     .split(",")
     .map((text) => text.trim())
     .filter(Boolean)
     .map((text) => {
-      const code = clientCodeOf(text);
-      if (!code) throw new Error(`${clientsSetting.name} must list codes of clients like А339, got "${text}"`);
+      const code = clientCodeOf(text, clientCodes);
+      if (!code) throw new Error(`${clientsSetting.name} must list codes of clients like ${clientCodeExample(clientCodes)}, got "${text}"`);
       return code.code;
     });
 

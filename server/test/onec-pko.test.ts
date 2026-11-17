@@ -21,6 +21,13 @@ describe("the code of a client out of what the cashier typed", () => {
   it("is none for a missing text", () => {
     expect(clientCodeOf(null)).toBeNull();
   });
+
+  it("is the digits, and no letter, where the codes are digits alone", () => {
+    expect(clientCodeOf("245", "digits")).toEqual({ code: "245", name: "" });
+    expect(clientCodeOf(" 406 Жавид Хасанов", "digits")).toEqual({ code: "406", name: "Жавид Хасанов" });
+    expect(clientCodeOf("А245", "digits")).toBeNull();
+    expect(clientCodeOf("Москва", "digits")).toBeNull();
+  });
 });
 
 describe("finding the counterpart in 1C", () => {
@@ -31,6 +38,12 @@ describe("finding the counterpart in 1C", () => {
     // The second is written with a latin A.
     expect(pickCounterpart([row("А245 Исмоил"), row("A300 Другой")], client("А245"))).toEqual({ found: true, counterpart: { key: "key-А245 Исмоил", name: "А245 Исмоил" } });
     expect(pickCounterpart([row("A300 Другой")], client("А300"))).toMatchObject({ found: true });
+  });
+
+  it("finds it by the digits at the start of the name where the codes are digits alone, and not by a near number", () => {
+    expect(pickCounterpart([row("245 Исмоил"), row("2450 Другой")], client("245"), "digits")).toEqual({ found: true, counterpart: { key: "key-245 Исмоил", name: "245 Исмоил" } });
+    expect(pickCounterpart([row("ООО Ромашка", { ИНН: "339" })], client("339"), "digits")).toMatchObject({ found: true });
+    expect(pickCounterpart([row("А245 Исмоил")], client("245"), "digits")).toMatchObject({ found: false });
   });
 
   it("finds it by the tax number that holds the code", () => {

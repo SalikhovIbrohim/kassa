@@ -23,6 +23,7 @@ const app = await buildApp({
   sessionDays: config.sessionDays,
   trustProxy: config.trustProxy,
   kassas: config.kassas,
+  clientCodes: config.clientCodes,
   telegramBotToken: config.telegramBotToken,
   telegramGroupChatId: config.telegramGroupChatId,
   telegramIncomeThreadId: config.telegramIncomeThreadId,

@@ -16,7 +16,12 @@ export type ClientCode = {
  * The code of a client out of what a cashier typed: "A245", "а-245", "A 245 Исмоил" all are клиент А245. A text that
  * is not a code ("А чужой пул", "Москва") is none.
  */
-export function clientCodeOf(text: string | null): ClientCode | null {
+export function clientCodeOf(text: string | null, codes: "letter" | "digits" = "letter"): ClientCode | null {
+  // A business whose codes are digits alone: "245", "245 Исмоил".
+  if (codes === "digits") {
+    const digits = /^(\d{1,9})(?:\s+(\D.*))?$/.exec((text ?? "").trim());
+    return digits ? { code: digits[1]!, name: (digits[2] ?? "").trim() } : null;
+  }
   const found = /^([AaАа])\s*-?\s*(\d{1,5})(?:\s+(\D.*))?$/.exec((text ?? "").trim());
   return found ? { code: `А${found[2]}`, name: (found[3] ?? "").trim() } : null;
 }
@@ -28,9 +33,16 @@ export type Lookup =
   | { found: false; reason: string };
 
 /** The key a counterpart is known by: its name starts with the code ("А245 Исмоил"), or its tax number is the number of the code. */
-function keysOf(row: Json): string[] {
+function keysOf(row: Json, codes: "letter" | "digits"): string[] {
   const name = cyrillic(String(row.Description ?? ""));
   const keys: string[] = [];
+  if (codes === "digits") {
+    const digits = /^\s*(\d{1,9})\b/.exec(name);
+    if (digits) keys.push(digits[1]!);
+    const number = String(row["ИНН"] ?? "").replace(/\D/g, "");
+    if (number !== "" && Number(number) < 100_000) keys.push(String(Number(number)));
+    return keys;
+  }
   const byName = /^\s*([AaАа])\s*-?\s*(\d{1,5})\b/.exec(name);
   if (byName) keys.push(`А${byName[2]}`);
   const tax = String(row["ИНН"] ?? "").replace(/\D/g, "");
@@ -45,9 +57,10 @@ function keysOf(row: Json): string[] {
 export function pickCounterpart(
   counterparts: readonly Json[],
   client: ClientCode,
+  codes: "letter" | "digits" = "letter",
 ): { found: true; counterpart: Counterpart } | { found: false; reason: string } {
   const live = counterparts.filter((row) => row.DeletionMark !== true && row.IsFolder !== true);
-  let candidates = live.filter((row) => keysOf(row).includes(client.code));
+  let candidates = live.filter((row) => keysOf(row, codes).includes(client.code));
   if (candidates.length === 0) return { found: false, reason: `в 1С нет контрагента с кодом ${client.code}` };
   if (client.name !== "") {
     const named = candidates.filter((row) => String(row.Description ?? "").toLowerCase().includes(client.name.toLowerCase()));

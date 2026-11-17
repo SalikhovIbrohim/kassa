@@ -5,7 +5,11 @@ import { inTransaction } from "./ledger.js";
 import { NO_NUL } from "./schemas.js";
 import { cleanText } from "./text.js";
 
-export type ClientsOptions = { pool: pg.Pool };
+export type ClientsOptions = {
+  pool: pg.Pool;
+  /** How the business writes the codes of its clients: «А707» unless said. */
+  codes?: ClientCodes;
+};
 
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
 
@@ -13,10 +17,30 @@ type ClientRow = { code: string; name: string; phone: string | null; note: strin
 const toClient = (row: ClientRow): Client => ({ code: row.code, name: row.name, phone: row.phone, note: row.note, active: row.active });
 
 /**
+ * How a business writes the codes of its clients (CLIENT_CODES in the settings of its installation): the letter А and
+ * digits («А707», "letter"), or digits alone («707», "digits").
+ */
+export type ClientCodes = "letter" | "digits";
+
+export function parseClientCodes(text: string | undefined): ClientCodes {
+  const said = text?.trim().toLowerCase() || "letter";
+  if (said !== "letter" && said !== "digits") throw new Error(`CLIENT_CODES must be letter (А707) or digits (707), got "${text}"`);
+  return said;
+}
+
+/** A code of each kind, for what is said to a person. */
+export const clientCodeExample = (codes: ClientCodes) => (codes === "digits" ? "707" : "А707");
+
+/**
  * The code of a client in what a person typed: "а707", "A-707", "707", "А707 Карим", "А34-2", "34-2" give А707 and А34-2
  * (Cyrillic А, the digits as they are; the letter may be left out, every code has it); anything else, none. What follows the code (a name, say) is left aside.
+ * Where the codes are digits alone, "707", "707 Карим", "34-2" give 707 and 34-2, and a letter before the digits is not a code.
  */
-export function clientCodeIn(text: string): string | null {
+export function clientCodeIn(text: string, codes: ClientCodes = "letter"): string | null {
+  if (codes === "digits") {
+    const digits = /^\s*(\d{1,9})(-\d{1,3})?(?=\s|$)/.exec(text);
+    return digits ? `${digits[1]}${digits[2] ?? ""}` : null;
+  }
   const found = /^\s*(?:[AaАа]\s*-?\s*)?(\d{1,5})(-\d{1,3})?(?=\s|$)/.exec(text);
   return found ? `А${found[1]}${found[2] ?? ""}` : null;
 }
@@ -30,11 +54,11 @@ export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.na
  * that loading it is not a condition for working. `keep` is what the entry said before (a correction): a code that is
  * not in the directory, or was switched off since, may stay as it was.
  */
-export async function clientOfEntry(db: Queryable, typed: string, keep?: string | null): Promise<{ clientCode: string } | { error: string }> {
+export async function clientOfEntry(db: Queryable, typed: string, keep?: string | null, codes: ClientCodes = "letter"): Promise<{ clientCode: string } | { error: string }> {
   if (keep !== undefined && keep !== null && typed === keep) return { clientCode: typed };
   const any = await db.query("SELECT 1 FROM clients LIMIT 1");
   if (any.rowCount === 0) return { clientCode: typed };
-  const code = clientCodeIn(typed);
+  const code = clientCodeIn(typed, codes);
   const found = code ? (await db.query<ClientRow>("SELECT * FROM clients WHERE code = $1 AND active", [code])).rows[0] : undefined;
   if (!found) return { error: "unknown_client" };
   return { clientCode: clientLabel(found) };
@@ -54,6 +78,7 @@ const blankToNull = (text: string | null | undefined) => (text === undefined || 
  */
 export async function registerClients(app: FastifyInstance, options: ClientsOptions) {
   const { pool } = options;
+  const codes = options.codes ?? "letter";
 
   // A search by the beginning of the code or by a part of the name: the clients whose code starts with what was typed
   // first, then those whose name has it. Without `q`, all of them (the list of «Управление»). Switched off ones only
@@ -77,7 +102,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
     async (request) => {
       const typed = cleanText(request.query.q ?? "");
       const limit = Math.min(Number(request.query.limit ?? (typed ? 20 : 5000)), 5000);
-      const code = clientCodeIn(typed);
+      const code = clientCodeIn(typed, codes);
       const codePrefix = (code ?? typed).toLowerCase().replace(/^a/, "а");
       const found = await pool.query<ClientRow>(
         `SELECT * FROM clients
@@ -88,7 +113,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
           LIMIT $4`,
         [request.query.all === "1", typed, codePrefix, limit],
       );
-      return { clients: found.rows.map(toClient) };
+      // `codes` tells the screen of the clients how a code is written here (what it says of a code, which lines of a file are clients).
+      return { clients: found.rows.map(toClient), codes };
     },
   );
 
@@ -106,9 +132,10 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       },
     },
     async (request, reply) => {
-      const code = clientCodeIn(request.body.code);
-      if (!code || cleanText(request.body.code).replace(/\s/g, "").length > code.length + 1) {
-        return reply.code(400).send({ error: "bad_code", message: "body/code must be a code like А707 or А34-2" });
+      const code = clientCodeIn(request.body.code, codes);
+      // Nothing but the code: "А-707" is one sign longer than its code, digits alone are the code itself.
+      if (!code || cleanText(request.body.code).replace(/\s/g, "").length > code.length + (codes === "letter" ? 1 : 0)) {
+        return reply.code(400).send({ error: "bad_code", message: `body/code must be a code like ${clientCodeExample(codes)}` });
       }
       try {
         const made = await pool.query<ClientRow>(
@@ -140,7 +167,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       },
     },
     async (request, reply) => {
-      const code = clientCodeIn(request.params.code);
+      const code = clientCodeIn(request.params.code, codes);
       const body = request.body;
       const changed = await pool.query<ClientRow>(
         `UPDATE clients
@@ -194,7 +221,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
       },
     },
     async (request, reply) => {
-      const rows = request.body.clients.map((item, index) => ({ line: index + 1, code: clientCodeIn(item.code), typed: item.code, name: cleanText(item.name ?? ""), phone: blankToNull(item.phone) }));
+      const rows = request.body.clients.map((item, index) => ({ line: index + 1, code: clientCodeIn(item.code, codes), typed: item.code, name: cleanText(item.name ?? ""), phone: blankToNull(item.phone) }));
       const bad = rows.filter((row) => !row.code).map((row) => ({ line: row.line, code: row.typed }));
       if (bad.length > 0) return reply.code(400).send({ error: "bad_codes", rows: bad });
       const seen = new Map<string, number[]>();

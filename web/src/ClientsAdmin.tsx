@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { changeClient, createClient, fetchClients, importClients, NetworkError, SessionExpiredError, type Client, type ClientResult } from "./api";
+import { changeClient, createClient, fetchClientDirectory, importClients, NetworkError, SessionExpiredError, type Client, type ClientCodes, type ClientResult } from "./api";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,9 @@ const CLIENT_WHY_NOT: Record<Extract<ClientResult, { ok: false }>["reason"], str
   "server-error": "Не получилось сохранить. Попробуйте ещё раз.",
 };
 
+/** What is said of a code where the codes are digits alone; the words above are of the codes with the letter. */
+const BAD_DIGITS_CODE = "Код клиента: только цифры, например 707 или 34-2.";
+
 const failure = (caught: unknown) => (caught instanceof NetworkError ? "Нет связи с сервером. Попробуйте ещё раз, когда она появится." : CLIENT_WHY_NOT["server-error"]);
 
 /**
@@ -41,12 +44,21 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  // How a code is written in this business: the server says it with the list.
+  const [codes, setCodes] = useState<ClientCodes>("letter");
+  const digits = codes === "digits";
 
   const load = useCallback(() => {
-    fetchClients("", { all: true }).then(setClients, (caught: unknown) => {
-      if (caught instanceof SessionExpiredError) onSessionExpired();
-      else setClients((current) => current ?? undefined);
-    });
+    fetchClientDirectory("", { all: true }).then(
+      (directory) => {
+        setClients(directory.clients);
+        setCodes(directory.codes);
+      },
+      (caught: unknown) => {
+        if (caught instanceof SessionExpiredError) onSessionExpired();
+        else setClients((current) => current ?? undefined);
+      },
+    );
   }, [onSessionExpired]);
 
   useEffect(() => {
@@ -73,7 +85,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
         return true;
       }
       if (result.reason === "session-expired") onSessionExpired();
-      else setError(CLIENT_WHY_NOT[result.reason]);
+      else setError(result.reason === "bad-code" && digits ? BAD_DIGITS_CODE : CLIENT_WHY_NOT[result.reason]);
     } catch (caught) {
       setError(failure(caught));
     } finally {
@@ -93,16 +105,17 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
               error={error}
               onOpen={() => setError(null)}
               onCreate={(input) => apply(() => createClient(input), `Добавлен клиент ${input.code}${input.name ? ` ${input.name}` : ""}.`)}
+              codes={codes}
             />
           )}
-          {canEdit && <ImportClients onDone={(text) => (setDone(text), load())} onSessionExpired={onSessionExpired} />}
+          {canEdit && <ImportClients codes={codes} onDone={(text) => (setDone(text), load())} onSessionExpired={onSessionExpired} />}
           <Button type="button" variant="outline" size="sm" onClick={load}>
             Обновить
           </Button>
         </div>
       </div>
       <p className="hint">
-        У каждого клиента свой код (А707, А34-2), имена могут повторяться. В приходе клиента выбирают из этого списка. Клиента не удаляют, а отключают: старые записи
+        У каждого клиента свой код ({digits ? "707, 34-2" : "А707, А34-2"}), имена могут повторяться. В приходе клиента выбирают из этого списка. Клиента не удаляют, а отключают: старые записи
         продолжают его называть.
       </p>
 
@@ -245,11 +258,13 @@ function NewClient({
   error,
   onOpen,
   onCreate,
+  codes,
 }: {
   busy: boolean;
   error: string | null;
   onOpen: () => void;
   onCreate: (input: { code: string; name: string; phone?: string }) => Promise<boolean>;
+  codes: ClientCodes;
 }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -286,7 +301,7 @@ function NewClient({
         <form className="flex flex-col gap-3" onSubmit={add} aria-label="Новый клиент">
           <Label>
             <span>
-              Код <LabelNote>(А и цифры: А707, А34-2)</LabelNote>
+              Код <LabelNote>{codes === "digits" ? "(только цифры: 707, 34-2)" : "(А и цифры: А707, А34-2)"}</LabelNote>
             </span>
             <Input name="code" autoComplete="off" autoCapitalize="characters" maxLength={20} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
           </Label>
@@ -322,16 +337,16 @@ function NewClient({
 }
 
 /** «Загрузить список»: the admin picks a CSV file (code, name, phone) and the new codes of it are added. */
-function ImportClients({ onDone, onSessionExpired }: { onDone: (text: string) => void; onSessionExpired: () => void }) {
+function ImportClients({ codes, onDone, onSessionExpired }: { codes: ClientCodes; onDone: (text: string) => void; onSessionExpired: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function load(file: File) {
     setProblem(null);
-    const clients = clientsOfCsv(await file.text());
+    const clients = clientsOfCsv(await file.text(), codes);
     if (clients.length === 0) {
-      setProblem("В файле нет ни одного клиента: нужны строки вида «А707,Карим,телефон».");
+      setProblem(`В файле нет ни одного клиента: нужны строки вида «${codes === "digits" ? "707" : "А707"},Карим,телефон».`);
       return;
     }
     setBusy(true);

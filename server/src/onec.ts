@@ -32,6 +32,8 @@ export type OneCOptions = {
   kassas: readonly Kassa[];
   /** The main cash desk of the installation. */
   primaryKassa: Kassa;
+  /** How the business writes the codes of its clients: «А245» unless said. */
+  clientCodes?: "letter" | "digits";
   log: Logger;
   /** The clock of the waits between tries: the real one unless a test moves it. */
   now?: () => Date;
@@ -110,6 +112,7 @@ export function createOneC(options: OneCOptions): OneC {
   const blockedRetry = options.blockedRetrySeconds ?? 15 * 60;
   const client: OneCClient | undefined = settings && createOneCClient(settings, options.fetchImpl);
   const writing = new Set(options.kassas);
+  const clientCodes = options.clientCodes ?? "letter";
   /** The cash desk in the base that the payments of a cash desk go to. */
   const kassaKeyOf = (kassa: Kassa) => {
     const own = settings!.kassaKeys;
@@ -189,8 +192,8 @@ export function createOneC(options: OneCOptions): OneC {
       return row.doc_ref === null ? { status: "skipped", reason: why } : { status: "failed", reason: `${why}, а документ №${row.doc_number} уже есть: проверьте его в 1С` };
     }
 
-    const code = clientCodeOf(operation.client_code);
-    if (!code) return { status: "blocked", reason: `в коде клиента «${operation.client_code ?? ""}» нет кода вида А245` };
+    const code = clientCodeOf(operation.client_code, clientCodes);
+    if (!code) return { status: "blocked", reason: `в коде клиента «${operation.client_code ?? ""}» нет кода вида ${clientCodes === "digits" ? "245" : "А245"}` };
     if (settings!.onlyClients && !settings!.onlyClients.includes(code.code)) {
       return { status: "skipped", reason: `клиента ${code.code} нет в списке ONEC_CLIENTS` };
     }
@@ -200,7 +203,7 @@ export function createOneC(options: OneCOptions): OneC {
     try {
       const refs = await referencesNow();
       if ("missing" in refs) return { status: "blocked", reason: refs.missing };
-      const picked = pickCounterpart(await counterpartsNow(), code);
+      const picked = pickCounterpart(await counterpartsNow(), code, clientCodes);
       if (!picked.found) return { status: "blocked", reason: picked.reason };
       const contracts = await client!.all("Catalog_ДоговорыКонтрагентов", "Ref_Key,Description,Owner_Key,ВидДоговора,DeletionMark", `Owner_Key eq guid'${picked.counterpart.key}'`);
       const contract = pickContract(contracts, code.code);

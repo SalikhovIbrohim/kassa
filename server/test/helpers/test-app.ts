@@ -74,6 +74,8 @@ type StartOptions = {
   trustProxy?: string | string[];
   /** The cash desks of the installation (see `parseKassas`); Moscow and Andijan without it. */
   kassas?: Kassas;
+  /** How the business writes the codes of its clients (CLIENT_CODES). */
+  clientCodes?: "letter" | "digits";
   loginProtection?: LoginProtectionOptions;
   /** Gets the server's log lines, for tests that look at what is logged. */
   logStream?: NodeJS.WritableStream;
@@ -161,6 +163,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       sessionDays: options.sessionDays,
       trustProxy: options.trustProxy,
       kassas: options.kassas,
+      clientCodes: options.clientCodes,
       telegramBotToken: options.telegramBotToken,
       telegramGroupChatId: options.telegramGroupChatId,
       telegramIncomeThreadId: options.telegramIncomeThreadId,

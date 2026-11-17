@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type pg from "pg";
 import { readCategories } from "./categories.js";
-import { clientOfEntry } from "./clients.js";
+import { clientOfEntry, type ClientCodes } from "./clients.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import type { Kassas } from "./kassa.js";
 import { changeOperation, readHistory, toOperation, type Change, type ChangeResult, type LedgerEvents } from "./ledger.js";
@@ -14,6 +14,8 @@ export type CorrectionsOptions = {
   now: () => Date;
   /** The cash desks of the installation. */
   kassas: Kassas;
+  /** How the business writes the codes of its clients: «А707» unless said. */
+  clientCodes?: ClientCodes;
   events?: LedgerEvents;
   outbox: Pick<Outbox, "nudge">;
 };
@@ -59,7 +61,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
       }
       // A client of the directory; one the entry named before may stay, even when it is not (or no longer) in it.
       if (normalized.fields.clientCode !== null) {
-        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code);
+        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code, options.clientCodes);
         if ("error" in client) return reply.code(400).send({ statusCode: 400, error: client.error, message: "body/clientCode is not a client of the directory" });
         normalized.fields.clientCode = client.clientCode;
       }

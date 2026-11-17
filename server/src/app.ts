@@ -20,7 +20,7 @@ import { registerReconciliations } from "./reconciliations.js";
 import { registerTelegram } from "./telegram.js";
 import { registerSummary } from "./summary.js";
 import { registerUserAdmin } from "./user-admin.js";
-import { registerClients } from "./clients.js";
+import { registerClients, type ClientCodes } from "./clients.js";
 import { isApiPath, pathnameOf } from "./paths.js";
 
 export type { LoginProtectionOptions };
@@ -29,6 +29,8 @@ export type AppOptions = {
   databaseUrl: string;
   /** The cash desks of the business (see kassa.ts): Moscow in rubles and dollars and Andijan in dollars, unless said. */
   kassas?: Kassas;
+  /** How the business writes the codes of its clients: «А707» unless said, or digits alone («707»). */
+  clientCodes?: ClientCodes;
   /** Folder with the built web app. When set, the server also serves it. */
   webDistDir?: string;
   /** `true` logs to the console; a stream gets the log lines (for tests that read them). */
@@ -78,6 +80,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
   const database = createDatabase(options.databaseUrl);
   const kassas = options.kassas ?? DEFAULT_KASSAS;
+  const clientCodes = options.clientCodes ?? "letter";
   const onecKassas = options.onecKassas ?? [kassas.primary];
 
   // JSON as Fastify reads it, except that nothing at all is no body, not an error: a client
@@ -125,6 +128,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     settings: options.onec,
     kassas: onecKassas,
     primaryKassa: kassas.primary,
+    clientCodes,
     telegram: outbox,
     log: app.log,
     intervalMs: options.onecQueue?.intervalMs,
@@ -192,6 +196,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     kassas,
+    clientCodes,
     events,
     outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });
@@ -199,12 +204,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerCategoryAdmin(app, { pool: database.pool, kassas });
   await registerOneCAdmin(app, { pool: database.pool });
   await registerUserAdmin(app, { pool: database.pool, kassas });
-  await registerClients(app, { pool: database.pool });
+  await registerClients(app, { pool: database.pool, codes: clientCodes });
 
   await registerCorrections(app, {
     pool: database.pool,
     now: options.now ?? (() => new Date()),
     kassas,
+    clientCodes,
     events,
     outbox: { nudge: () => (outbox.nudge(), onec.nudge(), sheet.nudge()) },
   });

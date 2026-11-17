@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { afterEach, describe, expect, it } from "vitest";
@@ -210,5 +213,118 @@ describe("admin command line: onec-check", () => {
     expect(own.stderr).toContain("ONEC_ODATA_USER is required when ONEC_MODE is preview");
     expect(earlier.code).toBe(1);
     expect(earlier.stderr).toContain("COSMO_ODATA_USER is required when COSMO_1C_MODE is preview");
+  }, 30_000);
+});
+
+describe("admin command line: set-categories", () => {
+  const cleanups: Array<() => Promise<void>> = [];
+
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
+
+  async function world(file: unknown) {
+    const database = await createBlankDatabase();
+    cleanups.push(database.drop);
+    const folder = mkdtempSync(join(tmpdir(), "kassa-categories-"));
+    cleanups.push(async () => rmSync(folder, { recursive: true, force: true }));
+    const path = join(folder, "categories.json");
+    // A file as Notepad saves it: with the mark of UTF-8 in front.
+    writeFileSync(path, `\uFEFF${typeof file === "string" ? file : JSON.stringify(file)}`, "utf8");
+    const env = { DATABASE_URL: database.url, KASSAS: "moscow:USD,andijan:USD,tashkent:USD" };
+    // The lists a new installation starts with.
+    await runCli(["migrate"], env);
+    const rows = async () => {
+      const pool = new pg.Pool({ connectionString: database.url, max: 1 });
+      try {
+        const found = await pool.query(
+          `SELECT code, kind, label, archived, requires_client, requires_trip, requires_counterparty, requires_employee, city, notify_group, counts_as_cost
+             FROM categories ORDER BY kind DESC, sort_order, code`,
+        );
+        return found.rows as Array<Record<string, unknown>>;
+      } finally {
+        await pool.end();
+      }
+    };
+    return { path, env, rows };
+  }
+
+  const lists = {
+    income: [
+      { label: "Оплата от покупателей", code: "client_payment", requiresClient: true },
+      { label: "Субаренда" },
+      { label: "Прочее", requiresEmployee: true },
+    ],
+    expense: [
+      { label: "Толкач", city: "tashkent", requiresTrip: true },
+      { label: "Обед", city: "andijan" },
+      { label: "Оплата поставщикам (подрядчикам)", requiresCounterparty: true },
+    ],
+  };
+
+  it("makes the lists those of the file, in its order, and archives the rest without deleting it", async () => {
+    const { path, env, rows } = await world(lists);
+    const before = await rows();
+
+    const result = await runCli(["set-categories", "--file", path], env);
+
+    expect(result.stderr).toBe("");
+    expect(result.code).toBe(0);
+    const after = await rows();
+    const live = after.filter((row) => !row.archived);
+    expect(live.map((row) => `${row.kind} ${row.label} ${row.city ?? "-"}`)).toEqual([
+      "income Оплата от покупателей -",
+      "income Субаренда -",
+      "income Прочее -",
+      "expense Толкач tashkent",
+      "expense Обед andijan",
+      "expense Оплата поставщикам (подрядчикам) -",
+    ]);
+    // The payment of a client is the category it was, under its new name; the income «Прочее» is the one that was there.
+    expect(live[0]).toMatchObject({ code: "client_payment", requires_client: true, notify_group: true });
+    expect(live[2]).toMatchObject({ code: "other_income", requires_employee: true, notify_group: false });
+    expect(live[3]).toMatchObject({ requires_trip: true, requires_client: false, notify_group: true, counts_as_cost: true });
+    expect(live[5]).toMatchObject({ requires_counterparty: true });
+    // A new income is not told to the group, as the first incomes were not.
+    expect(live[1]).toMatchObject({ notify_group: false });
+    // Nothing is deleted: every category there was is still there, the ones not in the file in the archive.
+    expect(after.length).toBe(before.length + 4);
+    for (const row of before) expect(after.some((item) => item.code === row.code)).toBe(true);
+    expect(after.find((row) => row.code === "fuel_road")).toMatchObject({ archived: true, label: "Топливо и дорога" });
+    expect(result.stdout).toContain("archived  expense  Топливо и дорога");
+    expect(result.stdout).toContain("kept      income   Оплата от покупателей (was «Оплата от клиента»)");
+    expect(result.stdout).toContain("added     expense  Толкач");
+
+    // The same file again changes nothing.
+    const again = await runCli(["set-categories", "--file", path], env);
+    expect(again.code).toBe(0);
+    expect(again.stdout).not.toMatch(/archived|added/);
+    expect(await rows()).toEqual(after);
+  }, 30_000);
+
+  it("changes nothing when the file names a city that is no cash desk, a field it does not know, or a code that is not there", async () => {
+    for (const [file, said] of [
+      [{ ...lists, expense: [{ label: "Обед", city: "fergana" }] }, /"city" must be moscow or andijan or tashkent/],
+      [{ ...lists, expense: [{ label: "Обед", trip: true }] }, /"trip" is not known/],
+      [{ ...lists, income: [{ label: "Оплата", code: "no_such" }] }, /no category with the code no_such/],
+      [{ ...lists, income: [{ label: "Оплата", code: "fuel_road" }] }, /fuel_road is an expense/],
+      [{ ...lists, income: [] }, /"income" must be a list with at least one category/],
+      [{ ...lists, expense: [{ label: "Обед" }, { label: "обед" }] }, /«обед» is in the list twice/],
+      ["{ not json", /could not be read as JSON/],
+    ] as Array<[unknown, RegExp]>) {
+      const { path, env, rows } = await world(file);
+      const before = await rows();
+      const result = await runCli(["set-categories", "--file", path], env);
+      expect(result.code).toBe(1);
+      expect(result.stderr).toMatch(said);
+      expect(await rows()).toEqual(before);
+    }
+  }, 120_000);
+
+  it("says so when no category of the file is the payment of a client", async () => {
+    const { path, env } = await world({ income: [{ label: "Оплата от покупателей", requiresClient: true }], expense: [{ label: "Обед" }] });
+    const result = await runCli(["set-categories", "--file", path], env);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('"code": "client_payment"');
   }, 30_000);
 });

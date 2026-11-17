@@ -21,12 +21,17 @@ export function csvCells(line: string): string[] {
   return cells.map((item) => item.trim());
 }
 
-/** The clients of a CSV file: code, name, phone, one to a line; a first line of names of columns is passed over. */
-export function clientsOfCsv(text: string): Array<{ code: string; name: string; phone?: string }> {
+/**
+ * The clients of a CSV file: code, name, phone, one to a line; a first line of names of columns is passed over. A line
+ * is a client when it starts the way a code does: with the letter А and a digit in it, or, where the codes are digits
+ * alone, with a digit.
+ */
+export function clientsOfCsv(text: string, codes: "letter" | "digits" = "letter"): Array<{ code: string; name: string; phone?: string }> {
+  const isCode = (cell: string) => (codes === "digits" ? /^\d/.test(cell) : /^[AaАа]/.test(cell) && /\d/.test(cell));
   return text
     .replace(/^﻿/, "")
     .split(/\r?\n/)
     .map(csvCells)
-    .filter((cells) => /^[AaАа]/.test(cells[0] ?? "") && /\d/.test(cells[0] ?? ""))
+    .filter((cells) => isCode(cells[0] ?? ""))
     .map(([code, name, phone]) => ({ code: code!, name: name ?? "", ...(phone ? { phone } : {}) }));
 }

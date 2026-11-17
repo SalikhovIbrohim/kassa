@@ -866,6 +866,9 @@ export async function deleteAccount(id: string): Promise<AccountResult> {
 /** A client of the directory: one to a code (А707, А34-2); the names may repeat. */
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
 
+/** How the business writes the codes of its clients: the letter А and digits («А707»), or digits alone («707»). */
+export type ClientCodes = "letter" | "digits";
+
 /** How an entry names a client: "А707 Карим", or the code alone. */
 export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.name ? `${client.code} ${client.name}` : client.code);
 
@@ -874,11 +877,17 @@ export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.na
  * «Управление»), switched off ones too with `all`.
  */
 export async function fetchClients(q = "", options: { all?: boolean; limit?: number } = {}): Promise<Client[]> {
+  return (await fetchClientDirectory(q, options)).clients;
+}
+
+/** The same, with how a code is written in this business (a server that does not say writes «А707»). */
+export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes }> {
   const query = new URLSearchParams({ ...(q ? { q } : {}), ...(options.all ? { all: "1" } : {}), ...(options.limit ? { limit: String(options.limit) } : {}) });
   const response = await request(`/api/clients${query.toString() ? `?${query}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/clients`);
-  return ((await response.json()) as { clients: Client[] }).clients;
+  const body = (await response.json()) as { clients: Client[]; codes?: string };
+  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter" };
 }
 
 export type ClientResult =

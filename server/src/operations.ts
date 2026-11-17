@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
-import { clientOfEntry } from "./clients.js";
+import { clientOfEntry, type ClientCodes } from "./clients.js";
 import type { Kassa, Kassas } from "./kassa.js";
 import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
@@ -16,6 +16,8 @@ export type OperationsOptions = {
   now: () => Date;
   /** The cash desks of the installation. */
   kassas: Kassas;
+  /** How the business writes the codes of its clients: «А707» unless said. */
+  clientCodes?: ClientCodes;
   /** What is written down with an operation besides it (the messages for the Telegram group). */
   events?: LedgerEvents;
   outbox: Pick<Outbox, "nudge">;
@@ -155,7 +157,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
 
       // The client is one of the directory, and is written the way the directory names them ("А707 Карим").
       if (normalized.fields.clientCode !== null) {
-        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code);
+        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code, options.clientCodes);
         if ("error" in client) return reply.code(400).send({ statusCode: 400, error: client.error, message: "body/clientCode is not a client of the directory" });
         normalized.fields.clientCode = client.clientCode;
       }
