@@ -1,5 +1,5 @@
 import type { Queryable } from "./balances.js";
-import { cashDaySql } from "./cash-day.js";
+import { cashDayOf, cashDaySql } from "./cash-day.js";
 import type { ClientCodes } from "./clients.js";
 import { dayAverageRateSql } from "./ledger.js";
 
@@ -23,6 +23,14 @@ export type ClientDebt = {
   paidMinor: number;
   /** Opening + charged - paid: more than nothing, the client owes; less, they have paid ahead. */
   debtMinor: number;
+  /** The day of the last payment (money given back is none), and the day the last truck with their cargo came; null: never. */
+  lastPaidDay: string | null;
+  lastTripDay: string | null;
+  /**
+   * How many days the client has not paid for, up to `today`: since the last payment, or, with no payment at all,
+   * since the history began (the first of January of the year of its oldest line), as the report on the debts counts.
+   */
+  daysUnpaid: number;
 };
 
 /**
@@ -91,27 +99,42 @@ function paymentsSql(codes: ClientCodes): string {
  * The debts of the clients of the directory, by code: of `only` these, or of all of them. Read in one statement, so
  * the three parts of a debt are of one moment.
  */
-export async function readDebts(db: Queryable, codes: ClientCodes, only?: readonly string[]): Promise<Map<string, ClientDebt>> {
-  const found = await db.query<{ code: string; opening: string; charged: string; paid: string }>(
-    `SELECT cl.code, cl.opening_debt_minor AS opening, COALESCE(ch.minor, 0) AS charged, COALESCE(p.minor, 0) AS paid
+export async function readDebts(db: Queryable, codes: ClientCodes, only?: readonly string[], today: string = cashDayOf(new Date())): Promise<Map<string, ClientDebt>> {
+  const found = await db.query<{ code: string; opening: string; charged: string; paid: string; last_paid: string | null; last_trip: string | null; history_from: string | null }>(
+    `SELECT cl.code, cl.opening_debt_minor AS opening, COALESCE(ch.minor, 0) AS charged, COALESCE(p.minor, 0) AS paid,
+            to_char(p.last_day, 'YYYY-MM-DD') AS last_paid, to_char(ch.last_day, 'YYYY-MM-DD') AS last_trip,
+            (SELECT to_char(LEAST((SELECT MIN(day) FROM (${CHARGES_SQL}) c), (SELECT MIN(day) FROM (${paymentsSql(codes)}) q)), 'YYYY-MM-DD')) AS history_from
        FROM clients cl
-       LEFT JOIN (SELECT code, SUM(minor) AS minor FROM (${CHARGES_SQL}) charges GROUP BY code) ch ON ch.code = cl.code
-       LEFT JOIN (SELECT code, SUM(minor) AS minor FROM (${paymentsSql(codes)}) payments GROUP BY code) p ON p.code = cl.code
+       LEFT JOIN (SELECT code, SUM(minor) AS minor, MAX(day) AS last_day FROM (${CHARGES_SQL}) charges GROUP BY code) ch ON ch.code = cl.code
+       LEFT JOIN (SELECT code, SUM(minor) AS minor, MAX(day) FILTER (WHERE minor > 0) AS last_day FROM (${paymentsSql(codes)}) payments GROUP BY code) p ON p.code = cl.code
       WHERE $1::text[] IS NULL OR cl.code = ANY($1)`,
     [only ?? null],
   );
+  const dayNumber = (day: string) => Date.parse(`${day}T00:00:00Z`) / 86_400_000;
   return new Map(
     found.rows.map((row) => {
       const openingDebtMinor = Number(row.opening);
       const chargedMinor = Number(row.charged);
       const paidMinor = Number(row.paid);
-      return [row.code, { openingDebtMinor, chargedMinor, paidMinor, debtMinor: openingDebtMinor + chargedMinor - paidMinor }];
+      const since = row.last_paid ?? `${(row.history_from ?? today).slice(0, 4)}-01-01`;
+      return [
+        row.code,
+        {
+          openingDebtMinor,
+          chargedMinor,
+          paidMinor,
+          debtMinor: openingDebtMinor + chargedMinor - paidMinor,
+          lastPaidDay: row.last_paid,
+          lastTripDay: row.last_trip,
+          daysUnpaid: Math.max(0, Math.round(dayNumber(today) - dayNumber(since))),
+        },
+      ];
     }),
   );
 }
 
 /** Someone the directory does not have owes nothing that is known here. */
-export const NO_DEBT: ClientDebt = { openingDebtMinor: 0, chargedMinor: 0, paidMinor: 0, debtMinor: 0 };
+export const NO_DEBT: ClientDebt = { openingDebtMinor: 0, chargedMinor: 0, paidMinor: 0, debtMinor: 0, lastPaidDay: null, lastTripDay: null, daysUnpaid: 0 };
 
 /** One line of the card of a client: a trip that arrived (what it added to the debt) or a payment (what it took off). */
 export type Movement = {

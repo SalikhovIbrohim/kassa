@@ -468,7 +468,7 @@ describe("the trips", () => {
 
     // The admin sets what a kilogram costs the client and what they owed at the start.
     const changed = (await (await patchJson(started, "/api/admin/clients/132", { priceMilli: 1600, openingDebtMinor: 0 }, mudir)).json()) as { client: Json };
-    expect(changed.client).toEqual({ code: "132", name: "Иброхим", phone: null, note: null, active: true, priceMilli: 1600, openingDebtMinor: 0, chargedMinor: 552_975, paidMinor: 340_000, debtMinor: 212_975 });
+    expect(changed.client).toEqual({ code: "132", name: "Иброхим", phone: null, note: null, active: true, priceMilli: 1600, openingDebtMinor: 0, chargedMinor: 552_975, paidMinor: 340_000, debtMinor: 212_975, lastPaidDay: "2026-08-01", lastTripDay: "2026-08-16", daysUnpaid: 0 });
     expect(((await (await patchJson(started, "/api/admin/clients/132", { priceMilli: null }, mudir)).json()) as { client: Json }).client.priceMilli).toBeNull();
     expect((await patchJson(started, "/api/admin/clients/132", { priceMilli: -1 }, mudir)).status).toBe(400);
     const made = (await (await postJson(started, "/api/admin/clients", { code: "900", name: "Вали", priceMilli: 1700, openingDebtMinor: 1_000 }, mudir)).json()) as { client: Json };

@@ -174,23 +174,20 @@ describe("the trips on the screen", () => {
     expect(listed).toContain("Прибыл");
     expect(listed).toContain("5 529,75 $");
     await openSection(page, "Клиенты");
+    // The list is of those who owe, in whole dollars: the code, the name, the truck that came, the debt.
     const client = page.locator('[data-client="132"]:visible');
-    await seeText(client, "долг");
-    expect(plain(await client.innerText())).toContain("долг 5 529,75 $");
-    expect(plain(await client.innerText())).toContain("1,5 $/кг");
-    expect(plain(await page.locator("[data-debts]:visible").innerText())).toContain("Должны всего: 5 529,75 $");
+    await seeText(client, "Иброхим");
+    expect(plain(await client.innerText()).replace(/\s+/g, " ")).toMatch(/^132 Иброхим Оплат не было · рейс 16\.08(\.26)? 5 530 ?\$( \d+ дн\.)?$/);
+    expect(plain(await page.locator("[data-debts]:visible").innerText()).replace(/\s+/g, " ")).toMatch(/^Должны всего 5 530 ?\$ 1 должник/);
 
-    // The card of the client: the trip that arrived, and the debt after it. The control sheet: the month it arrived in.
-    await page.getByRole("button", { name: "Карточка: 132", exact: true }).click();
+    // The card of the client: the trip that arrived, and the debt after it, to the cent.
+    await client.click();
     const card = page.getByRole("dialog", { name: "132 Иброхим" });
     await seeText(card, "Рейс 190");
     const statement = plain(await card.locator("table[data-statement]").innerText());
     expect(statement).toContain("Долг на начало");
     expect(statement).toMatch(/16\.08\.2026\s+Рейс 190\s+5 529,75 \$\s+5 529,75 \$/);
     await card.getByRole("button", { name: "Закрыть" }).click();
-    await page.locator("[data-control]:visible").getByRole("button", { name: "Показать" }).click();
-    await seeText(page.locator('[data-month="2026-08"]:visible'), "Август");
-    expect(plain(await page.locator('[data-month="2026-08"]:visible').innerText())).toMatch(/Август\s+0,00 \$\s+5 529,75 \$\s+0,00 \$\s+5 529,75 \$/);
 
     // A client is a code and a name: with the name empty there is nothing to add.
     await page.getByRole("button", { name: "+ Новый", exact: true }).click();

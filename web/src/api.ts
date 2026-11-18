@@ -894,6 +894,11 @@ export type Client = {
   paidMinor?: number;
   /** More than nothing: the client owes; less: they have paid ahead. Not there where the business keeps no trips. */
   debtMinor?: number;
+  /** The day of the last payment and the day the last truck with their cargo came; null: never. */
+  lastPaidDay?: string | null;
+  lastTripDay?: string | null;
+  /** For how many days the client has not paid (since the history began, with no payment at all). */
+  daysUnpaid?: number;
 };
 
 /** How the business writes the codes of its clients: the letter А and digits («А707»), or digits alone («707»). */

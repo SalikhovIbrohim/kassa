@@ -199,6 +199,25 @@ describe("the report on the debts of a day", () => {
     expect(next.came).toEqual([]);
   });
 
+  it("says of every client in the directory when they paid last, when their last truck came, and for how many days they have not paid", async () => {
+    const { started, owner } = await business();
+    const list = ((await (await get(started, "/api/clients?all=1", owner)).json()) as { clients: Array<{ code: string; debtMinor: number; lastPaidDay: string | null; lastTripDay: string | null; daysUnpaid: number }> }).clients;
+    const of = (code: string) => {
+      const { debtMinor, lastPaidDay, lastTripDay, daysUnpaid } = list.find((client) => client.code === code)!;
+      return { debtMinor, lastPaidDay, lastTripDay, daysUnpaid };
+    };
+    // Today is the 17th of November.
+    expect(of("1")).toEqual({ debtMinor: 1_720_000, lastPaidDay: "2026-11-16", lastTripDay: "2026-11-16", daysUnpaid: 1 });
+    expect(of("7")).toEqual({ debtMinor: 230_000, lastPaidDay: "2026-08-14", lastTripDay: "2026-11-16", daysUnpaid: 95 });
+    expect(of("6")).toEqual({ debtMinor: 98_403, lastPaidDay: "2026-10-17", lastTripDay: null, daysUnpaid: 31 });
+    // Never paid: counted from the first of January, where the history begins, as the report counts.
+    expect(of("3")).toEqual({ debtMinor: 90_000, lastPaidDay: null, lastTripDay: null, daysUnpaid: 320 });
+    // Money given back is no payment: the day of the last payment stays.
+    expect((await postJson(started, "/api/operations", { id: randomUUID(), type: "expense", amountMinor: 5_000, currency: "USD", category: "client_refund", clientCode: "6" }, await loginAs(started, "ivan", "correct horse"))).status).toBe(201);
+    const after = ((await (await get(started, "/api/clients?q=6", owner)).json()) as { clients: Array<{ code: string; lastPaidDay: string | null; debtMinor: number }> }).clients.find((client) => client.code === "6")!;
+    expect(after).toMatchObject({ lastPaidDay: "2026-10-17", debtMinor: 103_403 });
+  });
+
   it("has the control sheet of the year up to the day, and it comes to the debt of all to the cent", async () => {
     const { started, owner } = await business();
     const { control, closingMinor } = await report(started, owner, "?day=2026-11-16");

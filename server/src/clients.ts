@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import type { Queryable } from "./balances.js";
+import { cashDayOf } from "./cash-day.js";
 import { NO_DEBT, readDebts, type ClientDebt } from "./client-debts.js";
 import { inTransaction } from "./ledger.js";
 import { NO_NUL } from "./schemas.js";
@@ -15,6 +16,8 @@ export type ClientsOptions = {
    * kilogram and a debt, and the directory says them. Without it the directory is as it always was.
    */
   cargo?: boolean;
+  /** The application's clock: how long a client has not paid is counted up to the day of the cash desk it is. */
+  now?: () => Date;
 };
 
 export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
@@ -100,7 +103,7 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
   const present = async (db: Queryable, rows: ClientRow[]): Promise<Client[]> => {
     if (!cargo) return rows.map(toClient);
     // A few clients are asked for by their codes; the whole list is read whole.
-    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined);
+    const debts = await readDebts(db, codes, rows.length <= 50 ? rows.map((row) => row.code) : undefined, cashDayOf((options.now ?? (() => new Date()))()));
     return rows.map((row) => toClientWithDebt(row, debts.get(row.code)));
   };
 

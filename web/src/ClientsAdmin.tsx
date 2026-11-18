@@ -14,6 +14,7 @@ import {
   type ClientStatement,
   type ControlMonth,
 } from "./api";
+import { ClientDebts } from "./ClientDebts";
 import { useKassa } from "./kassa";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
@@ -70,6 +71,14 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   const [debtorsOnly, setDebtorsOnly] = useState(false);
   // The client whose card is open: every trip and every payment behind the debt.
   const [card, setCard] = useState<Client | null>(null);
+  // The card shows the client as the list has them now: a name changed from the card is the new name in it.
+  useEffect(() => {
+    setCard((open) => (open && clients?.find((client) => client.code === open.code)) || open);
+  }, [clients]);
+  const openCard = useCallback((client: Client) => {
+    setEditing(null);
+    setCard(client);
+  }, []);
 
   const load = useCallback(() => {
     fetchClientDirectory("", { all: true }).then(
@@ -145,16 +154,17 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           </Button>
         </div>
       </div>
-      <p className="hint">
+      {!keepsTrips && <p className="hint">
         У каждого клиента свой код ({digits ? "707, 34-2" : "А707, А34-2"}), имена могут повторяться. В приходе клиента выбирают из этого списка. Клиента не удаляют, а отключают: старые записи
         продолжают его называть.
-        {keepsTrips && " Долг клиента это его грузы в прибывших рейсах минус его оплаты в кассе (и то, что он был должен на старте)."}
-      </p>
+      </p>}
 
-      <Label>
-        <span className="sr-only">Поиск</span>
-        <Input type="search" placeholder="Поиск: код, имя или телефон" value={search} onChange={(event) => setSearch(event.target.value)} />
-      </Label>
+      {!keepsTrips && (
+        <Label>
+          <span className="sr-only">Поиск</span>
+          <Input type="search" placeholder="Поиск: код, имя или телефон" value={search} onChange={(event) => setSearch(event.target.value)} />
+        </Label>
+      )}
 
       {error && (
         <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -174,9 +184,10 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
         </>
       )}
 
-      {shown && (
+      {/* Where the business keeps trips the list is of debts: who owes, how much, who has stopped paying. A tap opens the card. */}
+      {keepsTrips && clients && <ClientDebts clients={clients} onOpen={openCard} />}
+      {!keepsTrips && shown && (
         <>
-          {keepsTrips && <ControlSheet onSessionExpired={onSessionExpired} />}
           <p className="hint" data-count>
             {search.trim() || debtorsOnly ? `Найдено: ${shown.length} из ${clients!.length}` : `Всего клиентов: ${shown.length}`}
           </p>
@@ -259,9 +270,40 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           </ul>
         </>
       )}
-      <Dialog open={card !== null} onOpenChange={(next) => !next && setCard(null)}>
+      <Dialog open={card !== null} onOpenChange={(next) => !next && (setCard(null), setEditing(null))}>
         <DialogContent className="min-[640px]:max-w-2xl">
-          {card && <ClientCard key={card.code} client={card} onSessionExpired={onSessionExpired} />}
+          {card && editing === card.code ? (
+            <>
+              <DialogTitle>
+                {card.code} {card.name}
+              </DialogTitle>
+              <DialogDescription className="sr-only">Имя, телефон, заметка, цена за кг и начальный долг клиента.</DialogDescription>
+              {error && (
+                <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+                  {error}
+                </p>
+              )}
+              <EditClient
+                client={card}
+                keepsTrips={keepsTrips}
+                busy={busy}
+                onCancel={() => setEditing(null)}
+                onSave={(change) => apply(() => changeClient(card.code, change), "Сохранено.")}
+                onToggle={() => void apply(() => changeClient(card.code, { active: !card.active }), card.active ? `${card.code} отключён.` : `${card.code} снова в списке.`)}
+              />
+            </>
+          ) : (
+            card && (
+              <>
+                <ClientCard key={card.code} client={card} onSessionExpired={onSessionExpired} />
+                {canEdit && keepsTrips && (
+                  <Button type="button" variant="outline" className="self-start" onClick={() => (setError(null), setEditing(card.code))}>
+                    Изменить
+                  </Button>
+                )}
+              </>
+            )
+          )}
         </DialogContent>
       </Dialog>
     </section>
@@ -353,88 +395,6 @@ function ClientCard({ client, onSessionExpired }: { client: Client; onSessionExp
         </>
       )}
     </>
-  );
-}
-
-/**
- * «Контроль по месяцам»: what all the clients owed when each month began, what arrived in it, what was paid, and what
- * they owed when it ended, as the control sheet of the card file has it. Folded until it is asked for.
- */
-function ControlSheet({ onSessionExpired }: { onSessionExpired: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [months, setMonths] = useState<ControlMonth[] | null | undefined>(null);
-  const [year, setYear] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (!open) return;
-    let current = true;
-    fetchDebtControl(year).then(
-      (loaded) => {
-        if (!current) return;
-        setMonths(loaded.months);
-        setYear(loaded.year);
-      },
-      (caught: unknown) => {
-        if (!current) return;
-        if (caught instanceof SessionExpiredError) onSessionExpired();
-        else setMonths(undefined);
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [open, year, onSessionExpired]);
-
-  return (
-    <div className="glass-card grid gap-3 rounded-lg px-4 py-3" data-control>
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className="flex-1 text-left font-semibold" aria-expanded={open} onClick={() => setOpen((shown) => !shown)}>
-          Контроль по месяцам{year && open ? `: ${year}` : ""}
-        </button>
-        {open && year !== undefined && (
-          <>
-            <Button type="button" variant="outline" size="sm" className="h-9 px-3" onClick={() => setYear(year - 1)}>
-              ‹ {year - 1}
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="h-9 px-3" onClick={() => setYear(year + 1)}>
-              {year + 1} ›
-            </Button>
-          </>
-        )}
-        <Button type="button" variant="outline" size="sm" className="h-9 px-3" onClick={() => setOpen((shown) => !shown)}>
-          {open ? "Свернуть" : "Показать"}
-        </Button>
-      </div>
-      {open && months === null && <p className="hint">Загружаем…</p>}
-      {open && months === undefined && <p className="hint">Не удалось загрузить. Проверьте связь.</p>}
-      {open && months && months.length === 0 && <p className="hint">За {year} год рейсов и оплат нет.</p>}
-      {open && months && months.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b text-left text-[13px] text-muted-foreground [&_th]:px-2 [&_th]:py-2 [&_th]:font-semibold">
-                <th>Месяц</th>
-                <th className="text-right">Остаток нач.</th>
-                <th className="text-right">Начислено</th>
-                <th className="text-right">Оплачено</th>
-                <th className="text-right">Остаток кон.</th>
-              </tr>
-            </thead>
-            <tbody className="[&_td]:px-2 [&_td]:py-1.5">
-              {months.map((month) => (
-                <tr key={month.month} data-month={month.month} className="border-b last:border-b-0">
-                  <td>{formatMonth(month.month)}</td>
-                  <td className="text-right whitespace-nowrap tabular-nums">{formatUsd(month.openingMinor)}</td>
-                  <td className="text-right whitespace-nowrap tabular-nums">{formatUsd(month.chargedMinor)}</td>
-                  <td className="text-right whitespace-nowrap tabular-nums">{formatUsd(month.paidMinor)}</td>
-                  <td className="text-right font-semibold whitespace-nowrap tabular-nums">{formatUsd(month.closingMinor)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
   );
 }
 
