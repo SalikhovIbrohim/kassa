@@ -88,19 +88,38 @@ describe("the report on the debts on the screen", () => {
   }
 
   const report = (page: Page) => page.locator("[data-debt-report]:visible");
-  const picture = (page: Page, key: string) => report(page).locator(`[data-picture="${key}"]`);
+  const block = (page: Page, name: string) => report(page).locator(`[data-block="${name}"]`);
+  /** A piece of the screen as one line; the «$» that stands small beside a sum is set a space apart. */
+  const oneLine = (text: string) => plain(text).replace(/(\d)\$/g, "$1 $").replace(/\s+/g, " ").trim();
+  const lines = async (scope: Locator, what = "[data-code]") => (await scope.locator(what).allInnerTexts()).map(oneLine);
   /** The report of a day is on the screen, the whole of it. */
   async function showDay(page: Page, day: string) {
     await report(page).locator("input[name=day]").fill(day);
     await seeValue(report(page).locator("input[name=day]"), day);
     await report(page).and(page.locator('[aria-busy="false"]')).waitFor();
-    await seeVisible(picture(page, "control").locator("[data-month]").first());
+    await seeVisible(block(page, "control").locator("[data-month]").first());
   }
-  /** Waits until the text of the element, its spaces read as plain ones, contains `expected`. */
-  const seePlain = (locator: Locator, expected: string) => expect.poll(async () => plain(await locator.innerText({ timeout: 500 }).catch(() => "")), { timeout: 20_000 }).toContain(expected);
-  const tiles = async (scope: Locator) => (await scope.locator("[data-tile]").allInnerTexts()).map((text) => plain(text).split("\n").map((line) => line.trim()).filter(Boolean));
+  /** Presses the button of the pictures and gathers the files it gives. */
+  async function pictures(page: Page, many: number, button: string) {
+    const saved: Array<{ name: string; width: number; size: number }> = [];
+    const done: Promise<void>[] = [];
+    const listen = (download: import("playwright-core").Download) => {
+      done.push(
+        (async () => {
+          const bytes = await readFile(await download.path());
+          saved.push({ name: download.suggestedFilename(), width: bytes.readUInt32BE(16), size: bytes.length });
+        })(),
+      );
+    };
+    page.on("download", listen);
+    await report(page).getByRole("button", { name: button }).click();
+    await expect.poll(() => done.length, { timeout: 30_000 }).toBe(many);
+    await Promise.all(done);
+    page.off("download", listen);
+    return saved.sort((one, other) => one.name.localeCompare(other.name));
+  }
 
-  it("shows a cashier the four pictures of a day, and gives each out as a PNG and the long unpaid as a workbook", async () => {
+  it("shows a cashier the day in cards: four numbers, who paid, who was charged, who owes most and who does not pay", async () => {
     const started = await business();
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
@@ -108,81 +127,56 @@ describe("the report on the debts on the screen", () => {
     await signIn(page, started, "ivan", "correct horse");
     await openSection(page, "Отчёты");
     await showDay(page, "2026-11-16");
-    // Compared with the day before, unless another is chosen.
-    await seeValue(report(page).locator("input[name=since]"), "2026-11-15");
 
-    // How the debt moved: what it was, what the truck added, what was paid and where, what it is.
-    const movement = picture(page, "movement");
-    expect(await tiles(movement)).toEqual([
-      ["Долг на 15.11", "$31 974"],
-      ["Начислено", "+ 2 000", "рейс 247 (16.11), 2 клиента"],
-      ["Оплачено", "− 7 390", "3 клиента, из них Ташкент 6 000"],
-      ["Долг на 16.11", "$26 584", "−5 390 за день"],
+    // How the debt moved: what it was, what it is, what the truck added, what was paid.
+    expect(await lines(report(page), "[data-tile]")).toEqual([
+      "Долг на 15.11 31 974 $",
+      "Долг на 16.11 26 584 $ снизился на 5 390 $",
+      "Начислено +2 000 $ рейс 247 (16.11), 2 клиента",
+      "Оплачено −7 390 $ 3 плательщика",
     ]);
-    const paid = movement.locator('[data-list="paid"]');
-    await seeText(paid, "Кто оплатил 16.11");
-    expect((await paid.locator("[data-code]").allInnerTexts()).map((text) => plain(text).replace(/\s+/g, " ").trim())).toEqual(["Улугбек (1) Ташкент 6 000", "Марсел (5) 1 143", "Тимур (4) 247"]);
-    const charged = movement.locator('[data-list="charged"]');
-    await seeText(charged, "Кому начислено 16.11");
-    expect((await charged.locator("[data-code]").allInnerTexts()).map((text) => plain(text).replace(/\s+/g, " ").trim())).toEqual(["Улугбек (1) 247 1 200", "Саша (7) 247 800"]);
-    const note = plain(await movement.locator("[data-note]").innerText());
-    // Nobody looked on the 15th, so nothing was kept of it.
-    expect(note).toContain("Закрытие 15.11 не сохранено — правки задним числом не проверялись.");
-    expect(note).toContain("Оплатили рейс 246 на следующий день: Марсел (5) 1 143.");
-    expect(note).toContain("Закрыли долг: Тимур (4), Марсел (5).");
+    // Who paid, the biggest first, with the desk that took it when it was not the main one; who was charged, with the truck.
+    await seeText(block(page, "paid").locator("h3"), /Кто оплатил\s*7.390.\$/);
+    expect(await lines(block(page, "paid"))).toEqual(["Улугбек 1 Ташкент 6 000", "Марсел 5 1 143", "Тимур 4 247"]);
+    expect(await lines(block(page, "charged"))).toEqual(["Улугбек 1 рейс 247 1 200", "Саша 7 рейс 247 800"]);
+    // Who owes most, with the place and what the period changed.
+    await seeText(block(page, "top").locator("h3"), /Должники\s*5 всего/);
+    expect(await lines(block(page, "top"))).toEqual(["1 Улугбек 1 17 200 за период −4 800 $", "2 Захар 2 5 200", "3 Саша 7 2 300 за период +800 $", "4 Аброр 6 984", "5 Рахим 3 900"]);
+    // Who has not paid for long: the days, and the last truck (in red when it came in this period).
+    await seeText(block(page, "overdue").locator("h3"), /Долго не платят\s*3 · 4.184.\$/);
+    expect(await lines(block(page, "overdue"))).toEqual(["Саша 7 2 300 94 дн. без оплаты посл. рейс 16.11", "Аброр 6 984 30 дн. без оплаты рейсов нет", "Рахим 3 900 319 дн. без оплаты рейсов нет"]);
+    await seeVisible(block(page, "overdue").locator('[data-code="7"] .text-destructive').last());
+    // The control sheet came here from «Клиенты»: every month of the year up to the day.
+    expect(await block(page, "control").locator("[data-month]").count()).toBe(11);
+    expect(oneLine(await block(page, "control").locator('[data-month="2026-11"]').innerText())).toBe("Ноябрь 27 631,03 6 642,57 7 690,00 26 583,60");
+    await seeText(block(page, "control"), "Ноябрь — по 16.11 включительно.");
 
-    // Who owes most: five of them here, each with the change of the day and the last payment.
-    const top = picture(page, "top");
-    expect((await top.locator("tbody tr").allInnerTexts()).map((text) => plain(text).replace(/\s+/g, " ").trim())).toEqual([
-      "1 Улугбек (1) 17 200 −4 800 16.11",
-      "2 Захар (2) 5 200 — 10.11",
-      "3 Саша (7) 2 300 +800 14.08",
-      "4 Аброр (6) 984 — 17.10",
-      "5 Рахим (3) 900 — —",
-    ]);
-    // Thirty days and more without a payment: the day is in red.
-    await seeVisible(top.locator('tr[data-code="6"] [data-last-paid].dr-bad'));
-    await seeVisible(top.locator('tr[data-code="2"] [data-last-paid].dr-muted'));
-    await seeText(top.locator("[data-note]"), /Всего должников 5, их долг 26.584.\$\./);
+    // A tap on a client opens the card, for a cashier too.
+    await block(page, "paid").locator('[data-code="1"]').click();
+    const card = page.getByRole("dialog", { name: "1 · Улугбек" });
+    await seeText(card, "Рейс № 247");
+    await seeText(card, /Долг сейчас\s*17.200,00/);
+    await card.getByRole("button", { name: "Закрыть" }).click();
+    await seeGone(card);
 
-    // Who has not paid for long: three, one of them new, one with cargo on the truck of this day.
-    const overdue = picture(page, "overdue");
-    expect(await tiles(overdue)).toEqual([
-      ["Не платят 30+ дней", "3 клиента"],
-      ["Их долг", "$4 184"],
-      ["Из них 90+ дней или ни разу в 2026", "2 клиента"],
-    ]);
-    expect((await overdue.locator("tbody tr").allInnerTexts()).map((text) => plain(text).replace(/\s+/g, " ").trim())).toEqual([
-      "Саша (7) 2 300 14.08.26 94 дн. 16.11.26",
-      "Аброр (6) новый 984 17.10.26 30 дн. —",
-      "Рахим (3) 900 в 2026 нет 319 дн. —",
-    ]);
-    await seeVisible(overdue.locator('tr[data-code="7"] [data-last-trip].dr-bad'));
-    await seeVisible(overdue.locator('tr[data-code="7"] .dr-plate.dr-long'));
-
-    // The control sheet: every month of the year up to the day.
-    const control = picture(page, "control");
-    expect(await control.locator("[data-month]").count()).toBe(11);
-    expect(plain(await control.locator('[data-month="2026-11"]').innerText()).replace(/\s+/g, " ").trim()).toBe("Ноябрь 27 631,03 6 642,57 7 690,00 26 583,60");
-    await seeText(control.locator("[data-note]"), "Ноябрь — по 16.11 включительно.");
-
-    // A picture: a PNG of 760 px, twice as dense, whatever the window is.
-    const [saved] = await Promise.all([page.waitForEvent("download"), top.getByRole("button", { name: "Скачать PNG" }).click()]);
-    expect(saved.suggestedFilename()).toBe("dolgi-2026-11-16-2-top-30.png");
-    const png = await readFile(await saved.path());
-    expect(png.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    expect(png.readUInt32BE(16)).toBe(1520);
-    expect(png.readUInt32BE(20)).toBeGreaterThan(300);
-    // Not an empty one: a picture of a table of names weighs something.
-    expect(png.length).toBeGreaterThan(20_000);
+    // The pictures for a chat are made only when asked for: nothing of them is on the page before, nothing after.
+    expect(await page.locator("[data-pictures]").count()).toBe(0);
+    const saved = await pictures(page, 4, "Скачать 4 картинки");
+    expect(saved.map((file) => file.name)).toEqual(["dolgi-2026-11-16-1-izmenenie-dolga.png", "dolgi-2026-11-16-2-top-30.png", "dolgi-2026-11-16-3-dolgo-ne-platyat.png", "dolgi-2026-11-16-4-kontrol.png"]);
+    // Each 760 px wide and twice as dense, whatever the window is, and not an empty one.
+    for (const file of saved) {
+      expect(file.width, file.name).toBe(1520);
+      expect(file.size, file.name).toBeGreaterThan(20_000);
+    }
+    await seeGone(page.locator("[data-pictures]"));
 
     // The sheet of Excel.
-    const [sheet] = await Promise.all([page.waitForEvent("download"), report(page).getByRole("button", { name: "Excel: не платят больше 7 дней" }).click()]);
+    const [sheet] = await Promise.all([page.waitForEvent("download"), report(page).getByRole("button", { name: "Excel: не платят 7+ дней" }).click()]);
     expect(sheet.suggestedFilename()).toBe("ne-platyat-7-dney-2026-11-16.xlsx");
     expect((await readFile(await sheet.path())).subarray(0, 2).toString()).toBe("PK");
   });
 
-  it("covers several days when compared with an earlier day, and steps from day to day", async () => {
+  it("compares the day with a week or a month back, and steps from day to day", async () => {
     const started = await business();
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
@@ -190,63 +184,36 @@ describe("the report on the debts on the screen", () => {
     await signIn(page, started, "ivan", "correct horse");
     await openSection(page, "Отчёты");
     await showDay(page, "2026-11-16");
-    await report(page).locator("input[name=since]").fill("2026-11-13");
-    const movement = picture(page, "movement");
-    await seeText(movement.locator("[data-tile]").first(), "Долг на 13.11");
-    await seeText(movement.locator("[data-tile]").nth(3), /за 3.дня/);
-    await seeText(movement.locator('[data-list="paid"]'), "Кто оплатил 14–16.11");
-    await seePlain(movement.locator("[data-tile]").nth(1), "рейсы 245 (14.11), 246 (15.11), 247 (16.11); 4 клиента");
-    // The days one by one.
-    const note = plain(await movement.locator("[data-note]").innerText());
-    expect(note).toContain("14.11 — рейс 245 +3 000 → долг 30 331; 15.11 — рейс 246 +1 643 → долг 31 974; 16.11 — рейс 247 +2 000, оплачено 7 390 → долг 26 584.");
-    await seeText(picture(page, "top").locator("thead"), "С 13.11");
+    await report(page).getByRole("button", { name: "За 7 дней" }).click();
+    await expect.poll(async () => (await lines(report(page), "[data-tile]"))[0]).toBe("Долг на 09.11 27 631 $");
+    expect((await lines(report(page), "[data-tile]")).slice(2)).toEqual(["Начислено +6 643 $ рейсы 245 (14.11), 246 (15.11), 247 (16.11); 4 клиента", "Оплачено −7 690 $ 4 плательщика"]);
+    // Улугбек: two trucks in the week.
+    expect((await lines(block(page, "charged")))[0]).toBe("Улугбек 1 рейс 245, 247 4 200");
 
-    // A step back: the 15th against the 14th again.
+    // A step back keeps the week; «За день» is the 15th against the 14th.
     await report(page).getByRole("button", { name: "Предыдущий день" }).click();
     await seeValue(report(page).locator("input[name=day]"), "2026-11-15");
-    await seeValue(report(page).locator("input[name=since]"), "2026-11-14");
-    await seeText(movement.locator("[data-tile]").nth(3), "Долг на 15.11");
-    await seeText(movement.locator("[data-tile]").nth(2), "оплат не было");
-    // Nobody paid: the list of the charged takes the whole width, and there is no list of payers.
-    await seeGone(movement.locator('[data-list="paid"]'));
-    await seeText(movement.locator('[data-list="charged"]'), "Кому начислено 15.11");
+    await expect.poll(async () => (await lines(report(page), "[data-tile]"))[0]).toBe("Долг на 08.11 27 631 $");
+    await report(page).getByRole("button", { name: "За день" }).click();
+    await expect.poll(async () => (await lines(report(page), "[data-tile]"))[0]).toBe("Долг на 14.11 30 331 $");
+    await seeText(block(page, "paid"), "За этот период оплат не было.");
+    expect(await lines(block(page, "charged"))).toEqual(["Марсел 5 рейс 246 1 143", "Захар 2 рейс 246 500"]);
+    // Today has no day after it.
+    expect(await report(page).getByRole("button", { name: "Следующий день" }).isDisabled()).toBe(false);
   });
 
-  it("adds a fifth picture on the last day of a month: the month day by day and the year month by month", async () => {
+  it("gives a fifth picture on the last day of a month", async () => {
     const started = await business();
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
     const page = laptop.page;
     await signIn(page, started, "ivan", "correct horse");
     await openSection(page, "Отчёты");
-    // In the middle of a month there are four.
     await showDay(page, "2026-11-16");
-    await seeGone(picture(page, "dynamics"));
-    await seeVisible(report(page).getByRole("button", { name: "Скачать все 4 картинки" }));
-
+    await seeVisible(report(page).getByRole("button", { name: "Скачать 4 картинки" }));
     await showDay(page, "2026-10-31");
-    const dynamics = picture(page, "dynamics");
-    await seeVisible(dynamics);
-    await seeText(dynamics.locator("h3"), "Динамика за октябрь");
-    expect(await tiles(dynamics)).toEqual([
-      ["Долг на 30.09", "$27 731"],
-      ["Начислено за октябрь", "0"],
-      ["Оплачено за октябрь", "− 100"],
-      ["Долг на 31.10", "$27 631", "−100 за месяц"],
-    ]);
-    // The debt day by day: one line with its end named; the months of the year up to this one, each with what it ended with.
-    await seeVisible(dynamics.locator('svg[data-chart="days"] polyline'));
-    expect(plain((await dynamics.locator('svg[data-chart="days"]').locator("text").last().textContent()) ?? "")).toBe("27 631");
-    expect(await dynamics.locator('svg[data-chart="months"] [data-month]').count()).toBe(10);
-    expect(plain((await dynamics.locator('svg[data-chart="months"] [data-month="2026-10"] title').textContent()) ?? "")).toBe("Октябрь: начислено 0, оплачено 100, остаток на конец 27 631");
-    expect(plain(await dynamics.locator("[data-note]").innerText())).toContain("Самый большой долг за месяц — 27 731 (01.10), самый маленький — 27 631 (17.10).");
-
-    // All the pictures at once: five files.
-    const names: string[] = [];
-    page.on("download", (download) => names.push(download.suggestedFilename()));
-    await report(page).getByRole("button", { name: "Скачать все 5 картинок" }).click();
-    await expect.poll(() => names.length, { timeout: 20_000 }).toBe(5);
-    expect(names).toEqual([
+    const saved = await pictures(page, 5, "Скачать 5 картинок");
+    expect(saved.map((file) => file.name)).toEqual([
       "dolgi-2026-10-31-1-izmenenie-dolga.png",
       "dolgi-2026-10-31-2-top-30.png",
       "dolgi-2026-10-31-3-dolgo-ne-platyat.png",
@@ -259,14 +226,15 @@ describe("the report on the debts on the screen", () => {
     const started = await business();
     const phone = await newPhone(browser);
     contexts.push(phone.context);
+    await phone.page.setViewportSize({ width: 375, height: 812 });
     await signIn(phone.page, started, "ivan", "correct horse");
     await openSection(phone.page, "Отчёты");
     await showDay(phone.page, "2026-11-16");
-    await seePlain(picture(phone.page, "overdue").locator("[data-tile]").first(), "3 клиента");
+    await seeText(block(phone.page, "overdue").locator("h3"), /3 · 4.184/);
     expect(await phone.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    // The picture from a phone is the same picture: as wide as from a computer.
-    const [saved] = await Promise.all([phone.page.waitForEvent("download"), picture(phone.page, "movement").getByRole("button", { name: "Скачать PNG" }).click()]);
-    expect((await readFile(await saved.path())).readUInt32BE(16)).toBe(1520);
+    // The pictures from a phone are the same pictures: as wide as from a computer.
+    const saved = await pictures(phone.page, 4, "Скачать 4 картинки");
+    expect(saved.map((file) => file.width)).toEqual([1520, 1520, 1520, 1520]);
 
     // The keeper of a warehouse has no such section.
     const keeper = await newLaptop(browser);
