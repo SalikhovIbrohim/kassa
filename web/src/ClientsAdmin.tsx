@@ -17,6 +17,7 @@ import {
 import { ClientCard } from "./ClientCard";
 import { ClientDebts } from "./ClientDebts";
 import { useKassa } from "./kassa";
+import { useWide } from "./use-wide";
 import { PencilIcon } from "@/components/icons";
 import { alertVariants } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -76,6 +77,8 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
   useEffect(() => {
     setCard((open) => (open && clients?.find((client) => client.code === open.code)) || open);
   }, [clients]);
+  // From 880 px the card stands beside the list instead of over it.
+  const beside = useWide(880) && keepsTrips;
   const openCard = useCallback((client: Client) => {
     setEditing(null);
     setCard(client);
@@ -186,7 +189,26 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
       )}
 
       {/* Where the business keeps trips the list is of debts: who owes, how much, who has stopped paying. A tap opens the card. */}
-      {keepsTrips && clients && <ClientDebts clients={clients} onOpen={openCard} />}
+      {keepsTrips && clients && (
+        <div className={cn("grid min-w-0 items-start gap-4", beside && "grid-cols-[minmax(0,1fr)_370px]")}>
+          <ClientDebts clients={clients} onOpen={openCard} selected={beside ? (card?.code ?? null) : null} keepOneOpen={beside} />
+          {/* From 880 px the card of the chosen client stands beside the list, and the list stays where it is. */}
+          {beside && (
+            <aside className="glass-card sticky top-20 grid max-h-[calc(100dvh-6rem)] gap-3 overflow-y-auto rounded-[26px] p-3.5" aria-label="Карточка клиента" data-client-panel>
+              {card ? (
+                <>
+                  <h3 className="mx-1 mt-0.5 text-lg font-bold">
+                    {card.code} · {card.name}
+                  </h3>
+                  {cardBody(card, false)}
+                </>
+              ) : (
+                <p className="hint px-1 py-6 text-center">Выберите клиента: карточка откроется здесь, список останется на месте.</p>
+              )}
+            </aside>
+          )}
+        </div>
+      )}
       {!keepsTrips && shown && (
         <>
           <p className="hint" data-count>
@@ -271,14 +293,28 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           </ul>
         </>
       )}
-      <Dialog open={card !== null} onOpenChange={(next) => !next && (setCard(null), setEditing(null))}>
+      <Dialog open={card !== null && !beside} onOpenChange={(next) => !next && (setCard(null), setEditing(null))}>
         <DialogContent className="min-[640px]:max-w-2xl">
-          {card && editing === card.code ? (
+          {card && (
             <>
               <DialogTitle>
                 {card.code} · {card.name}
               </DialogTitle>
-              <DialogDescription className="sr-only">Имя, телефон, заметка, цена за кг и начальный долг клиента.</DialogDescription>
+              <DialogDescription className="sr-only">Долг клиента сейчас, рейсы и оплаты по месяцам и долг после каждой строки.</DialogDescription>
+              {cardBody(card, true)}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+
+  /** What the card of a client holds, in a sheet or in the panel beside the list: the card, or the form that changes the client. */
+  function cardBody(card: Client, sticky: boolean) {
+    return (
+      <>
+          {editing === card.code ? (
+            <>
               {error && (
                 <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
                   {error}
@@ -294,20 +330,11 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
               />
             </>
           ) : (
-            card && (
-              <>
-                <DialogTitle>
-                  {card.code} · {card.name}
-                </DialogTitle>
-                <DialogDescription className="sr-only">Долг клиента сейчас, рейсы и оплаты по месяцам и долг после каждой строки.</DialogDescription>
-                <ClientCard key={card.code} client={card} onEdit={canEdit ? () => (setError(null), setEditing(card.code)) : undefined} onSessionExpired={onSessionExpired} />
-              </>
-            )
+            <ClientCard key={card.code} client={card} sticky={sticky} onEdit={canEdit ? () => (setError(null), setEditing(card.code)) : undefined} onSessionExpired={onSessionExpired} />
           )}
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
+      </>
+    );
+  }
 }
 
 const debtTone = (minor: number) => (minor > 0 ? "text-destructive" : minor < 0 ? "text-success" : "text-muted-foreground");

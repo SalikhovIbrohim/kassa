@@ -171,26 +171,58 @@ describe("the clients and their debts on the screen", () => {
     await seeGone(card);
   });
 
-  it("lets the admin change a client from the card, and the owner only look", async () => {
+  it("is a table on a computer, with the card of the chosen client beside it; the admin changes a client there, the owner only looks", async () => {
     const started = await business();
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
     const page = laptop.page;
     await signIn(page, started, "mudir", "admin password");
     await openSection(page, "Клиенты");
+    await seeVisible(list(page).locator("[data-client-table] [data-client]").first());
+    // A line of the table: the code, the client, the debt, the days, the last payment, the last truck.
+    expect(await rows(page)).toEqual([
+      "1 Улугбек 17 200 $ 1 дн. 16.11 16.11",
+      "2 Захар 5 200 $ 7 дн. 10.11 15.11",
+      "7 Саша 2 300 $ 95 дн. 14.08 16.11",
+      "6 Аброр 984 $ 31 дн. 17.10 —",
+      "3 Рахим 900 $ 320 дн. не было —",
+    ]);
+    // The headings choose the order.
+    await list(page).locator('[data-sort-by="code"]').click();
+    expect((await rows(page)).map((row) => row.split(" ")[0])).toEqual(["1", "2", "3", "6", "7"]);
+    await list(page).locator('[data-sort-by="days"]').click();
+    expect((await rows(page)).map((row) => row.split(" ")[0])).toEqual(["3", "7", "6", "2", "1"]);
+    await list(page).locator('[data-sort-by="debt"]').click();
+
+    // The card of the first of the list is open beside it by itself, and the list stays where it is.
+    const panel = page.getByRole("complementary", { name: "Карточка клиента" });
+    await seeText(panel, "1 · Улугбек");
+    expect(await list(page).locator('[data-client="1"]').getAttribute("aria-current")).toBe("true");
     await list(page).locator('[data-client="2"]').click();
-    const card = page.getByRole("dialog", { name: "2 · Захар" });
-    await card.getByRole("button", { name: "Изменить", exact: true }).click();
-    await card.getByRole("textbox", { name: "Имя" }).fill("Захар Каримов");
-    await card.getByRole("button", { name: "Сохранить" }).click();
+    await seeText(panel, "2 · Захар");
+    await seeText(panel, "Рейс № 246");
+    expect(await page.getByRole("dialog").count()).toBe(0);
+    await seeVisible(list(page).locator('[data-client="7"]'));
+    // Changed from the card.
+    await panel.getByRole("button", { name: "Изменить", exact: true }).click();
+    await panel.getByRole("textbox", { name: "Имя" }).fill("Захар Каримов");
+    await panel.getByRole("button", { name: "Сохранить" }).click();
     await seeText(list(page).locator('[data-client="2"]'), "Захар Каримов");
+    await seeText(panel, "2 · Захар Каримов");
+
+    // Narrower than 880 px the table stays and the card is a window over it again.
+    await page.setViewportSize({ width: 700, height: 800 });
+    await seeGone(panel);
+    await seeVisible(list(page).locator("[data-client-table]"));
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
     const other = await newLaptop(browser);
     contexts.push(other.context);
     await signIn(other.page, started, "owner", "long enough pass");
     await openSection(other.page, "Клиенты");
     await list(other.page).locator('[data-client="2"]').click();
-    const seen = other.page.getByRole("dialog", { name: "2 · Захар Каримов" });
+    const seen = other.page.getByRole("complementary", { name: "Карточка клиента" });
+    await seeText(seen, "2 · Захар Каримов");
     await seeText(seen, "Рейс № 246");
     expect(await seen.getByRole("button", { name: "Изменить", exact: true }).count()).toBe(0);
     expect(await other.page.getByRole("button", { name: "+ Новый", exact: true }).count()).toBe(0);

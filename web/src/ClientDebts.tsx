@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Client } from "./api";
-import { hintOf, isLate, LONG_LATE_DAYS, shownClients, totalsOf, type ClientFilter, type ClientSort } from "./client-list";
+import { hintOf, isLate, LONG_LATE_DAYS, shortDayOf, shownClients, totalsOf, type ClientFilter, type ClientSort } from "./client-list";
+import { useWide } from "./use-wide";
 import { cashDayToday } from "./days";
 import { plural } from "./plural";
 import { Icon } from "./sections";
@@ -15,6 +16,8 @@ const FILTERS: ReadonlyArray<{ value: ClientFilter; label: string }> = [
 ];
 const SORTS: Record<ClientSort, string> = { debt: "По долгу", code: "По коду", days: "Кто дольше не платит" };
 const NEXT_SORT: Record<ClientSort, ClientSort> = { debt: "code", code: "days", days: "debt" };
+/** The columns of the table of a wide screen: the code, the client, the debt, the days, the last payment, the last truck. */
+const TABLE_ROW = "grid w-full grid-cols-[52px_minmax(0,1.4fr)_88px_84px_98px_84px] items-center gap-2 px-4 py-2.5 text-left whitespace-nowrap";
 
 /** Whole dollars, the thousands apart, as the prototype writes money in a list: "28 574". The card of a client has the cents. */
 const sumOf = (minor: number) => String(Math.round(Math.abs(minor) / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
@@ -34,7 +37,19 @@ function Usd({ minor, className }: { minor: number; className?: string }) {
  * who to show (those who owe, everybody, those who do not pay), and a line to a client: the code on a tile, the name,
  * when they paid last and when their last truck came, and at the right what they owe. A tap opens the card.
  */
-export function ClientDebts({ clients, onOpen }: { clients: readonly Client[]; onOpen: (client: Client) => void }) {
+export function ClientDebts({
+  clients,
+  onOpen,
+  selected = null,
+  keepOneOpen = false,
+}: {
+  clients: readonly Client[];
+  onOpen: (client: Client) => void;
+  /** The client whose card is open beside the list (a wide screen): their line is marked. */
+  selected?: string | null;
+  /** A card is always open beside the list: when the one that was open is not in the list any more, the first of the list is. */
+  keepOneOpen?: boolean;
+}) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<ClientFilter>("debtors");
   const [sort, setSort] = useState<ClientSort>("debt");
@@ -42,6 +57,17 @@ export function ClientDebts({ clients, onOpen }: { clients: readonly Client[]; o
   const totals = useMemo(() => totalsOf(clients), [clients]);
   const shown = useMemo(() => shownClients(clients, { filter, sort, search }), [clients, filter, sort, search]);
   const typed = search.trim();
+  // From 640 px the list is a table, and its headings choose the order.
+  const table = useWide(640);
+  useEffect(() => {
+    if (keepOneOpen && shown.length > 0 && !shown.some((client) => client.code === selected)) onOpen(shown[0]!);
+  }, [keepOneOpen, shown, selected, onOpen]);
+  const heading = (key: ClientSort, text: string, right = false) => (
+    <button type="button" className={cn("inline-flex items-center gap-1 uppercase", right && "justify-self-end", sort === key && "text-foreground")} aria-pressed={sort === key} data-sort-by={key} onClick={() => setSort(key)}>
+      {text}
+      {sort === key && <Icon name="chevronDown" size={12} stroke={2.4} />}
+    </button>
+  );
 
   return (
     <div className="grid min-w-0 gap-3" data-client-debts>
@@ -87,7 +113,8 @@ export function ClientDebts({ clients, onOpen }: { clients: readonly Client[]; o
         </span>
         <button
           type="button"
-          className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-muted px-2.5 text-[13px] font-semibold tracking-normal text-foreground normal-case"
+          hidden={table}
+          className="inline-flex h-[30px] items-center gap-1.5 rounded-full bg-muted px-2.5 text-[13px] font-semibold tracking-normal text-foreground normal-case [&[hidden]]:hidden"
           aria-label={`Сортировка: ${SORTS[sort]}`}
           data-sort={sort}
           onClick={() => setSort(NEXT_SORT[sort])}
@@ -103,6 +130,54 @@ export function ClientDebts({ clients, onOpen }: { clients: readonly Client[]; o
           <span className="text-[13.5px] text-muted-foreground">
             {typed ? `По запросу «${typed}» клиентов нет.` : filter === "late" ? "Никто не задерживает оплату дольше 30 дней." : filter === "debtors" ? "Должников нет." : "Клиентов пока нет."}
           </span>
+        </div>
+      ) : table ? (
+        <div className="glass-card overflow-hidden rounded-[26px]" role="table" aria-label="Клиенты" data-client-table>
+          <div className={cn(TABLE_ROW, "text-[11.5px] font-semibold tracking-[.05em] text-muted-foreground")} role="row">
+            {heading("code", "Код")}
+            <span className="uppercase">Клиент</span>
+            {heading("debt", "Долг, $", true)}
+            {heading("days", "Без оплаты", true)}
+            <span className="justify-self-end uppercase">Посл. оплата</span>
+            <span className="justify-self-end uppercase">Посл. рейс</span>
+          </div>
+          {shown.map((client) => {
+            const debt = client.debtMinor ?? 0;
+            const late = isLate(client);
+            const days = client.daysUnpaid ?? 0;
+            return (
+              <button
+                key={client.code}
+                type="button"
+                role="row"
+                className={cn(TABLE_ROW, "border-t text-[14px] transition-colors hover:bg-muted/60", selected === client.code && "bg-muted")}
+                data-client={client.code}
+                aria-current={selected === client.code ? "true" : undefined}
+                aria-label={`Карточка: ${client.code} ${client.name}`}
+                onClick={() => onOpen(client)}
+              >
+                <span className="font-bold text-muted-foreground tabular-nums">{client.code}</span>
+                <span className={cn("truncate font-semibold", !client.active && "text-muted-foreground line-through")}>{client.name || "без имени"}</span>
+                <span className="justify-self-end" data-debt>
+                  <Usd minor={Math.abs(debt)} className={cn("font-bold", debt > 0 ? "text-destructive" : debt < 0 ? "text-success" : "text-muted-foreground")} />
+                </span>
+                <span className="justify-self-end">
+                  {late ? (
+                    <span className={cn("inline-flex h-5 items-center rounded-[10px] px-2 text-[11px] font-semibold whitespace-nowrap", days >= LONG_LATE_DAYS ? "bg-destructive/12 text-destructive" : "bg-warning-bg text-warning")} data-days>
+                      {days} дн.
+                    </span>
+                  ) : (
+                    debt > 0 && <span className="text-muted-foreground tabular-nums">{days} дн.</span>
+                  )}
+                </span>
+                <span className="justify-self-end tabular-nums">{client.lastPaidDay ? shortDayOf(client.lastPaidDay, today) : <span className="text-muted-foreground">не было</span>}</span>
+                {/* A truck that came after the last payment of someone who does not pay: in red. */}
+                <span className={cn("justify-self-end tabular-nums", late && client.lastTripDay && (!client.lastPaidDay || client.lastTripDay > client.lastPaidDay) && "text-destructive")}>
+                  {client.lastTripDay ? shortDayOf(client.lastTripDay, today) : "—"}
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : (
         <ul className="glass-card overflow-hidden rounded-[26px]">
