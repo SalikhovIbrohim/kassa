@@ -14,6 +14,7 @@ import {
   type ClientStatement,
   type ControlMonth,
 } from "./api";
+import { ClientCard } from "./ClientCard";
 import { ClientDebts } from "./ClientDebts";
 import { useKassa } from "./kassa";
 import { PencilIcon } from "@/components/icons";
@@ -275,7 +276,7 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           {card && editing === card.code ? (
             <>
               <DialogTitle>
-                {card.code} {card.name}
+                {card.code} · {card.name}
               </DialogTitle>
               <DialogDescription className="sr-only">Имя, телефон, заметка, цена за кг и начальный долг клиента.</DialogDescription>
               {error && (
@@ -295,12 +296,11 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
           ) : (
             card && (
               <>
-                <ClientCard key={card.code} client={card} onSessionExpired={onSessionExpired} />
-                {canEdit && keepsTrips && (
-                  <Button type="button" variant="outline" className="self-start" onClick={() => (setError(null), setEditing(card.code))}>
-                    Изменить
-                  </Button>
-                )}
+                <DialogTitle>
+                  {card.code} · {card.name}
+                </DialogTitle>
+                <DialogDescription className="sr-only">Долг клиента сейчас, рейсы и оплаты по месяцам и долг после каждой строки.</DialogDescription>
+                <ClientCard key={card.code} client={card} onEdit={canEdit ? () => (setError(null), setEditing(card.code)) : undefined} onSessionExpired={onSessionExpired} />
               </>
             )
           )}
@@ -313,90 +313,6 @@ export function ClientsAdmin({ canEdit, onSessionExpired, active = true }: Props
 const debtTone = (minor: number) => (minor > 0 ? "text-destructive" : minor < 0 ? "text-success" : "text-muted-foreground");
 /** A debt as a number with its sign: what a column of a table says, where the heading says «Долг». */
 const signedUsd = (minor: number) => (minor < 0 ? `−${formatUsd(-minor)}` : formatUsd(minor));
-
-/**
- * The card of a client, as a line of the card file read downwards: what they owed at the start, every trip that
- * arrived and every payment, with the debt after each.
- */
-function ClientCard({ client, onSessionExpired }: { client: Client; onSessionExpired: () => void }) {
-  const { labelOf } = useKassa();
-  // null: loading, undefined: did not load.
-  const [statement, setStatement] = useState<ClientStatement | null | undefined>(null);
-
-  useEffect(() => {
-    let current = true;
-    fetchClientStatement(client.code).then(
-      (loaded) => current && setStatement(loaded ?? undefined),
-      (caught: unknown) => {
-        if (!current) return;
-        if (caught instanceof SessionExpiredError) onSessionExpired();
-        else setStatement(undefined);
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [client.code, onSessionExpired]);
-
-  return (
-    <>
-      <DialogTitle>
-        {client.code} {client.name}
-      </DialogTitle>
-      <DialogDescription className="sr-only">Рейсы и оплаты клиента по датам и долг после каждой строки.</DialogDescription>
-      {statement === null && <p className="hint">Загружаем…</p>}
-      {statement === undefined && (
-        <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
-          Не удалось загрузить карточку. Проверьте связь и откройте её ещё раз.
-        </p>
-      )}
-      {statement && (
-        <>
-          <p className="text-base">
-            Сейчас: <strong className={cn("tabular-nums", debtTone(statement.debtMinor))}>{debtWords(statement.debtMinor).text}</strong>
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-sm" data-statement>
-              <thead>
-                <tr className="border-b text-left text-[13px] text-muted-foreground [&_th]:px-2 [&_th]:py-2 [&_th]:font-semibold">
-                  <th>Дата</th>
-                  <th>Что</th>
-                  <th className="text-right">Начислено</th>
-                  <th className="text-right">Оплачено</th>
-                  <th className="text-right">Долг</th>
-                </tr>
-              </thead>
-              <tbody className="[&_td]:px-2 [&_td]:py-1.5">
-                <tr className="border-b">
-                  <td />
-                  <td>Долг на начало</td>
-                  <td />
-                  <td />
-                  <td className={cn("text-right tabular-nums", debtTone(statement.openingDebtMinor))}>{signedUsd(statement.openingDebtMinor)}</td>
-                </tr>
-                {statement.movements.map((line, index) => (
-                  <tr key={index} className="border-b last:border-b-0">
-                    <td className="whitespace-nowrap tabular-nums">{formatTripDay(line.day)}</td>
-                    <td>
-                      {line.kind === "trip" ? `Рейс ${line.tripNumber}` : line.kind === "refund" ? "Возврат клиенту" : "Оплата"}
-                      {line.kind !== "trip" && line.kassa && <span className="text-muted-foreground"> · {labelOf(line.kassa)}</span>}
-                      {line.note && <span className="block text-[12.5px] text-muted-foreground">{line.note}</span>}
-                    </td>
-                    {/* A trip and money given back add to the debt; a payment takes off it. */}
-                    <td className="text-right whitespace-nowrap tabular-nums">{line.kind === "payment" ? "" : formatUsd(line.amountMinor)}</td>
-                    <td className="text-right whitespace-nowrap tabular-nums">{line.kind === "payment" ? formatUsd(line.amountMinor) : ""}</td>
-                    <td className={cn("text-right whitespace-nowrap tabular-nums", debtTone(line.debtMinor))}>{signedUsd(line.debtMinor)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {statement.movements.length === 0 && <p className="hint">Рейсов и оплат у клиента пока нет.</p>}
-        </>
-      )}
-    </>
-  );
-}
 
 type Change = { name?: string; phone?: string | null; note?: string | null; priceMilli?: number | null; openingDebtMinor?: number };
 

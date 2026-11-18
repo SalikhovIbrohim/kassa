@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayOf } from "./cash-day.js";
-import { readControl, readDebtBook, readStatement } from "./client-debts.js";
+import { readControl, readDebtBook, readStatement, type Statement } from "./client-debts.js";
 import { clientCodeIn, type ClientCodes } from "./clients.js";
 import { closingOf, daysBetween, debtReport, isDay, MAX_PERIOD_DAYS, shiftDay, unpaidRows, UNPAID_SHEET_DAYS, type Closing, type UnpaidRow } from "./debt-report.js";
 import { inTransaction } from "./ledger.js";
@@ -21,7 +21,30 @@ export type DebtsOptions = {
   log?: { error(message: string): void };
   /** How often it is looked whether a day has closed; tests make it short. */
   closingIntervalMs?: number;
+  /** What a cash desk is called, for the sheets given out. */
+  kassaLabel?: (kassa: string) => string;
 };
+
+/** The card of a client as a workbook of Excel: what they owed at the start, then every truck and every payment with the debt after it. */
+export function statementWorkbook(statement: Statement, kassaLabel: (kassa: string) => string): Buffer {
+  const money = (minor: number): Cell => ({ number: minor / 100, style: "money" });
+  const rows: Cell[][] = statement.movements.map((line) => [
+    { day: line.day },
+    { text: line.kind === "trip" ? `Рейс ${line.tripNumber}` : line.kind === "refund" ? "Возврат клиенту" : "Оплата" },
+    line.kind !== "trip" && line.kassa ? { text: kassaLabel(line.kassa) } : null,
+    line.kind === "payment" ? null : money(line.amountMinor),
+    line.kind === "payment" ? money(line.amountMinor) : null,
+    money(line.debtMinor),
+    line.note ? { text: line.note } : null,
+  ]);
+  const header = ["Дата", "Что", "Касса", "Начислено", "Оплачено", "Долг", "Заметка"];
+  return workbook({
+    name: `${statement.code} ${statement.name}`,
+    widths: [12, 20, 12, 13, 13, 13, 30],
+    rows: [header.map((text) => ({ text, style: "header" as const })), [null, { text: "Долг на начало", style: "bold" }, null, null, null, { number: statement.openingDebtMinor / 100, style: "boldMoney" }, null], ...rows],
+    filterRows: rows.length + 1,
+  });
+}
 
 const SNAPSHOT = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY";
 /** The days that are closed at one go, when the server was not running for long: older ones stay without a closing. */
@@ -143,10 +166,32 @@ export async function registerDebts(app: FastifyInstance, options: DebtsOptions)
     });
   }
 
+  // The card of a client is read by whoever reads the report on the debts: its lists open the card of a client.
+  const cardReaders = [app.authenticate, app.requireRole("cashier", "head_cashier", "admin", "viewer")];
+
+  // The same card as a workbook of Excel: a line to a truck and to a payment, oldest first, as the card file had it.
+  app.get<{ Params: { code: string } }>(
+    "/api/clients/:code/statement.xlsx",
+    {
+      onRequest: cardReaders,
+      schema: { params: { type: "object", required: ["code"], properties: { code: { type: "string", minLength: 1, maxLength: 20, pattern: NO_NUL } } }, querystring: NO_QUERY },
+    },
+    async (request, reply) => {
+      if (!options.cargo) return reply.code(404).send({ error: "trips_disabled" });
+      const code = clientCodeIn(request.params.code, codes);
+      const statement = code ? await inTransaction(pool, (db) => readStatement(db, codes, code), snapshot) : undefined;
+      if (!statement) return reply.code(404).send({ error: "not_found" });
+      return reply
+        .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .header("Content-Disposition", `attachment; filename="client-${encodeURIComponent(statement.code)}.xlsx"`)
+        .send(statementWorkbook(statement, options.kassaLabel ?? ((kassa) => kassa)));
+    },
+  );
+
   app.get<{ Params: { code: string } }>(
     "/api/clients/:code/statement",
     {
-      onRequest: lookers,
+      onRequest: cardReaders,
       schema: { params: { type: "object", required: ["code"], properties: { code: { type: "string", minLength: 1, maxLength: 20, pattern: NO_NUL } } }, querystring: NO_QUERY },
     },
     async (request, reply) => {

@@ -650,7 +650,16 @@ describe("the trips", () => {
       expect(other.movements.map((line) => [line.day, line.kind])).toEqual([["2026-01-03", "trip"], ["2026-02-06", "trip"], ["2026-02-06", "payment"]]);
       expect(((await (await get(started, "/api/clients/413/statement", mudir)).json()) as { movements: Array<{ note: string | null }> }).movements[1]!.note).toBe("оплата в Андижане");
       // The card is the owner's and the admin's to look into.
-      for (const cookie of [ivan, sklad]) expect((await get(started, "/api/clients/1/statement", cookie)).status).toBe(403);
+      // The cashier reads it too (the lists of the report on the debts open it); the keeper of a warehouse does not.
+      expect((await get(started, "/api/clients/1/statement", ivan)).status).toBe(200);
+      expect((await get(started, "/api/clients/1/statement", sklad)).status).toBe(403);
+      // The same card as a workbook of Excel.
+      const sheet = await get(started, "/api/clients/1/statement.xlsx", ivan);
+      expect(sheet.status).toBe(200);
+      expect(sheet.headers.get("content-disposition")).toBe('attachment; filename="client-1.xlsx"');
+      expect(Buffer.from(await sheet.arrayBuffer()).subarray(0, 2).toString()).toBe("PK");
+      expect((await get(started, "/api/clients/1/statement.xlsx", sklad)).status).toBe(403);
+      expect((await get(started, "/api/clients/999/statement.xlsx", mudir)).status).toBe(404);
       expect((await get(started, "/api/debts/control", ivan)).status).toBe(403);
       expect((await get(started, "/api/clients/999/statement", mudir)).status).toBe(404);
     });

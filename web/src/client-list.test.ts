@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Client } from "./api";
-import { hintOf, isDebtor, isLate, shortDayOf, shownClients, totalsOf } from "./client-list";
+import { feedOf, hintOf, isDebtor, isLate, shortDayOf, shownClients, totalsOf } from "./client-list";
 
 const client = (code: string, name: string, debtMinor: number, daysUnpaid: number, more: Partial<Client> = {}): Client => ({ code, name, phone: null, note: null, active: true, debtMinor, daysUnpaid, lastPaidDay: null, lastTripDay: null, ...more });
 
@@ -61,5 +61,28 @@ describe("the list of clients with their debts", () => {
     expect(hintOf(client("1", "К", 0, 0, { lastTripDay: "2026-11-14" }), "2026-11-17")).toBe("Оплат не было · рейс 14.11");
     expect(hintOf(client("1", "К", 0, 0, { lastPaidDay: "2026-11-16" }), "2026-11-17")).toBe("Оплата 16.11");
     expect(hintOf(client("1", "К", 0, 0), "2026-11-17")).toBe("Оплат не было");
+  });
+});
+
+describe("the card of a client", () => {
+  const line = (day: string, kind: "trip" | "payment" | "refund", amountMinor: number, debtMinor: number, tripNumber: number | null = null) => ({ day, kind, tripNumber, amountMinor, kassa: null, past: false, note: null, debtMinor });
+
+  it("reads the trucks and the payments the newest first, month by month, with what was charged and paid in all", () => {
+    const feed = feedOf({
+      movements: [
+        line("2026-10-07", "payment", 100_000, 400_000),
+        line("2026-11-14", "trip", 300_000, 700_000, 245),
+        line("2026-11-16", "trip", 120_000, 820_000, 247),
+        line("2026-11-16", "payment", 600_000, 220_000),
+        line("2026-11-17", "refund", 5_000, 225_000),
+      ],
+    });
+    // Money given back adds to the debt, as a truck does; the last payment is the last of the payments.
+    expect(feed).toMatchObject({ chargedMinor: 425_000, paidMinor: 700_000, lastPaidDay: "2026-11-16" });
+    expect(feed.months.map((month) => [month.title, month.lines.map((item) => `${item.day.slice(8)} ${item.kind}`)])).toEqual([
+      ["Ноябрь 2026", ["17 refund", "16 payment", "16 trip", "14 trip"]],
+      ["Октябрь 2026", ["07 payment"]],
+    ]);
+    expect(feedOf({ movements: [] })).toEqual({ chargedMinor: 0, paidMinor: 0, lastPaidDay: null, months: [] });
   });
 });

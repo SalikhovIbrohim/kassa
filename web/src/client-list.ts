@@ -1,4 +1,4 @@
-import type { Client } from "./api";
+import type { Client, ClientStatement, Movement } from "./api";
 
 /**
  * The list of clients of a business that keeps trips, as its owner reads it: who owes, how much, and who has stopped
@@ -74,4 +74,38 @@ export function shortDayOf(day: string, today: string): string {
 export function hintOf(client: Client, today: string): string {
   const paid = client.lastPaidDay ? `Оплата ${shortDayOf(client.lastPaidDay, today)}` : "Оплат не было";
   return client.lastTripDay ? `${paid} · рейс ${shortDayOf(client.lastTripDay, today)}` : paid;
+}
+
+const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+
+/**
+ * The card of a client as it is read: every truck and every payment the newest first, month by month, and over them
+ * what was charged in all (trucks, and money given back), what was paid, and the day of the last payment.
+ */
+export function feedOf(statement: Pick<ClientStatement, "movements">): {
+  chargedMinor: number;
+  paidMinor: number;
+  lastPaidDay: string | null;
+  months: Array<{ month: string; title: string; lines: Movement[] }>;
+} {
+  let chargedMinor = 0;
+  let paidMinor = 0;
+  let lastPaidDay: string | null = null;
+  const months: Array<{ month: string; title: string; lines: Movement[] }> = [];
+  for (const line of statement.movements) {
+    if (line.kind === "payment") {
+      paidMinor += line.amountMinor;
+      lastPaidDay = line.day;
+    } else chargedMinor += line.amountMinor;
+  }
+  for (const line of [...statement.movements].reverse()) {
+    const month = line.day.slice(0, 7);
+    let group = months[months.length - 1];
+    if (!group || group.month !== month) {
+      group = { month, title: `${MONTHS[Number(month.slice(5, 7)) - 1] ?? month} ${month.slice(0, 4)}`, lines: [] };
+      months.push(group);
+    }
+    group.lines.push(line);
+  }
+  return { chargedMinor, paidMinor, lastPaidDay, months };
 }

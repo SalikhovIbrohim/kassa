@@ -151,8 +151,22 @@ describe("the clients and their debts on the screen", () => {
 
     // A tap on a line opens the card of the client.
     await list(page).locator('[data-client="7"]').click();
-    const card = page.getByRole("dialog", { name: "7 Саша" });
-    await seeText(card, "Рейс 247");
+    const card = page.getByRole("dialog", { name: "7 · Саша" });
+    await seeText(card, "Рейс № 247");
+    // At the top what they owe now, what was charged and paid in all, and when they paid last.
+    expect(oneLine(await card.locator("[data-card-top]").innerText())).toBe("Долг сейчас 2 300,00 $ 95 дн. без оплаты Начислено 800,00 $ Оплачено 500,00 $ Посл. оплата 14.08 Изменить Excel");
+    // Under it the truck and the payment, the newest first, month by month (the month in capitals), each with the debt after it; and the start.
+    expect((await card.locator("[data-feed-month]").allInnerTexts()).map(oneLine)).toEqual([
+      "НОЯБРЬ 2026 Рейс № 247 16.11 +800,00 $ долг 2 300,00 $",
+      "АВГУСТ 2026 Оплата 14.08 · касса Москва −500,00 $ долг 1 500,00 $",
+    ]);
+    expect(oneLine(await card.locator("[data-feed-opening]").innerText())).toBe("Долг на начало до первого рейса и первой оплаты 2 000,00 $");
+    // The table of five columns is gone, and nothing runs off the side of the phone.
+    expect(await card.locator("table").count()).toBe(0);
+    expect(await card.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    // The card as a workbook of Excel.
+    const [sheet] = await Promise.all([page.waitForEvent("download"), card.getByRole("button", { name: "Excel" }).click()]);
+    expect(sheet.suggestedFilename()).toBe("klient-7.xlsx");
     await card.getByRole("button", { name: "Закрыть" }).click();
     await seeGone(card);
   });
@@ -165,7 +179,7 @@ describe("the clients and their debts on the screen", () => {
     await signIn(page, started, "mudir", "admin password");
     await openSection(page, "Клиенты");
     await list(page).locator('[data-client="2"]').click();
-    const card = page.getByRole("dialog", { name: "2 Захар" });
+    const card = page.getByRole("dialog", { name: "2 · Захар" });
     await card.getByRole("button", { name: "Изменить", exact: true }).click();
     await card.getByRole("textbox", { name: "Имя" }).fill("Захар Каримов");
     await card.getByRole("button", { name: "Сохранить" }).click();
@@ -176,8 +190,8 @@ describe("the clients and their debts on the screen", () => {
     await signIn(other.page, started, "owner", "long enough pass");
     await openSection(other.page, "Клиенты");
     await list(other.page).locator('[data-client="2"]').click();
-    const seen = other.page.getByRole("dialog", { name: "2 Захар Каримов" });
-    await seeText(seen, "Рейс 246");
+    const seen = other.page.getByRole("dialog", { name: "2 · Захар Каримов" });
+    await seeText(seen, "Рейс № 246");
     expect(await seen.getByRole("button", { name: "Изменить", exact: true }).count()).toBe(0);
     expect(await other.page.getByRole("button", { name: "+ Новый", exact: true }).count()).toBe(0);
   });

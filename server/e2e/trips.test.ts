@@ -182,11 +182,12 @@ describe("the trips on the screen", () => {
 
     // The card of the client: the trip that arrived, and the debt after it, to the cent.
     await client.click();
-    const card = page.getByRole("dialog", { name: "132 Иброхим" });
-    await seeText(card, "Рейс 190");
-    const statement = plain(await card.locator("table[data-statement]").innerText());
+    const card = page.getByRole("dialog", { name: "132 · Иброхим" });
+    await seeText(card, "Рейс № 190");
+    const statement = plain(await card.locator("[data-client-card]").innerText()).replace(/\s+/g, " ");
+    expect(statement).toMatch(/^Долг сейчас 5 529,75 ?\$/);
+    expect(statement).toMatch(/Рейс № 190 16\.08(\.26)? \+5 529,75 \$ долг 5 529,75 \$/);
     expect(statement).toContain("Долг на начало");
-    expect(statement).toMatch(/16\.08\.2026\s+Рейс 190\s+5 529,75 \$\s+5 529,75 \$/);
     await card.getByRole("button", { name: "Закрыть" }).click();
 
     // A client is a code and a name: with the name empty there is nothing to add.

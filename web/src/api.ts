@@ -1260,6 +1260,14 @@ export async function fetchClientStatement(code: string): Promise<ClientStatemen
   return (await response.json()) as ClientStatement;
 }
 
+/** The card of a client as a workbook of Excel. */
+export async function fetchClientSheet(code: string): Promise<Blob> {
+  const response = await request(`/api/clients/${encodeURIComponent(code)}/statement.xlsx`, undefined, 30_000);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from the workbook of a client`);
+  return response.blob();
+}
+
 /** A month of the control sheet: what all the clients owed when it began, what arrived, what was paid, what they owed when it ended. */
 export type ControlMonth = { month: string; openingMinor: number; chargedMinor: number; paidMinor: number; closingMinor: number };
 
