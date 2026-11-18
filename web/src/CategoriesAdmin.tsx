@@ -211,6 +211,9 @@ function CategoryTable({
             <th className={cn(head, "w-36 text-left")} title="Для отчётов и 1С; кассиры этого не видят">
               Город
             </th>
+            <th className={cn(head, "w-40 text-left")} title="В какую кассу идут деньги записи этой категории, кто бы её ни внёс">
+              В кассу
+            </th>
             {FLAGS.map((flag) => (
               <th key={flag.key} className={cn(head, "w-[92px] text-center")} title={flag.title}>
                 {flag.short}
@@ -312,6 +315,16 @@ function CategoryTable({
                         onChange={(city) => void onChange(item.code, { city })}
                       />
                     </td>
+                    <td className="border-b px-3 py-2">
+                      <CitySelect
+                        aria-label={`В кассу: ${item.label}`}
+                        className="h-9 bg-card/70 text-sm"
+                        none="Кассира"
+                        value={item.intoKassa}
+                        disabled={busy}
+                        onChange={(intoKassa) => void onChange(item.code, { intoKassa })}
+                      />
+                    </td>
                     {FLAGS.map((flag) => (
                       <td key={flag.key} className="border-b px-3 py-2 text-center">
                         <Checkbox
@@ -407,6 +420,7 @@ function NewCategory({
   const [requiresEmployee, setRequiresEmployee] = useState(false);
   const [notifyGroup, setNotifyGroup] = useState(true);
   const [city, setCity] = useState<City | null>(null);
+  const [intoKassa, setIntoKassa] = useState<City | null>(null);
 
   function reset() {
     setLabel("");
@@ -421,7 +435,7 @@ function NewCategory({
   async function add(event: FormEvent) {
     event.preventDefault();
     if (label.trim() === "") return;
-    if (await onCreate(kind, label.trim(), { requiresClient, requiresTrip, requiresCounterparty, requiresEmployee, notifyGroup, city })) {
+    if (await onCreate(kind, label.trim(), { requiresClient, requiresTrip, requiresCounterparty, requiresEmployee, notifyGroup, city, intoKassa })) {
       reset();
       setOpen(false);
     }
@@ -469,6 +483,12 @@ function NewCategory({
               Город <span className="font-normal text-muted-foreground">(для отчётов и 1С)</span>
             </span>
             <CitySelect name="city" value={city} onChange={setCity} />
+          </Label>
+          <Label>
+            <span>
+              В какую кассу идут деньги <span className="font-normal text-muted-foreground">(обычно в кассу того, кто вносит)</span>
+            </span>
+            <CitySelect name="intoKassa" none="В кассу кассира" value={intoKassa} onChange={setIntoKassa} />
           </Label>
           <Label className="flex items-center gap-2.5 font-normal">
             <Checkbox name="requiresClient" checked={requiresClient} onChange={(event) => setRequiresClient(event.target.checked)} />

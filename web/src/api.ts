@@ -203,6 +203,11 @@ export type Category = {
   requiresEmployee: boolean;
   /** The city it belongs to, for the reports and 1C (the cashiers do not see it); null is everywhere. */
   city?: City | null;
+  /**
+   * The cash desk the money of an entry of this category goes into, whoever enters it (a payment the owner took in
+   * Tashkent, written down in Moscow); null or absent: the desk of the person.
+   */
+  intoKassa?: City | null;
   /** False when it is of another city than the person's: the entry forms do not show it. Absent means shown. */
   offered?: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
@@ -336,6 +341,7 @@ function keptCategories(): Category[] | null {
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
       notifyGroup: item.notifyGroup ?? true,
       ...(item.city !== undefined && { city: item.city }),
+      ...(item.intoKassa !== undefined && { intoKassa: item.intoKassa }),
       ...(item.offered !== undefined && { offered: item.offered }),
     }));
   } catch {
@@ -755,7 +761,7 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 /** The city a category or a person belongs to, which is the id of a cash desk; none means everywhere. */
 export type City = Kassa;
 
-export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null };
+export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null; intoKassa?: City | null };
 
 export async function createCategory(kind: CategoryKind, label: string, flags: CategoryFlags): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
@@ -769,7 +775,7 @@ export async function createCategory(kind: CategoryKind, label: string, flags: C
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind; city?: City | null },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind; city?: City | null; intoKassa?: City | null },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",

@@ -6,10 +6,13 @@ import { Select } from "@/components/ui/select";
 export function CitySelect({
   value,
   onChange,
+  none = "Везде",
   ...props
 }: {
   value: City | null | undefined;
   onChange: (city: City | null) => void;
+  /** What choosing no city is called. */
+  none?: string;
   name?: string;
   className?: string;
   disabled?: boolean;
@@ -17,7 +20,7 @@ export function CitySelect({
 }) {
   const { kassas } = useKassa();
   const options = [
-    { value: "", label: "Везде" },
+    { value: "", label: none },
     // By name, as a list of cities reads.
     ...[...kassas].sort((a, b) => a.label.localeCompare(b.label, "ru")).map((item) => ({ value: item.id, label: item.label })),
     // A city the business does not have any more is still shown as what it is, until another is chosen.

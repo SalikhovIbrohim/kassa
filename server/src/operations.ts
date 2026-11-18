@@ -53,6 +53,15 @@ async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: Fas
   }
 }
 
+/**
+ * The cash desk a category sends its money into, when it names one that the installation has; undefined for a
+ * category that names none (or a desk taken out of the settings since): the entry is of the desk of its author.
+ */
+export function kassaOfCategory(categories: readonly { code: string; intoKassa: Kassa | null }[], code: string | null, kassas: Kassas): Kassa | undefined {
+  const into = categories.find((item) => item.code === code)?.intoKassa;
+  return into !== null && into !== undefined && kassas.has(into) ? into : undefined;
+}
+
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
   const { pool, now, kassas, events, outbox } = options;
 
@@ -150,7 +159,8 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
       const body = request.body;
       // An entry that is stored already (a retry) is not turned away because its category was archived since.
       const stored = await pool.query<{ category: string | null; client_code: string | null }>("SELECT category, client_code FROM operations WHERE id = $1", [body.id]);
-      const normalized = normalizeEntry(body, await readCategories(pool), stored.rows[0]?.category);
+      const categories = await readCategories(pool);
+      const normalized = normalizeEntry(body, categories, stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
@@ -163,8 +173,10 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
       }
 
       // The cash desk: the one sent, or the person's own; a person works only in the desks of their city.
-      const kassa = body.kassa ?? kassas.defaultOf(request.user!.city);
-      if (!kassas.mayUse(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      const own = body.kassa ?? kassas.defaultOf(request.user!.city);
+      if (!kassas.mayUse(request.user!.city, own)) return reply.code(403).send({ error: "kassa_forbidden" });
+      // Unless the category says where its money goes: then it is an entry of that desk, whoever writes it down.
+      const kassa = kassaOfCategory(categories, normalized.fields.category, kassas) ?? own;
       if (!kassas.currenciesOf(kassa).includes(normalized.fields.currency)) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by this cash desk" });
       }
@@ -185,7 +197,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         case "replayed":
           return reply.code(recorded.status === "created" ? 201 : 200).send({
             operation: toOperation(recorded.row),
-            balances: recorded.balances,
+            // The balances the form shows are of the desk the person works in: an entry a category sent to another
+            // desk has not moved them, and the balance of that desk is not this person's to see.
+            balances: recorded.row.kassa === own ? recorded.balances : await getBalances(pool, kassas.currenciesOf(own), own),
           });
         case "id_conflict":
           return reply.code(409).send({ error: "operation_id_conflict" });

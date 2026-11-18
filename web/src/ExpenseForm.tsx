@@ -10,6 +10,7 @@ import { formatMoney, parseAmountInput, parseRateInput, type Currency } from "./
 import { RateField } from "./RateField";
 import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
+import { ofCity, useIntoKassaConfirm } from "./IntoKassaConfirm";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -55,7 +56,8 @@ export function ExpenseForm({
   const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const { kassa, currenciesOf } = useKassa();
+  const { kassa, currenciesOf, labelOf } = useKassa();
+  const intoKassa = useIntoKassaConfirm();
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
   const chosen = categories?.find((item) => item.code === category && item.kind === "expense");
 
@@ -108,6 +110,10 @@ export function ExpenseForm({
       return;
     }
 
+    // A category that sends its money into another desk: the cashier is told so, every time, before it is written.
+    const into = chosen?.intoKassa ?? null;
+    if (into !== null && into !== kassa && !(await intoKassa.ask({ what: `Расход ${formatMoney(amountMinor, currency)}`, into: labelOf(into), own: labelOf(kassa) }))) return;
+
     const saved = await entry.send((id) => ({
       type: "expense",
       id,
@@ -140,12 +146,13 @@ export function ExpenseForm({
   return (
     <Card asChild className="gap-4 p-5">
     <form onSubmit={submit}>
+      {intoKassa.dialog}
       <h2 className="sr-only">Расход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "expense" && (
           <p className={cn(alertVariants({ variant: "success" }), "success")}>
-            Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.
+            Записано{entry.saved.kassa && entry.saved.kassa !== kassa ? ` в кассу ${ofCity(labelOf(entry.saved.kassa))}` : ""}: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.
           </p>
         )}
       </EntryStatus>

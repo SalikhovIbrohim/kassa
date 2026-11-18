@@ -179,7 +179,12 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
       if (query.author !== undefined) add((p) => `lower(u.login) = lower(${p})`, query.author);
       const kassa = query.kassa ?? user.city ?? undefined;
       if (kassa !== undefined && !kassas.mayUse(user.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
-      if (kassa !== undefined) add((p) => `o.kassa = ${p}`, kassa);
+      if (kassa !== undefined && user.city !== null && query.author === undefined) {
+        // A person of a city sees the desk of the city, and what they themselves wrote into another desk under a
+        // category that sends its money there: it is theirs to look at and to correct.
+        values.push(kassa, user.id);
+        conditions.push(`(o.kassa = $${values.length - 1} OR o.author_id = $${values.length})`);
+      } else if (kassa !== undefined) add((p) => `o.kassa = ${p}`, kassa);
       if (query.currency !== undefined) add((p) => `o.currency = ${p}`, query.currency);
       if (query.type !== undefined) add((p) => `o.kind = ${p}`, query.type);
       if (query.category !== undefined) add((p) => `o.category = ${p}`, query.category);

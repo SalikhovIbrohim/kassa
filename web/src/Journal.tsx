@@ -564,7 +564,8 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                   return (
                     <Fragment key={operation.id}>
                       <OperationRow
-                        markKassa={scope === "both"}
+                        // Every desk at once, or an entry the person wrote into another desk than the one shown.
+                        markKassa={scope === "both" || (operation.kassa !== undefined && operation.kassa !== scope)}
                         operation={operation}
                         mode={mode}
                         withDate={mode === "viewer"}
