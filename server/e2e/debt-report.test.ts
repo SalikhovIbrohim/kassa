@@ -276,7 +276,10 @@ describe("the report on the debts on the screen", () => {
     await seeVisible(menu.getByRole("button", { name: "Сборные грузы", exact: true }));
     await seeGone(menu.getByRole("button", { name: "Отчёты", exact: true }));
 
-    // A business that keeps no trips has no debts to report.
+    // A business that keeps no trips has no debts to report. (The screens of the first business are closed before its
+    // server is: a page that has just signed in is still asking it things, and a server asked while it stops can wait
+    // for an answer that never comes.)
+    for (const context of contexts.splice(0)) await context.close();
     await app!.close();
     const plainApp = await startTestApp({ webDistDir });
     app = plainApp;
