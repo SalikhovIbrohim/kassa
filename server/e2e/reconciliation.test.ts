@@ -167,9 +167,11 @@ describe("the cash desk without shifts", () => {
 
     const card = owner.page.locator(".reconciliation-card").first();
     await seeText(card, "Анвар");
-    await seeText(card.locator('[data-currency="RUB"]'), /по книге 1\s000,00\s₽, насчитано 990,00\s₽/);
-    await seeText(card.locator('[data-currency="RUB"] [data-difference]'), /−10,00\s₽/);
-    await seeText(card.locator('[data-currency="USD"] [data-difference]'), "сошлось");
+    // Three columns to a currency: by the book, counted, the difference; and at the top how the count came out.
+    await seeText(card.locator('[data-currency="RUB"]'), /По книге\s*1\s000,00\s₽\s*Насчитано\s*990,00\s₽\s*Разница\s*−10,00\s₽/);
+    await seeVisible(card.locator('[data-currency="RUB"] [data-difference].shortage'));
+    await seeText(card.locator('[data-currency="USD"] [data-difference].agrees'), /^0,00\s\$$/);
+    await seeText(card.locator("[data-verdict]"), "Недостача");
 
     await openSection(owner.page, "Итоги");
     await seeText(owner.page.locator('[data-total="difference"]').first(), /−10,00\s₽/);

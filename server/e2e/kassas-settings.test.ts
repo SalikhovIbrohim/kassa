@@ -198,16 +198,15 @@ describe("three cash desks of dollars", () => {
     const moscow = (await (await get(started, "/api/balances?kassa=moscow", mudir)).json()).balances as Array<{ amountMinor: number }>;
     expect(moscow[0]!.amountMinor).toBe(5_000);
 
-    // The admin's list: among all the desks a count says whose it is; in the list of one desk it need not.
+    // The admin's list: a count says whose it is under the name of who counted, among all the desks and in the list of one.
     const laptop = await newLaptop(browser);
     contexts.push(laptop.context);
     await signIn(laptop.page, "mudir", "admin password");
     await openSection(laptop.page, "Сверки");
     const card = laptop.page.locator(".reconciliation-card:visible").first();
-    await seeText(card.locator(".kassa-mark"), "ТШК");
+    await seeText(card, /Ташкент ·/);
     await kassaChoice(laptop.page).getByRole("button", { name: "Ташкент" }).click();
-    await seeVisible(laptop.page.locator(".reconciliation-card:visible").first());
-    await seeGone(laptop.page.locator(".reconciliation-card:visible .kassa-mark"));
+    await seeText(laptop.page.locator(".reconciliation-card:visible").first(), /Ташкент ·/);
   }, 90_000);
 
   it("offers the three cities for a person, and a person given Tashkent works in its desk", async () => {

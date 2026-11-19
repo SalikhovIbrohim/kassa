@@ -48,6 +48,9 @@ const ICONS = {
   edit: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4",
   trash: "M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13",
   check: "M5 12.5l4.5 4.5L19 7",
+  filter: "M4 5h16l-6.2 7.4V18l-3.6 2v-7.6z",
+  calendar: "M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM4 10h16M8 3.5v4M16 3.5v4",
+  close: "M6 6l12 12M18 6L6 18",
   refresh: "M20 11a8 8 0 0 0-14.6-4.5M4 4v3.5h3.5M4 13a8 8 0 0 0 14.6 4.5M20 20v-3.5h-3.5",
 } as const;
 

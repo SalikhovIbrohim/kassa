@@ -78,7 +78,11 @@ describe("the column «1С» of the admin's journal", () => {
     expect(await row("Топливо").locator(".c-onec").innerText()).toBe("");
 
     // Only what needs a person.
-    await choose(selectField(page, "onec"), "problem");
+    // (The filters are in a sheet, and are asked for on «Показать».)
+    await page.getByRole("button", { name: "Фильтры" }).click();
+    const filters = page.getByRole("dialog", { name: "Фильтры" });
+    await choose(selectField(filters, "onec"), "problem");
+    await filters.getByRole("button", { name: "Показать" }).click();
     await seeGone(row("А406"));
     await seeVisible(row("А999"));
 
@@ -89,7 +93,9 @@ describe("the column «1С» of the admin's journal", () => {
     await row("А999").getByRole("button", { name: /Повторить запись в 1С/ }).click();
     await seeText(row("А999").locator(".c-onec"), "В очереди");
     await expect.poll(() => fake.documents.length, { timeout: 20_000 }).toBe(2);
-    await choose(selectField(page, "onec"), "written");
+    await page.getByRole("button", { name: "Фильтры" }).click();
+    await choose(selectField(filters, "onec"), "written");
+    await filters.getByRole("button", { name: "Показать" }).click();
     await seeText(row("А999").locator(".c-onec"), `ПКО №${fake.documents[1]!.Number}`);
 
     // The owner's journal is as before: no column «1С».

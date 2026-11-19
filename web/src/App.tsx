@@ -482,6 +482,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
           {cashierJournal ? (
             <Journal
               mode="cashier"
+              active={section === "journal"}
               login={user.login}
               onSessionExpired={onLoggedOut}
               onRefresh={() => {
@@ -498,6 +499,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
             // The admin's journal: the owner's view, with the admin's right to correct and delete any entry.
             <Journal
               mode="viewer"
+              active={section === "journal"}
               login={user.role === "admin" ? user.login : undefined}
               isAdmin={user.role === "admin"}
               onSessionExpired={onLoggedOut}
