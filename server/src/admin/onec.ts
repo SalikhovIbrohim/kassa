@@ -1,6 +1,7 @@
 import type pg from "pg";
 import { OneCError, createOneCClient, type Json, type OneCSettings } from "../onec-api.js";
 import { readReferences } from "../onec-pko.js";
+import { readExpenseLists } from "../onec-rko.js";
 import { retryPayment, skipPayment } from "../onec-admin.js";
 import { AdminError } from "./users.js";
 
@@ -65,6 +66,31 @@ export async function checkOneC(settings: OneCSettings, say: (line: string) => v
     }
   }
 
+  const documents = settings.documents ?? [];
+  if (documents.includes("expenses")) {
+    say("Справочники для расходных ордеров:");
+    try {
+      const found = await readExpenseLists(client);
+      if ("missing" in found) fail(found.missing);
+      else {
+        const { lists } = found;
+        say(`  счета 2010 и 9430 на месте; статей затрат: ${lists.costItems.length}, статей движения денег: ${lists.flowItems.length}, подразделений (рейсов): ${lists.departments.length}`);
+        for (const name of ["Основная группа"]) if (!lists.groups.some((item) => item.name === name)) fail(`нет номенклатурной группы «${name}»`);
+        if (!lists.otherItems.some((item) => item.name === "Прочие внереализационные доходы (расходы)")) fail("в прочих доходах и расходах нет «Прочие внереализационные доходы (расходы)»");
+        if (!lists.costItems.some((item) => item.name === "Прочие расходы")) fail("нет статьи затрат «Прочие расходы»");
+      }
+    } catch (error) {
+      fail(reason(error));
+    }
+  }
+  const NAMES = { incomes: "любые приходы с кодом клиента", expenses: "расходы кассы (РКО)", trips: "прибывшие рейсы («Оказание услуг»)" } as const;
+  say(
+    documents.length > 0
+      ? `Кроме оплат клиентов записываются: ${documents.map((name) => NAMES[name]).join("; ")} (ONEC_DOCUMENTS).`
+      : "Записываются только оплаты клиентов (ONEC_DOCUMENTS не задана: incomes, expenses, trips).",
+  );
+  say(settings.from ? `Записывается всё начиная с дня кассы ${settings.from} (ONEC_FROM); более раннее не трогается.` : "Первый день записи (ONEC_FROM) не задан: записывается всё, что вносится с момента включения.");
+  say(settings.createClients ? "Клиент, которого нет в 1С, создаётся вместе с договором (ONEC_CREATE_CLIENTS=yes)." : "Клиент, которого нет в 1С, не создаётся: его приход ждёт человека (ONEC_CREATE_CLIENTS).");
   if (kassas) say(`Кассы, приходы клиентов которых записываются: ${kassas.join(", ")} (ONEC_KASSAS; без неё только основная касса).`);
   say(
     settings.onlyClients
@@ -86,6 +112,8 @@ type Row = {
   client_code: string | null;
   currency: string;
   amount_minor: string;
+  kind: string;
+  label: string | null;
 };
 
 /** The latest payments of the queue for 1C, one line each, and how many wait in each state. */
@@ -93,8 +121,8 @@ export async function onecStatus(pool: pg.Pool, limit: number): Promise<string[]
   const counts = await pool.query<{ status: string; n: number }>("SELECT status, count(*)::int AS n FROM onec_outbox GROUP BY status ORDER BY status");
   if (counts.rows.length === 0) return ["Очередь 1С пуста: ни один приход клиента ещё не ставился на запись."];
   const rows = await pool.query<Row>(
-    `SELECT q.id::text, q.status, q.attempts, q.doc_number, q.detail, q.created_at, o.client_code, o.currency, o.amount_minor::text
-       FROM onec_outbox q JOIN operations o ON o.id = q.operation_id
+    `SELECT q.id::text, q.status, q.attempts, q.doc_number, q.detail, q.created_at, o.client_code, o.currency, o.amount_minor::text, o.kind, c.label
+       FROM onec_outbox q JOIN operations o ON o.id = q.operation_id LEFT JOIN categories c ON c.code = o.category
       ORDER BY q.id DESC LIMIT $1`,
     [limit],
   );
@@ -102,8 +130,8 @@ export async function onecStatus(pool: pg.Pool, limit: number): Promise<string[]
   for (const row of rows.rows) {
     const amount = new Intl.NumberFormat("ru-RU", { style: "currency", currency: row.currency }).format(Number(row.amount_minor) / 100);
     const when = row.created_at.toISOString().slice(0, 16).replace("T", " ");
-    const document = row.doc_number ? ` ПКО №${row.doc_number}` : "";
-    lines.push(`  ${row.id}  ${row.status.padEnd(8)}  ${when} UTC  ${row.client_code ?? "?"}  ${amount}${document}${row.detail ? `  ${row.detail}` : ""}`);
+    const document = row.doc_number ? ` ${row.kind === "expense" ? "РКО" : "ПКО"} №${row.doc_number}` : "";
+    lines.push(`  ${row.id}  ${row.status.padEnd(8)}  ${when} UTC  ${row.kind === "expense" ? `расход «${row.label ?? ""}»` : (row.client_code ?? "?")}  ${amount}${document}${row.detail ? `  ${row.detail}` : ""}`);
   }
   return lines;
 }

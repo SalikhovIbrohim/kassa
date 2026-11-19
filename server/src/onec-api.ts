@@ -27,6 +27,17 @@ export type OneCSettings = {
    * document that names them is written (`ONEC_CREATE_CLIENTS=yes`). Without it such a document waits for a person.
    */
   createClients?: boolean;
+  /**
+   * What goes to the base besides the payments of clients (`ONEC_DOCUMENTS`): `incomes`, any income of a category
+   * that names a client; `expenses`, the expenses of the cash desk as expense orders; `trips`, a trip that has arrived
+   * as the services rendered to its clients.
+   */
+  documents?: ReadonlyArray<"incomes" | "expenses" | "trips">;
+  /**
+   * The first day of the cash desk that goes to the base (`ONEC_FROM`, "2026-11-19"): what is of before it was put
+   * there by hand, and an entry or a trip of before it is left alone even when it is corrected now.
+   */
+  from?: string;
 };
 
 /**

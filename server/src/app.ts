@@ -137,6 +137,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     settings: options.onec,
     kassas: onecKassas,
     primaryKassa: kassas.primary,
+    kassaLabel: kassas.labelOf,
     clientCodes,
     telegram: outbox,
     log: app.log,

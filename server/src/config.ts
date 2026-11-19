@@ -289,6 +289,18 @@ export function loadOneC(env: NodeJS.ProcessEnv, kassas: Kassas = parseKassas(en
   if (!["", "yes", "no"].includes(creating)) throw new Error(`ONEC_CREATE_CLIENTS must be yes or no, got "${env.ONEC_CREATE_CLIENTS}"`);
   const createClients = creating === "yes";
 
+  const documents = (env.ONEC_DOCUMENTS ?? "")
+    .split(",")
+    .map((text) => text.trim().toLowerCase())
+    .filter(Boolean)
+    .map((text) => {
+      if (text !== "incomes" && text !== "expenses" && text !== "trips") throw new Error(`ONEC_DOCUMENTS must list incomes, expenses, trips, got "${text}"`);
+      return text;
+    });
+
+  const from = env.ONEC_FROM?.trim();
+  if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error(`ONEC_FROM must be a day like 2026-11-19, got "${from}"`);
+
   const writing = loadOneCKassas(env, kassas);
   // A key under the name of a desk that is not one (ONEC_KASSA_KEY_TASHKNET) would be left unread, and the payments of
   // the desk it was meant for would go to the cash desk of ONEC_KASSA_KEY: a wrong book in 1C, so not a start at all.
@@ -319,5 +331,7 @@ export function loadOneC(env: NodeJS.ProcessEnv, kassas: Kassas = parseKassas(en
     onlyClients: clients.length > 0 ? clients : undefined,
     send,
     ...(createClients ? { createClients } : {}),
+    ...(documents.length > 0 ? { documents } : {}),
+    ...(from ? { from } : {}),
   };
 }
