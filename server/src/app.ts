@@ -216,7 +216,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerUserAdmin(app, { pool: database.pool, kassas, warehouses });
   await registerClients(app, { pool: database.pool, codes: clientCodes, cargo: warehouses.enabled, now: options.now });
   await registerDebts(app, { pool: database.pool, codes: clientCodes, cargo: warehouses.enabled, now: options.now, primaryKassa: kassas.primary, log: app.log, kassaLabel: kassas.labelOf });
-  await registerTrips(app, { pool: database.pool, now: options.now ?? (() => new Date()), warehouses, clientCodes });
+  await registerTrips(app, { pool: database.pool, now: options.now ?? (() => new Date()), warehouses, clientCodes, changed: (db, tripId) => onec.tripChanged(db, tripId) });
 
   await registerCorrections(app, {
     pool: database.pool,

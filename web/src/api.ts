@@ -1110,6 +1110,8 @@ export type TripDetail = {
   may: { edit: boolean; warehouses: string[]; forward: TripStatus | null; back: TripStatus | null; admin: boolean; remove: boolean };
   /** For the owner and the admin: what the cash desk spent on the trip, and what is left of its cargo after that. */
   money?: { expenseMinor: number; profitMinor: number };
+  /** For the admin, where trips go to 1C: what became of this one there. */
+  onec?: { id: number; status: string; docNumber: string | null; detail: string | null };
 };
 
 export type TripsPage = { trips: Trip[]; nextBefore: number | null; nextNumber: number; mayCreate: boolean };

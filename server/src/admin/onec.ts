@@ -2,6 +2,7 @@ import type pg from "pg";
 import { OneCError, createOneCClient, type Json, type OneCSettings } from "../onec-api.js";
 import { readReferences } from "../onec-pko.js";
 import { readExpenseLists } from "../onec-rko.js";
+import { readServiceReferences } from "../onec-services.js";
 import { retryPayment, skipPayment } from "../onec-admin.js";
 import { AdminError } from "./users.js";
 
@@ -83,6 +84,16 @@ export async function checkOneC(settings: OneCSettings, say: (line: string) => v
       fail(reason(error));
     }
   }
+  if (documents.includes("trips")) {
+    say("Справочники для рейсов («Оказание услуг»):");
+    try {
+      const found = await readServiceReferences(client);
+      if ("missing" in found) fail(found.missing);
+      else say("  счета 9030.1, 9130.1, 4010, 6310, услуга «Рейс» и группа «Основная группа» на месте");
+    } catch (error) {
+      fail(reason(error));
+    }
+  }
   const NAMES = { incomes: "любые приходы с кодом клиента", expenses: "расходы кассы (РКО)", trips: "прибывшие рейсы («Оказание услуг»)" } as const;
   say(
     documents.length > 0
@@ -112,8 +123,9 @@ type Row = {
   client_code: string | null;
   currency: string;
   amount_minor: string;
-  kind: string;
+  kind: string | null;
   label: string | null;
+  trip: number | null;
 };
 
 /** The latest payments of the queue for 1C, one line each, and how many wait in each state. */
@@ -121,13 +133,17 @@ export async function onecStatus(pool: pg.Pool, limit: number): Promise<string[]
   const counts = await pool.query<{ status: string; n: number }>("SELECT status, count(*)::int AS n FROM onec_outbox GROUP BY status ORDER BY status");
   if (counts.rows.length === 0) return ["Очередь 1С пуста: ни один приход клиента ещё не ставился на запись."];
   const rows = await pool.query<Row>(
-    `SELECT q.id::text, q.status, q.attempts, q.doc_number, q.detail, q.created_at, o.client_code, o.currency, o.amount_minor::text, o.kind, c.label
-       FROM onec_outbox q JOIN operations o ON o.id = q.operation_id LEFT JOIN categories c ON c.code = o.category
+    `SELECT q.id::text, q.status, q.attempts, q.doc_number, q.detail, q.created_at, o.client_code, o.currency, o.amount_minor::text, o.kind, c.label, t.number AS trip
+       FROM onec_outbox q LEFT JOIN operations o ON o.id = q.operation_id LEFT JOIN categories c ON c.code = o.category LEFT JOIN trips t ON t.id = q.trip_id
       ORDER BY q.id DESC LIMIT $1`,
     [limit],
   );
   const lines = [`Всего: ${counts.rows.map((row) => `${row.status} ${row.n}`).join(", ")}.`, "Последние (номер, состояние, приход, что с ним):"];
   for (const row of rows.rows) {
+    if (row.trip !== null) {
+      lines.push(`  ${row.id}  ${row.status.padEnd(8)}  ${row.created_at.toISOString().slice(0, 16).replace("T", " ")} UTC  рейс ${row.trip}${row.doc_number ? `  Оказание услуг №${row.doc_number}` : ""}${row.detail ? `  ${row.detail}` : ""}`);
+      continue;
+    }
     const amount = new Intl.NumberFormat("ru-RU", { style: "currency", currency: row.currency }).format(Number(row.amount_minor) / 100);
     const when = row.created_at.toISOString().slice(0, 16).replace("T", " ");
     const document = row.doc_number ? ` ${row.kind === "expense" ? "РКО" : "ПКО"} №${row.doc_number}` : "";

@@ -1023,7 +1023,7 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
     <span className="onec-state grid gap-1" data-onec={state.status}>
       <span className="flex flex-wrap items-center gap-1.5">
         <span className={cn("rounded-full px-2 py-px text-[12px] font-semibold whitespace-nowrap", look.tone)}>{look.label}</span>
-        {state.docNumber && <span className="text-[13px] whitespace-nowrap">ПКО №{state.docNumber}</span>}
+        {state.docNumber && <span className="text-[13px] whitespace-nowrap">{operation.type === "expense" ? "РКО" : "ПКО"} №{state.docNumber}</span>}
         {state.status === "pending" && state.attempts > 0 && <span className="text-[12px] text-muted-foreground">попытка {state.attempts + 1}</span>}
       </span>
       {state.detail && state.status !== "written" && <span className="onec-detail text-[12.5px] leading-snug text-muted-foreground">{state.detail}</span>}

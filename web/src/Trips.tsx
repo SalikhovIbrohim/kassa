@@ -60,6 +60,9 @@ const failure = (caught: unknown) => (caught instanceof NetworkError ? NO_CONNEC
 
 const STATUS_BADGE: Record<TripStatus, "default" | "secondary" | "outline"> = { loading: "secondary", in_transit: "default", arrived: "outline" };
 
+/** What became of a trip in 1C, in words. */
+const ONEC_STATUS: Record<string, string> = { pending: "ждёт записи", written: "записан", preview: "репетиция", blocked: "ждёт исправления", failed: "ошибка", skipped: "не записывается", removed: "снят в 1С" };
+
 function StatusBadge({ status }: { status: TripStatus }) {
   return (
     <Badge variant={STATUS_BADGE[status]} data-status={status}>
@@ -450,7 +453,7 @@ function TripPage({ number, active, onBack, onRenumbered, onSessionExpired }: Pa
     );
   }
 
-  const { trip, cargo, clients, may, money } = detail;
+  const { trip, cargo, clients, may, money, onec } = detail;
   const places = detail.places ?? { head: 0, trailer: 0 };
   const writes = may.warehouses.length > 0;
   const anyMine = cargo.some((line) => line.mine);
@@ -688,6 +691,13 @@ function TripPage({ number, active, onBack, onRenumbered, onSessionExpired }: Pa
               </>
             )}
           </div>
+          {onec && (
+            <p className="mt-2 text-[13px] leading-snug text-muted-foreground" data-onec={onec.status}>
+              <b className="font-semibold text-foreground">1С: {ONEC_STATUS[onec.status] ?? onec.status}</b>
+              {onec.docNumber && ` · «Оказание услуг» №${onec.docNumber}`}
+              {onec.detail && onec.status !== "written" && ` · ${onec.detail}`}
+            </p>
+          )}
         </div>
       )}
 

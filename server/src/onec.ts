@@ -24,6 +24,7 @@ import {
   type References,
 } from "./onec-pko.js";
 import { departmentOf, DEPARTMENT_ENTITY, EXPENSE_ACCOUNTS, EXPENSE_ENTITY, EXPENSE_FIELDS, expenseBody, expensePostingIsRight, placeExpense, readExpenseLists } from "./onec-rko.js";
+import { lineCents, readServiceReferences, sameService, SERVICE_ENTITY, serviceBody, servicePostingIsRight, type ServiceLine } from "./onec-services.js";
 import type { Outbox } from "./outbox.js";
 
 type Logger = { warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
@@ -75,13 +76,18 @@ export type OneC = {
   queue(db: Queryable, operationId: string): Promise<void>;
   /** When what was entered or changed now goes to 1C: at once, or at the end of the day of the cash desk (03:00 Moscow time). */
   due(): Date;
+  /**
+   * A trip was changed (on the connection of the change): one that has arrived is queued, at once, and the document
+   * of one that is in the base already follows what was done to the trip. Nothing where the settings name no trips.
+   */
+  tripChanged(db: Queryable, tripId: string): Promise<void>;
   nudge(): void;
   flush(): Promise<void>;
   start(): void;
   stop(): Promise<void>;
 };
 
-type Row = { id: string; operation_id: string; attempts: number; doc_ref: string | null; doc_number: string | null; alerted: boolean; removed_by_kassa: boolean };
+type Row = { id: string; operation_id: string; trip_id: string | null; attempts: number; doc_ref: string | null; doc_number: string | null; alerted: boolean; removed_by_kassa: boolean };
 
 type Outcome =
   | { status: "written"; ref: string; number: string; detail: string }
@@ -234,7 +240,7 @@ export function createOneC(options: OneCOptions): OneC {
        )
        UPDATE onec_outbox o SET attempts = o.attempts + 1, next_attempt_at = $2
          FROM head WHERE o.id = head.id
-       RETURNING o.id, o.operation_id, o.attempts, o.doc_ref, o.doc_number, o.alerted, o.removed_by_kassa`,
+       RETURNING o.id, o.operation_id, o.trip_id, o.attempts, o.doc_ref, o.doc_number, o.alerted, o.removed_by_kassa`,
       [now(), later(LEASE_SECONDS)],
     );
     return claimed.rows[0];
@@ -269,6 +275,10 @@ export function createOneC(options: OneCOptions): OneC {
     kassaKey: string;
     dollars: number;
     comment: string;
+    /** The document of an earlier try that was cut off, found another way than by the moment, the sum and the comment. */
+    twin?: () => Promise<Json | undefined>;
+    /** Whether a document says what the plan says, told another way than field by field. */
+    same?: (known: Json) => boolean;
     /** The fields, besides the moment, the sum and the comment, that the document must agree with the body in. */
     fields: readonly string[];
     postingIsRight(rows: readonly Json[], codeOf: ReadonlyMap<string, string>): boolean;
@@ -277,10 +287,11 @@ export function createOneC(options: OneCOptions): OneC {
   };
 
   /** Whether the document in 1C says what the entry says now. */
-  const samePlan = (known: Json, plan: Plan) => sameDocument(known, plan.body) && plan.fields.every((field) => String(known[field] ?? "") === String(plan.body[field] ?? ""));
+  const samePlan = (known: Json, plan: Plan) => (plan.same ? plan.same(known) : sameDocument(known, plan.body) && plan.fields.every((field) => String(known[field] ?? "") === String(plan.body[field] ?? "")));
 
   /** Works out what to do with one entry, and does it. Never throws: whatever goes wrong is an outcome. */
   async function work(row: Row): Promise<Outcome> {
+    if (row.trip_id !== null) return workTrip(row);
     const found = await pool.query<Operation>(
       `SELECT o.kind, o.currency, o.amount_minor, o.rate_e4, o.category, o.client_code, o.trip_number, o.recipient, o.comment, o.created_at, o.deleted_at, o.kassa,
               c.label, c.requires_client, c.counts_as_cost
@@ -313,6 +324,69 @@ export function createOneC(options: OneCOptions): OneC {
       if ("status" in plan) return plan;
       if (settings!.mode === "preview") return { status: "preview", detail: `репетиция: был бы записан ${noun} на ${plan.what}` };
       return await write(row, plan);
+    } catch (error) {
+      return trouble(error);
+    }
+  }
+
+  /** A trip that has arrived, as the services rendered to its clients; a trip that is not arrived any more takes its document back. */
+  async function workTrip(row: Row): Promise<Outcome> {
+    const found = await pool.query<{ number: number; status: string; arrival_day: string | null; driver_name: string | null; driver_phone: string | null; truck_plates: string | null; deleted_at: Date | null }>(
+      "SELECT number, status, to_char(arrival_day, 'YYYY-MM-DD') AS arrival_day, driver_name, driver_phone, truck_plates, deleted_at FROM trips WHERE id = $1",
+      [row.trip_id],
+    );
+    const trip = found.rows[0];
+    if (!trip) return { status: "failed", reason: "рейса нет в базе Кассы" };
+    const noun = "«Оказание услуг»";
+    const cargo = await pool.query<{ client_code: string; weight_g: string; price_milli: number; bags: number | null; pieces: number | null; brand: string | null; sender: string | null; receiver: string | null; item: string | null; size: string | null }>(
+      "SELECT client_code, weight_g, price_milli, bags, pieces, brand, sender, receiver, item, size FROM trip_cargo WHERE trip_id = $1 AND deleted_at IS NULL ORDER BY position",
+      [row.trip_id],
+    );
+    const gone = trip.deleted_at !== null || trip.status !== "arrived" || trip.arrival_day === null ? "рейс уже не «прибыл»" : cargo.rows.length === 0 ? "в накладной рейса нет строк" : undefined;
+    if (gone) return row.doc_ref === null ? { status: "skipped", reason: gone } : remove(row, gone, SERVICE_ENTITY, noun);
+
+    try {
+      const read = await readServiceReferences(client!);
+      if ("missing" in read) return { status: "blocked", reason: read.missing };
+      const lists = await expenseListsNow();
+      if ("missing" in lists) return { status: "blocked", reason: lists.missing };
+      // Who owes for each line, in the base: a client it does not have is made where the settings say so.
+      const would: string[] = [];
+      const placed = new Map<string, { counterpart: string; contract: string }>();
+      for (const code of new Set(cargo.rows.map((line) => line.client_code))) {
+        const who = await counterpartOf({ code, name: "" });
+        if ("reason" in who) return { status: "blocked", reason: who.reason };
+        if ("wouldMake" in who) would.push(who.wouldMake);
+        else placed.set(code, { counterpart: who.picked.counterpart.key, contract: who.contract.key });
+      }
+      let department = departmentOf(lists.lists, trip.number)?.key;
+      if (!department && settings!.mode === "preview") would.push(`подразделение «${trip.number}»`);
+      const total = cargo.rows.reduce((sum, line) => sum + lineCents({ weightG: Number(line.weight_g), priceMilli: line.price_milli }), 0);
+      const what = `по рейсу ${trip.number}: строк ${cargo.rows.length}, клиентов ${new Set(cargo.rows.map((line) => line.client_code)).size}, на ${money(total, "USD")}, дата ${trip.arrival_day}`;
+      if (settings!.mode === "preview") return { status: "preview", detail: `репетиция: был бы записан документ ${noun} ${what}${would.length > 0 ? `; были бы созданы: ${would.join(", ")}` : ""}` };
+      department ??= await makeDepartment(trip.number);
+
+      const lines: ServiceLine[] = cargo.rows.map((line) => ({ ...placed.get(line.client_code)!, weightG: Number(line.weight_g), priceMilli: line.price_milli, bags: line.bags, pieces: line.pieces, brand: line.brand, sender: line.sender, receiver: line.receiver, item: line.item, size: line.size }));
+      const body = serviceBody(settings!, read.refs, { number: trip.number, arrivalDay: trip.arrival_day!, driverName: trip.driver_name, driverPhone: trip.driver_phone, truckPlates: trip.truck_plates }, department, lines);
+      const own = department;
+      return await write(row, {
+        entity: SERVICE_ENTITY,
+        noun,
+        body,
+        what,
+        kassaKey: "",
+        dollars: total,
+        comment: String(body["Комментарий"]),
+        // One document to a trip: the one that is on the department of the trip already is this one.
+        twin: async () => {
+          const there = (await client!.get(`/${SERVICE_ENTITY}`, { $filter: `ПодразделениеОрганизации_Key eq guid'${own}' and DeletionMark eq false` })) as { value?: Json[] };
+          return there.value?.[0];
+        },
+        same: (known) => sameService(known, body),
+        fields: [],
+        postingIsRight: (rows) => servicePostingIsRight(rows, read.codeOf, total),
+        expected: "как у оказания услуг (Кт 9030.1 на сумму рейса)",
+      });
     } catch (error) {
       return trouble(error);
     }
@@ -412,7 +486,20 @@ export function createOneC(options: OneCOptions): OneC {
     let number = row.doc_number;
     let posted = false;
     let corrected = false;
-    if (ref === null) {
+    if (ref === null && plan.twin) {
+      const twin = await plan.twin();
+      if (twin) {
+        ref = String(twin.Ref_Key);
+        number = String(twin.Number);
+        posted = twin.Posted === true;
+        if (!samePlan(twin, plan)) {
+          if (posted) await client!.unpost(entity, ref);
+          await client!.update(entity, ref, body);
+          posted = false;
+          corrected = true;
+        }
+      }
+    } else if (ref === null) {
       const same = (await client!.get(`/${entity}`, {
         $filter: `Date ge datetime'${date}' and Date le datetime'${date}'`,
         $select: "Ref_Key,Number,Posted,СуммаДокумента,Комментарий,КассаОрганизации_Key,DeletionMark",
@@ -430,9 +517,11 @@ export function createOneC(options: OneCOptions): OneC {
         posted = twin.Posted === true;
       }
     } else {
-      const known = await client!.get(`/${entity}(guid'${ref}')`, {
-        $select: ["Ref_Key,Number,Posted,DeletionMark,Date,СуммаДокумента,Контрагент,ДоговорКонтрагента_Key,Комментарий", ...plan.fields].join(","),
-      });
+      // A document that is compared line by line is read whole.
+      const known = await client!.get(
+        `/${entity}(guid'${ref}')`,
+        plan.same ? {} : { $select: ["Ref_Key,Number,Posted,DeletionMark,Date,СуммаДокумента,Контрагент,ДоговорКонтрагента_Key,Комментарий", ...plan.fields].join(",") },
+      );
       posted = known.Posted === true;
       // A mark a person put stops the cash desk; its own mark (the entry was deleted or was not for 1C for a while) it takes off.
       const unmark = known.DeletionMark === true && row.removed_by_kassa;
@@ -496,6 +585,12 @@ export function createOneC(options: OneCOptions): OneC {
     if (outcome.status === "blocked" || outcome.status === "failed" || outcome.status === "retry") forget();
     const alert = async (text: string) => {
       if (row.alerted) return;
+      if (row.trip_id !== null) {
+        await telegram.queue(pool, text, null, { kind: "expense", kassa: options.primaryKassa });
+        await pool.query("UPDATE onec_outbox SET alerted = true WHERE id = $1", [row.id]);
+        telegram.nudge();
+        return;
+      }
       // Told where the incomes of the cash desk of the payment are told.
       const desk = await pool.query<{ kassa: Kassa; kind: "income" | "expense" }>("SELECT kassa, kind FROM operations WHERE id = $1", [row.operation_id]);
       await telegram.queue(pool, text, row.operation_id, { kind: desk.rows[0]?.kind ?? "income", kassa: desk.rows[0]?.kassa ?? options.primaryKassa });
@@ -503,6 +598,10 @@ export function createOneC(options: OneCOptions): OneC {
       telegram.nudge();
     };
     const label = async () => {
+      if (row.trip_id !== null) {
+        const trip = await pool.query<{ number: number }>("SELECT number FROM trips WHERE id = $1", [row.trip_id]);
+        return `Рейс ${trip.rows[0]?.number ?? "?"}`;
+      }
       const found = await pool.query<{ kind: "income" | "expense"; client_code: string | null; currency: "RUB" | "USD"; amount_minor: string; label: string | null }>(
         "SELECT o.kind, o.client_code, o.currency, o.amount_minor, c.label FROM operations o LEFT JOIN categories c ON c.code = o.category WHERE o.id = $1",
         [row.operation_id],
@@ -538,7 +637,7 @@ export function createOneC(options: OneCOptions): OneC {
         return;
       case "failed":
         await pool.query("UPDATE onec_outbox SET status = 'failed', detail = $2 WHERE id = $1", [row.id, outcome.reason]);
-        log.error(`The payment ${row.operation_id} was not written to 1C: ${outcome.reason}`);
+        log.error(`The ${row.trip_id !== null ? `trip ${row.trip_id}` : `payment ${row.operation_id}`} was not written to 1C: ${outcome.reason}`);
         await alert(`❌ ${await label()} не записан в 1С: ${outcome.reason}.\nЧто с ним делать, решает человек: kassa.ps1 onec-status, затем onec-retry --id ${row.id} или onec-skip --id ${row.id}`);
         return;
       case "retry": {
@@ -547,7 +646,7 @@ export function createOneC(options: OneCOptions): OneC {
           return;
         }
         const wait = Math.min(MAX_BACKOFF_SECONDS, baseBackoff * 2 ** (row.attempts - 1));
-        log.warn(`The payment ${row.operation_id} was not written to 1C (try ${row.attempts}), the next try in ${wait} s: ${outcome.reason}`);
+        log.warn(`The ${row.trip_id !== null ? `trip ${row.trip_id}` : `payment ${row.operation_id}`} was not written to 1C (try ${row.attempts}), the next try in ${wait} s: ${outcome.reason}`);
         await pool.query("UPDATE onec_outbox SET detail = $2, next_attempt_at = $3 WHERE id = $1", [row.id, outcome.reason, later(wait)]);
       }
     }
@@ -595,6 +694,23 @@ export function createOneC(options: OneCOptions): OneC {
       await db.query("INSERT INTO onec_outbox (operation_id, created_at, next_attempt_at) VALUES ($1, $2, $3) ON CONFLICT (operation_id) DO NOTHING", [operationId, now(), due()]);
     },
     due,
+    async tripChanged(db, tripId) {
+      if (!settings || !documents.has("trips")) return;
+      // The document of a trip is written at once: the trip was closed by a person who looked at its waybill.
+      const again = await db.query(
+        `UPDATE onec_outbox SET status = 'pending', attempts = 0, alerted = false, next_attempt_at = $2, written_at = NULL, detail = NULL
+          WHERE trip_id = $1 AND NOT (status = 'skipped' AND detail LIKE 'пропущен вручную%')`,
+        [tripId, now()],
+      );
+      if (again.rowCount) return;
+      await db.query(
+        `INSERT INTO onec_outbox (trip_id, created_at, next_attempt_at)
+         SELECT t.id, $2, $2 FROM trips t
+          WHERE t.id = $1 AND t.status = 'arrived' AND t.deleted_at IS NULL AND NOT t.from_card_file AND ($3::date IS NULL OR t.arrival_day >= $3::date)
+         ON CONFLICT (trip_id) DO NOTHING`,
+        [tripId, now(), settings.from ?? null],
+      );
+    },
     nudge() {
       if (!settings || stopped) return;
       setImmediate(() => void flush());

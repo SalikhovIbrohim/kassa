@@ -8,7 +8,8 @@ export const KEYS = {
   kassa: "0d2cb474-924a-11f1-8cb7-b8cb29f61f4c",
   currency: "542c581a-49bf-11ef-afed-8c1d965e9add",
 };
-const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430", "2010": "acc-2010" } as const;
+const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430", "2010": "acc-2010", "9030.1": "acc-9030.1", "9130.1": "acc-9130.1" } as const;
+const SERVICES = "Document_ОказаниеУслуг";
 const RECEIPTS = "Document_ПриходныйКассовыйОрдер";
 const EXPENSES = "Document_РасходныйКассовыйОрдер";
 /** The lists an expense order is filed by, as the base of a business that keeps trips has them. */
@@ -16,6 +17,7 @@ const LISTS: Record<string, string[]> = {
   Catalog_СтатьиЗатрат: ["Толкач", "Услуги водителя точка Б", "Прочие расходы"],
   Catalog_ПрочиеДоходыИРасходы: ["Обед", "Прочие внереализационные доходы (расходы)"],
   Catalog_НоменклатурныеГруппы: ["Основная группа"],
+  Catalog_Номенклатура: ["Рейс"],
 };
 const FLOW_ITEMS = ["Толкач", "обед", "Прочие расходы Москва", "Прочие расходы Андижан"];
 export const keyOf = (list: string, name: string) => `${list}:${name}`;
@@ -31,6 +33,8 @@ export type FakeOneC = {
   documents: Json[];
   /** The expense orders in the base. */
   expenses: Json[];
+  /** The services rendered («Оказание услуг») in the base: one document to a trip. */
+  services: Json[];
   /** The departments of the base: a trip is one, named by its number. */
   departments: Json[];
   /** The requests that came, "METHOD /path" with the path decoded, in order. */
@@ -64,6 +68,7 @@ export async function startFakeOneC(): Promise<FakeOneC> {
     contracts: [],
     documents: [],
     expenses: [],
+    services: [],
     departments: [{ Ref_Key: "dep-240", Description: "240", Owner_Key: KEYS.organization, DeletionMark: false }],
     requests: [],
     failNext(match, status, times = 1) {
@@ -148,10 +153,12 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         const owner = /Owner_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         return page(fake.contracts.filter((row) => row.Owner_Key === owner));
       }
-      const entity = [RECEIPTS, EXPENSES].find((name) => path === `/${name}` || path.startsWith(`/${name}(`));
-      const documents = entity === EXPENSES ? fake.expenses : fake.documents;
+      const entity = [RECEIPTS, EXPENSES, SERVICES].find((name) => path === `/${name}` || path.startsWith(`/${name}(`));
+      const documents = entity === EXPENSES ? fake.expenses : entity === SERVICES ? fake.services : fake.documents;
       if (request.method === "GET" && entity && path === `/${entity}`) {
         const at = /Date ge datetime'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        const department = /ПодразделениеОрганизации_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        if (department) return page(documents.filter((row) => row["ПодразделениеОрганизации_Key"] === department && row.DeletionMark !== true));
         return page(documents.filter((row) => row.Date === at));
       }
       const one = /^\/Document_[^(]+\(guid'([^']+)'\)(\/Post|\/Unpost)?$/.exec(entity ? path : "");
@@ -191,7 +198,9 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         const sum = Number(document["СуммаДокумента"]);
         postings.set(
           String(document.Ref_Key),
-          entity === EXPENSES
+          entity === SERVICES
+            ? (document["Контрагенты"] as Json[]).map((line) => ({ AccountDr_Key: ACCOUNTS["4010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["9030.1"], Сумма: line["Сумма"] }))
+            : entity === EXPENSES
             ? [{ AccountDr_Key: wrong ? ACCOUNTS["4010"] : document["СчетУчетаРасчетовСКонтрагентом_Key"], AccountCr_Key: ACCOUNTS["5010"], Сумма: sum }]
             : [{ AccountDr_Key: ACCOUNTS["5010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["6310"], Сумма: sum }],
         );

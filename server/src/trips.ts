@@ -16,6 +16,8 @@ export type TripsOptions = {
   warehouses: Warehouses;
   /** How the business writes the codes of its clients: «А707» unless said. */
   clientCodes?: ClientCodes;
+  /** Told of every change of a trip, on the connection of the change: the books kept elsewhere (1C) follow the trip. */
+  changed?: (db: Queryable, tripId: string) => Promise<void>;
 };
 
 /** A truck is being loaded, then it is on the road, then it has arrived: from then on its cargo is owed. */
@@ -275,11 +277,13 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       )
     ).rows;
 
-  const log = (db: Queryable, entry: { tripId: string; cargoId?: string; action: string; at: Date; by: string; before?: unknown; after?: unknown }) =>
-    db.query(
+  const log = async (db: Queryable, entry: { tripId: string; cargoId?: string; action: string; at: Date; by: string; before?: unknown; after?: unknown }) => {
+    await db.query(
       "INSERT INTO trip_changes (trip_id, cargo_id, action, changed_at, changed_by, state_before, state_after) VALUES ($1, $2, $3, $4, $5, $6, $7)",
       [entry.tripId, entry.cargoId ?? null, entry.action, entry.at, entry.by, entry.before === undefined ? null : JSON.stringify(entry.before), entry.after === undefined ? null : JSON.stringify(entry.after)],
     );
+    await options.changed?.(db, entry.tripId);
+  };
 
   /**
    * Whether this person writes cargo onto this trip at all: the admin always, a keeper until the truck has arrived.
@@ -393,7 +397,14 @@ export async function registerTrips(app: FastifyInstance, options: TripsOptions)
       const expenseMinor = Number(spent.rows[0]?.minor ?? 0);
       money = { expenseMinor, profitMinor: Number(trip.amount_minor) - expenseMinor };
     }
-    return { trip: toTrip(trip), cargo, clients, places, may, ...(money ? { money } : {}) };
+    // What became of the trip in 1C, for the admin: its document, or why there is none yet.
+    let onec: { id: number; status: string; docNumber: string | null; detail: string | null } | undefined;
+    if (admin) {
+      const queued = await db.query<{ id: string; status: string; doc_number: string | null; detail: string | null }>("SELECT id, status, doc_number, detail FROM onec_outbox WHERE trip_id = $1", [trip.id]);
+      const row = queued.rows[0];
+      if (row) onec = { id: Number(row.id), status: row.status, docNumber: row.doc_number, detail: row.detail };
+    }
+    return { trip: toTrip(trip), cargo, clients, places, may, ...(money ? { money } : {}), ...(onec ? { onec } : {}) };
   };
 
   /** Runs a change of one trip in a transaction that holds the trip, and answers with the trip as it is afterwards. */
