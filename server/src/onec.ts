@@ -262,6 +262,8 @@ export function createOneC(options: OneCOptions): OneC {
     label: string | null;
     requires_client: boolean | null;
     counts_as_cost: boolean | null;
+    requires_counterparty: boolean | null;
+    requires_employee: boolean | null;
   };
 
   /** A document to be in the base, and how to tell that it is there and right. */
@@ -294,7 +296,7 @@ export function createOneC(options: OneCOptions): OneC {
     if (row.trip_id !== null) return workTrip(row);
     const found = await pool.query<Operation>(
       `SELECT o.kind, o.currency, o.amount_minor, o.rate_e4, o.category, o.client_code, o.trip_number, o.recipient, o.comment, o.created_at, o.deleted_at, o.kassa,
-              c.label, c.requires_client, c.counts_as_cost
+              c.label, c.requires_client, c.counts_as_cost, c.requires_counterparty, c.requires_employee
          FROM operations o LEFT JOIN categories c ON c.code = o.category
         WHERE o.id = $1`,
       [row.operation_id],
@@ -428,6 +430,11 @@ export function createOneC(options: OneCOptions): OneC {
     // Money handed to the owner and money given back to a client are documents of their own kinds: a person writes those.
     if (operation.counts_as_cost === false) return { status: "skipped", reason: "выплата владельцу записывается в 1С вручную" };
     if (operation.requires_client) return { status: "skipped", reason: "возврат клиенту записывается в 1С вручную" };
+    // So are a payment to a supplier, a salary and a loan (each names who in the base it is to), and money moved to
+    // another cash desk (it names no desk it went to): filed as an other expense they would be wrong in the books.
+    if (operation.requires_counterparty) return { status: "skipped", reason: "оплата поставщику записывается в 1С вручную" };
+    if (operation.requires_employee) return { status: "skipped", reason: "выплата сотруднику записывается в 1С вручную" };
+    if (/^внутреннее перемещение/i.test((operation.label ?? "").trim())) return { status: "skipped", reason: "перемещение между кассами записывается в 1С вручную" };
     if (dollars === null) return { status: "blocked", reason: "у расхода в рублях нет курса, не из чего посчитать доллары" };
     const refs = await referencesNow();
     if ("missing" in refs) return { status: "blocked", reason: refs.missing };

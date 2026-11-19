@@ -138,6 +138,19 @@ export async function lookAtOneC(client: OneCClient, say: (line: string) => void
       }
       const last = (await client.get(`/${entity}`, { $top: "3", $orderby: "Date desc", $filter: "Posted eq true" })) as { value?: Json[] };
       const documents = last.value ?? [];
+      // Of a cash order, the last one of every kind of operation too: a salary and a payment to a supplier are filled in differently.
+      if (fields?.includes("ВидОперации")) {
+        await ask("по видам операций", async () => {
+          const recent = (await client.get(`/${entity}`, { $top: String(COUNTED_LAST), $orderby: "Date desc", $filter: "Posted eq true", $select: "Ref_Key,ВидОперации,СчетУчетаРасчетовСКонтрагентом_Key" })) as { value?: Json[] };
+          const seen = new Set(documents.map((document) => `${String(document["ВидОперации"])}|${String(document["СчетУчетаРасчетовСКонтрагентом_Key"])}`));
+          for (const row of recent.value ?? []) {
+            const kind = `${String(row["ВидОперации"])}|${String(row["СчетУчетаРасчетовСКонтрагентом_Key"])}`;
+            if (seen.has(kind)) continue;
+            seen.add(kind);
+            documents.push(await client.get(`/${entity}(guid'${String(row.Ref_Key)}')`));
+          }
+        });
+      }
       if (documents.length === 0) say("  (проведённых документов нет)");
       for (const document of documents) {
         say(`  документ: ${short(document)}`);

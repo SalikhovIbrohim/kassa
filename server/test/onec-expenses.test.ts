@@ -173,7 +173,19 @@ describe("writing the expenses of the cash desk to 1C", () => {
   });
 
   it("leaves money handed to the owner and money given back to a client to a person", async () => {
-    const { started, ivan } = await desk();
+    const { started, ivan, category } = await desk();
+    const supplier = await category({ kind: "expense", label: "Оплата поставщикам (подрядчикам)", requiresCounterparty: true });
+    const salary = await category({ kind: "expense", label: "Выплата заработной платы", requiresEmployee: true });
+    const moved = await category({ kind: "expense", label: "Внутреннее перемещение денежных средств" });
+    await post(started, ivan, expense({ category: supplier, counterparty: "Андрей" }));
+    await post(started, ivan, expense({ category: salary, employee: "Ислом" }));
+    await post(started, ivan, expense({ category: moved }));
+    expect((await until(started, "skipped", 3)).map((row) => row.detail)).toEqual([
+      "оплата поставщику записывается в 1С вручную",
+      "выплата сотруднику записывается в 1С вручную",
+      "перемещение между кассами записывается в 1С вручную",
+    ]);
+    await started.query("DELETE FROM onec_outbox");
 
     await post(started, ivan, expense({ category: "owner_handover" }));
     await post(started, ivan, expense({ category: "client_refund", clientCode: "А406" }));
