@@ -8,6 +8,8 @@ type Item = { key: string; name: string };
 /** What the base has that an expense order refers to: its accounts and the lists its accountant files expenses under. */
 export type ExpenseLists = {
   accounts: { cash: string; production: string; other: string };
+  /** Every account of the chart by its code: the kinds of orders that are not an expense have accounts of their own. */
+  accountOf: ReadonlyMap<string, string>;
   /** «Статьи движения денежных средств». */
   flowItems: readonly Item[];
   /** «Статьи затрат»: what an expense of a trip is filed under, on the account of production. */
@@ -42,6 +44,7 @@ export async function readExpenseLists(client: OneCClient): Promise<{ lists: Exp
   for (const code of Object.values(EXPENSE_ACCOUNTS)) if (!byCode.has(code)) return { missing: `в плане счетов нет счёта ${code}` };
   return {
     lists: {
+      accountOf: byCode,
       accounts: { cash: byCode.get(EXPENSE_ACCOUNTS.cash)!, production: byCode.get(EXPENSE_ACCOUNTS.production)!, other: byCode.get(EXPENSE_ACCOUNTS.other)! },
       flowItems: await itemsOf(client, "Catalog_СтатьиДвиженияДенежныхСредств"),
       costItems: await itemsOf(client, "Catalog_СтатьиЗатрат"),
@@ -159,4 +162,93 @@ export function expensePostingIsRight(rows: readonly Json[], codeOf: ReadonlyMap
   const total = rows.reduce((sum, row) => sum + Math.round(Number(row["Сумма"]) * 100), 0);
   const debit = EXPENSE_ACCOUNTS[placement.account];
   return total === dollarsMinor && rows.every((row) => codeOf.get(String(row.AccountDr_Key)) === debit && codeOf.get(String(row.AccountCr_Key)) === EXPENSE_ACCOUNTS.cash);
+}
+
+/** The accounts of what is paid out but is no expense: the dividends of the owner, a supplier's debt and advance. */
+export const PAYOUT_ACCOUNTS = { dividends: "6610", suppliers: "6010", supplierAdvances: "4310" } as const;
+const DIVIDENDS_FLOW = "Выплата дивидендов";
+const SUPPLIERS_FLOW = "Оплата поставщикам (подрядчикам)";
+
+type Common = Pick<OneCSettings, "organizationKey" | "currencyKey" | "kassaKey">;
+const header = (settings: Common, lists: ExpenseLists, order: ExpenseOrder): Json => ({
+  Date: order.date,
+  Организация_Key: settings.organizationKey,
+  СчетКасса_Key: lists.accounts.cash,
+  КассаОрганизации_Key: settings.kassaKey,
+  СуммаДокумента: order.dollarsMinor / 100,
+  ВалютаДокумента_Key: settings.currencyKey,
+  Комментарий: order.comment,
+});
+
+/**
+ * Money handed to the owner, as the base keeps it: «Выплата дивидендов или процентов» to the founder, against the
+ * account of dividends. `founder`: who the last such order of the base was to.
+ */
+export function dividendsBody(settings: Common, lists: ExpenseLists, order: ExpenseOrder, founder: string): Json | { reason: string } {
+  const account = lists.accountOf.get(PAYOUT_ACCOUNTS.dividends);
+  if (!account) return { reason: `в плане счетов нет счёта ${PAYOUT_ACCOUNTS.dividends}` };
+  const flow = named(lists.flowItems, DIVIDENDS_FLOW);
+  if (!flow) return { reason: `в 1С нет статьи движения денег «${DIVIDENDS_FLOW}»` };
+  return {
+    ...header(settings, lists, order),
+    ВидОперации: "ВыплатаДивидендовИлиПроцентов",
+    Контрагент: founder,
+    Контрагент_Type: "StandardODATA.Catalog_Контрагенты",
+    СтатьяДвиженияДенежныхСредств_Key: flow.key,
+    Выдать: order.recipient || "Учредитель",
+    СуммаВыплаты: order.dollarsMinor / 100,
+    СчетРасчетовКонтрагентов_Key: account,
+    ТипВыплатыДивидендовИлиПроцентов: "Дивиденды",
+  };
+}
+
+/** A payment to a supplier, as the base keeps it: «Оплата поставщику» with the counterpart and their contract, one line of the payment. */
+export function supplierBody(settings: Common, lists: ExpenseLists, order: ExpenseOrder, who: { counterpart: string; name: string; contract: string }): Json | { reason: string } {
+  const debt = lists.accountOf.get(PAYOUT_ACCOUNTS.suppliers);
+  const advance = lists.accountOf.get(PAYOUT_ACCOUNTS.supplierAdvances);
+  if (!debt || !advance) return { reason: `в плане счетов нет счёта ${PAYOUT_ACCOUNTS.suppliers} или ${PAYOUT_ACCOUNTS.supplierAdvances}` };
+  const flow = named(lists.flowItems, SUPPLIERS_FLOW);
+  if (!flow) return { reason: `в 1С нет статьи движения денег «${SUPPLIERS_FLOW}»` };
+  const sum = order.dollarsMinor / 100;
+  return {
+    ...header(settings, lists, order),
+    ВидОперации: "ОплатаПоставщику",
+    Контрагент: who.counterpart,
+    Контрагент_Type: "StandardODATA.Catalog_Контрагенты",
+    ДоговорКонтрагента_Key: who.contract,
+    СтатьяДвиженияДенежныхСредств_Key: flow.key,
+    СтавкаНДС: "БезНДС",
+    Выдать: order.recipient || who.name,
+    РасшифровкаПлатежа: [
+      {
+        LineNumber: "1",
+        ДоговорКонтрагента_Key: who.contract,
+        СпособПогашенияЗадолженности: "Автоматически",
+        СуммаПлатежа: sum,
+        КурсВзаиморасчетов: 1,
+        КратностьВзаиморасчетов: "1",
+        СуммаВзаиморасчетов: sum,
+        СтавкаНДС: "БезНДС",
+        СуммаНДС: 0,
+        СтатьяДвиженияДенежныхСредств_Key: flow.key,
+        СчетУчетаРасчетовСКонтрагентом_Key: debt,
+        СчетУчетаРасчетовПоАвансам_Key: advance,
+      },
+    ],
+  };
+}
+
+/** Whether the postings of an order debit only the accounts named, against the cash, for the sum. */
+export function payoutPostingIsRight(rows: readonly Json[], codeOf: ReadonlyMap<string, string>, debits: readonly string[], dollarsMinor: number): boolean {
+  if (rows.length === 0) return false;
+  const total = rows.reduce((sum, row) => sum + Math.round(Number(row["Сумма"]) * 100), 0);
+  return total === dollarsMinor && rows.every((row) => debits.includes(codeOf.get(String(row.AccountDr_Key)) ?? "") && codeOf.get(String(row.AccountCr_Key)) === EXPENSE_ACCOUNTS.cash);
+}
+
+/** The supplier a cashier named, among the counterparts of the base: by the whole name, as a person reads it. */
+export function pickSupplier(counterparts: readonly Json[], name: string): { key: string; name: string } | { reason: string } {
+  const found = counterparts.filter((row) => row.DeletionMark !== true && row.IsFolder !== true && plain(String(row.Description ?? "")) === plain(name));
+  if (found.length === 0) return { reason: `в 1С нет контрагента с названием «${name.trim()}»: поставщик в Кассе пишется так же, как в 1С` };
+  if (found.length > 1) return { reason: `в 1С несколько контрагентов с названием «${name.trim()}»` };
+  return { key: String(found[0]!.Ref_Key), name: String(found[0]!.Description) };
 }

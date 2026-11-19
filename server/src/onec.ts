@@ -23,6 +23,7 @@ import {
   RECEIPT_ENTITY,
   type References,
 } from "./onec-pko.js";
+import { dividendsBody, PAYOUT_ACCOUNTS, payoutPostingIsRight, pickSupplier, supplierBody } from "./onec-rko.js";
 import { departmentOf, DEPARTMENT_ENTITY, EXPENSE_ACCOUNTS, EXPENSE_ENTITY, EXPENSE_FIELDS, expenseBody, expensePostingIsRight, placeExpense, readExpenseLists } from "./onec-rko.js";
 import { lineCents, readServiceReferences, sameService, SERVICE_ENTITY, serviceBody, servicePostingIsRight, type ServiceLine } from "./onec-services.js";
 import type { Outbox } from "./outbox.js";
@@ -254,6 +255,7 @@ export function createOneC(options: OneCOptions): OneC {
     category: string | null;
     client_code: string | null;
     trip_number: number | null;
+    counterparty: string | null;
     recipient: string | null;
     comment: string | null;
     created_at: Date;
@@ -295,7 +297,7 @@ export function createOneC(options: OneCOptions): OneC {
   async function work(row: Row): Promise<Outcome> {
     if (row.trip_id !== null) return workTrip(row);
     const found = await pool.query<Operation>(
-      `SELECT o.kind, o.currency, o.amount_minor, o.rate_e4, o.category, o.client_code, o.trip_number, o.recipient, o.comment, o.created_at, o.deleted_at, o.kassa,
+      `SELECT o.kind, o.currency, o.amount_minor, o.rate_e4, o.category, o.client_code, o.trip_number, o.counterparty, o.recipient, o.comment, o.created_at, o.deleted_at, o.kassa,
               c.label, c.requires_client, c.counts_as_cost, c.requires_counterparty, c.requires_employee
          FROM operations o LEFT JOIN categories c ON c.code = o.category
         WHERE o.id = $1`,
@@ -427,12 +429,11 @@ export function createOneC(options: OneCOptions): OneC {
 
   /** The expense order of an expense of the cash desk, or why there is none yet. */
   async function expensePlan(operation: Operation, dollars: number | null): Promise<Plan | Outcome> {
-    // Money handed to the owner and money given back to a client are documents of their own kinds: a person writes those.
-    if (operation.counts_as_cost === false) return { status: "skipped", reason: "выплата владельцу записывается в 1С вручную" };
+    if (operation.counts_as_cost === false || operation.requires_counterparty) return payoutPlan(operation, dollars);
+    // Money given back to a client is a document of its own kind: a person writes it.
     if (operation.requires_client) return { status: "skipped", reason: "возврат клиенту записывается в 1С вручную" };
-    // So are a payment to a supplier, a salary and a loan (each names who in the base it is to), and money moved to
-    // another cash desk (it names no desk it went to): filed as an other expense they would be wrong in the books.
-    if (operation.requires_counterparty) return { status: "skipped", reason: "оплата поставщику записывается в 1С вручную" };
+    // So are a salary and a loan (the base pays those by a payroll of its own), and money moved to another cash desk
+    // (it names no desk it went to): filed as an other expense they would be wrong in the books.
     if (operation.requires_employee) return { status: "skipped", reason: "выплата сотруднику записывается в 1С вручную" };
     if (/^внутреннее перемещение/i.test((operation.label ?? "").trim())) return { status: "skipped", reason: "перемещение между кассами записывается в 1С вручную" };
     if (dollars === null) return { status: "blocked", reason: "у расхода в рублях нет курса, не из чего посчитать доллары" };
@@ -468,6 +469,50 @@ export function createOneC(options: OneCOptions): OneC {
       fields: EXPENSE_FIELDS,
       postingIsRight: (rows, codeOf) => expensePostingIsRight(rows, codeOf, placement, dollars),
       expected: `как должна быть (Дт ${EXPENSE_ACCOUNTS[placement.account]} Кт ${EXPENSE_ACCOUNTS.cash})`,
+    };
+  }
+
+  /** Money handed to the owner, or paid to a supplier: orders of their own kinds, as the base keeps them. */
+  async function payoutPlan(operation: Operation, dollars: number | null): Promise<Plan | Outcome> {
+    if (dollars === null) return { status: "blocked", reason: "у расхода в рублях нет курса, не из чего посчитать доллары" };
+    const read = await expenseListsNow();
+    if ("missing" in read) return { status: "blocked", reason: read.missing };
+    const label = operation.label ?? operation.category ?? "";
+    const date = documentDate(operation.created_at);
+    const comment = [label, operation.comment?.trim() ?? ""].filter(Boolean).join(" ").slice(0, 200);
+    const order = { date, dollarsMinor: dollars, comment, recipient: operation.recipient?.trim() ?? "" };
+    const kassaKey = kassaKeyOf(operation.kassa);
+    const common = { entity: EXPENSE_ENTITY, noun: "РКО", kassaKey, dollars, comment };
+    if (operation.counts_as_cost === false) {
+      // The founder is who the last such order of the base was to: the accountant made that one.
+      const last = (await client!.get(`/${EXPENSE_ENTITY}`, { $top: "1", $orderby: "Date desc", $filter: "Posted eq true and ВидОперации eq 'ВыплатаДивидендовИлиПроцентов'", $select: "Контрагент" })) as { value?: Json[] };
+      const founder = String(last.value?.[0]?.["Контрагент"] ?? "");
+      if (!founder) return { status: "blocked", reason: "в 1С нет ни одной выплаты дивидендов: не с кого взять учредителя" };
+      const body = dividendsBody({ ...settings!, kassaKey }, read.lists, order, founder);
+      if ("reason" in body) return { status: "blocked", reason: String(body.reason) };
+      return {
+        ...common,
+        body,
+        what: `${money(dollars, "USD")}, выплата дивидендов учредителю, дата ${date}`,
+        fields: ["ВидОперации", "Контрагент", "СтатьяДвиженияДенежныхСредств_Key", "КассаОрганизации_Key", "Выдать"],
+        postingIsRight: (rows, codeOf) => payoutPostingIsRight(rows, codeOf, [PAYOUT_ACCOUNTS.dividends], dollars),
+        expected: `как должна быть (Дт ${PAYOUT_ACCOUNTS.dividends} Кт ${EXPENSE_ACCOUNTS.cash})`,
+      };
+    }
+    const supplier = pickSupplier(await counterpartsNow(), operation.counterparty ?? "");
+    if ("reason" in supplier) return { status: "blocked", reason: supplier.reason };
+    const contracts = await client!.all(CONTRACT_ENTITY, "Ref_Key,Description,Owner_Key,ВидДоговора,DeletionMark", `Owner_Key eq guid'${supplier.key}'`);
+    const contract = contracts.find((row) => row.DeletionMark !== true && row["ВидДоговора"] === "СПоставщиком");
+    if (!contract) return { status: "blocked", reason: `у контрагента «${supplier.name}» в 1С нет договора с поставщиком` };
+    const body = supplierBody({ ...settings!, kassaKey }, read.lists, order, { counterpart: supplier.key, name: supplier.name, contract: String(contract.Ref_Key) });
+    if ("reason" in body) return { status: "blocked", reason: String(body.reason) };
+    return {
+      ...common,
+      body,
+      what: `${money(dollars, "USD")}, оплата поставщику «${supplier.name}» по договору «${String(contract.Description)}», дата ${date}`,
+      fields: ["ВидОперации", "СтатьяДвиженияДенежныхСредств_Key", "КассаОрганизации_Key", "Выдать"],
+      postingIsRight: (rows, codeOf) => payoutPostingIsRight(rows, codeOf, [PAYOUT_ACCOUNTS.suppliers, PAYOUT_ACCOUNTS.supplierAdvances], dollars),
+      expected: `как должна быть (Дт ${PAYOUT_ACCOUNTS.supplierAdvances} или ${PAYOUT_ACCOUNTS.suppliers} Кт ${EXPENSE_ACCOUNTS.cash})`,
     };
   }
 

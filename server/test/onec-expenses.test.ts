@@ -174,25 +174,69 @@ describe("writing the expenses of the cash desk to 1C", () => {
 
   it("leaves money handed to the owner and money given back to a client to a person", async () => {
     const { started, ivan, category } = await desk();
-    const supplier = await category({ kind: "expense", label: "Оплата поставщикам (подрядчикам)", requiresCounterparty: true });
     const salary = await category({ kind: "expense", label: "Выплата заработной платы", requiresEmployee: true });
     const moved = await category({ kind: "expense", label: "Внутреннее перемещение денежных средств" });
-    await post(started, ivan, expense({ category: supplier, counterparty: "Андрей" }));
     await post(started, ivan, expense({ category: salary, employee: "Ислом" }));
     await post(started, ivan, expense({ category: moved }));
-    expect((await until(started, "skipped", 3)).map((row) => row.detail)).toEqual([
-      "оплата поставщику записывается в 1С вручную",
+    expect((await until(started, "skipped", 2)).map((row) => row.detail)).toEqual([
       "выплата сотруднику записывается в 1С вручную",
       "перемещение между кассами записывается в 1С вручную",
     ]);
     await started.query("DELETE FROM onec_outbox");
 
-    await post(started, ivan, expense({ category: "owner_handover" }));
     await post(started, ivan, expense({ category: "client_refund", clientCode: "А406" }));
-    const rows = await until(started, "skipped", 2);
+    const rows = await until(started, "skipped");
 
-    expect(rows.map((row) => row.detail)).toEqual(["выплата владельцу записывается в 1С вручную", "возврат клиенту записывается в 1С вручную"]);
+    expect(rows.map((row) => row.detail)).toEqual(["возврат клиенту записывается в 1С вручную"]);
     expect(onec.expenses).toHaveLength(0);
+  });
+
+  it("writes money handed to the owner as dividends to the founder the base paid last", async () => {
+    onec.expenses.push({ Ref_Key: randomUUID(), Number: "0000-С00905", Date: "2026-10-24T12:00:02", Posted: true, DeletionMark: false, ВидОперации: "ВыплатаДивидендовИлиПроцентов", Контрагент: "founder-key" });
+    const { started, ivan } = await desk();
+
+    await post(started, ivan, expense({ category: "owner_handover", amountMinor: 100_000, comment: "ремонт" }));
+    await until(started, "written");
+
+    expect(onec.expenses[1]).toMatchObject({
+      ВидОперации: "ВыплатаДивидендовИлиПроцентов",
+      Контрагент: "founder-key",
+      СуммаДокумента: 1000,
+      СуммаВыплаты: 1000,
+      СчетРасчетовКонтрагентов_Key: "acc-6610",
+      СтатьяДвиженияДенежныхСредств_Key: keyOf("dds", "Выплата дивидендов"),
+      ТипВыплатыДивидендовИлиПроцентов: "Дивиденды",
+      Выдать: "Учредитель",
+      Posted: true,
+    });
+  });
+
+  it("writes a payment to a supplier to the counterpart of that very name and their contract, and waits when the base has none", async () => {
+    const supplier = randomUUID();
+    onec.counterparts.push({ Ref_Key: supplier, Description: "Андрей Аренда", ИНН: "", DeletionMark: false, IsFolder: false });
+    onec.contracts.push({ Ref_Key: "contract-rent", Description: "Аренда склада", Owner_Key: supplier, ВидДоговора: "СПоставщиком", DeletionMark: false });
+    const { started, ivan, category } = await desk();
+    const paid = await category({ kind: "expense", label: "Оплата поставщикам (подрядчикам)", requiresCounterparty: true });
+
+    await post(started, ivan, expense({ category: paid, counterparty: "андрей  аренда", amountMinor: 1_162_700 }));
+    await until(started, "written");
+    expect(onec.expenses[0]).toMatchObject({
+      ВидОперации: "ОплатаПоставщику",
+      Контрагент: supplier,
+      ДоговорКонтрагента_Key: "contract-rent",
+      СуммаДокумента: 11627,
+      СтатьяДвиженияДенежныхСредств_Key: keyOf("dds", "Оплата поставщикам (подрядчикам)"),
+      Выдать: "Андрей Аренда",
+      Posted: true,
+    });
+    expect(onec.expenses[0]!["РасшифровкаПлатежа"]).toEqual([
+      expect.objectContaining({ ДоговорКонтрагента_Key: "contract-rent", СуммаПлатежа: 11627, СчетУчетаРасчетовСКонтрагентом_Key: "acc-6010", СчетУчетаРасчетовПоАвансам_Key: "acc-4310" }),
+    ]);
+
+    await post(started, ivan, expense({ category: paid, counterparty: "Неизвестный" }));
+    const rows = await until(started, "blocked");
+    expect(rows[1]!.detail).toContain("нет контрагента с названием «Неизвестный»");
+    expect(onec.expenses).toHaveLength(1);
   });
 
   it("only says what would be written in the rehearsal, and writes nothing", async () => {

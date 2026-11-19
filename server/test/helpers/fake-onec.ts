@@ -8,7 +8,7 @@ export const KEYS = {
   kassa: "0d2cb474-924a-11f1-8cb7-b8cb29f61f4c",
   currency: "542c581a-49bf-11ef-afed-8c1d965e9add",
 };
-const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430", "2010": "acc-2010", "9030.1": "acc-9030.1", "9130.1": "acc-9130.1" } as const;
+const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430", "2010": "acc-2010", "9030.1": "acc-9030.1", "9130.1": "acc-9130.1", "6610": "acc-6610", "6010": "acc-6010", "4310": "acc-4310" } as const;
 const SERVICES = "Document_ОказаниеУслуг";
 const RECEIPTS = "Document_ПриходныйКассовыйОрдер";
 const EXPENSES = "Document_РасходныйКассовыйОрдер";
@@ -19,7 +19,7 @@ const LISTS: Record<string, string[]> = {
   Catalog_НоменклатурныеГруппы: ["Основная группа"],
   Catalog_Номенклатура: ["Рейс"],
 };
-const FLOW_ITEMS = ["Толкач", "обед", "Прочие расходы Москва", "Прочие расходы Андижан"];
+const FLOW_ITEMS = ["Толкач", "обед", "Прочие расходы Москва", "Прочие расходы Андижан", "Выплата дивидендов", "Оплата поставщикам (подрядчикам)"];
 export const keyOf = (list: string, name: string) => `${list}:${name}`;
 const PAYMENT_ITEM = "dds-payment-from-buyers";
 
@@ -158,6 +158,8 @@ export async function startFakeOneC(): Promise<FakeOneC> {
       if (request.method === "GET" && entity && path === `/${entity}`) {
         const at = /Date ge datetime'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         const department = /ПодразделениеОрганизации_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        const kind = /ВидОперации eq '([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        if (kind) return page(documents.filter((row) => row["ВидОперации"] === kind && row.Posted === true));
         if (department) return page(documents.filter((row) => row["ПодразделениеОрганизации_Key"] === department && row.DeletionMark !== true));
         return page(documents.filter((row) => row.Date === at));
       }
@@ -201,7 +203,7 @@ export async function startFakeOneC(): Promise<FakeOneC> {
           entity === SERVICES
             ? (document["Контрагенты"] as Json[]).map((line) => ({ AccountDr_Key: ACCOUNTS["4010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["9030.1"], Сумма: line["Сумма"] }))
             : entity === EXPENSES
-            ? [{ AccountDr_Key: wrong ? ACCOUNTS["4010"] : document["СчетУчетаРасчетовСКонтрагентом_Key"], AccountCr_Key: ACCOUNTS["5010"], Сумма: sum }]
+            ? [{ AccountDr_Key: wrong ? ACCOUNTS["4010"] : document["ВидОперации"] === "ОплатаПоставщику" ? ACCOUNTS["4310"] : (document["СчетРасчетовКонтрагентов_Key"] ?? document["СчетУчетаРасчетовСКонтрагентом_Key"]), AccountCr_Key: ACCOUNTS["5010"], Сумма: sum }]
             : [{ AccountDr_Key: ACCOUNTS["5010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["6310"], Сумма: sum }],
         );
         wrong = false;
