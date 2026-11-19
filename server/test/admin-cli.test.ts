@@ -165,6 +165,25 @@ describe("admin command line: onec-check", () => {
     return database.url;
   }
 
+  it("onec-look reads a base it has never written to and changes nothing in it, with the address and the login alone", async () => {
+    const url = await world();
+    const result = await runCli(["onec-look"], { DATABASE_URL: url, ONEC_ODATA_URL: onec.url, ONEC_ODATA_USER: "kassa", ONEC_ODATA_PASSWORD: "secret" });
+    expect(result.code, result.stderr).toBe(0);
+    // What this base lets be read is printed; what it does not is said and passed over.
+    expect(result.stdout).toContain("=== Catalog_Контрагенты ===");
+    expect(result.stdout).toContain("=== Catalog_СтатьиДвиженияДенежныхСредств ===");
+    expect(result.stdout).toMatch(/не прочитано: список объектов/);
+    expect(result.stdout).toContain("В базе ничего не изменено.");
+    expect(onec.documents).toHaveLength(0);
+    // The password is nowhere in what is printed.
+    expect(result.stdout + result.stderr).not.toContain("secret");
+
+    // Without the address there is nothing to look at.
+    const none = await runCli(["onec-look"], { DATABASE_URL: url });
+    expect(none.code).not.toBe(0);
+    expect(none.stderr).toContain("ONEC_ODATA_URL");
+  });
+
   it("reads the settings of 1C under their own names, and looks even while the writing is off", async () => {
     const url = await world();
 

@@ -1,0 +1,99 @@
+import type { Json, OneCClient } from "../onec-api.js";
+
+/**
+ * A look at a base of 1C that changes nothing in it: what it holds and how its documents are filled in. Before the
+ * cash desk is taught to write to a base it has never seen (another company, another configuration), somebody has to
+ * read that base: its organizations, cash desks and currencies, how its counterparties and contracts are named, the
+ * items of its cash flow, its accounts, and a few of its own cash orders and sales as the accountant made them. This
+ * prints all of that as text. Every question is asked by itself: one that the base refuses is said and passed over.
+ */
+
+/** The lists that are read whole (they are short), and what is read of each row. */
+const WHOLE = ["Catalog_Организации", "Catalog_Кассы", "Catalog_Валюты", "Catalog_СтатьиДвиженияДенежныхСредств", "Catalog_СтатьиЗатрат", "Catalog_ПрочиеДоходыИРасходы", "Catalog_ВидыНоменклатуры"];
+/** The lists that may be long: how many rows, and the first of them whole. */
+const SAMPLED = ["Catalog_Контрагенты", "Catalog_ДоговорыКонтрагентов", "Catalog_Номенклатура", "Catalog_Сотрудники", "Catalog_ФизическиеЛица"];
+/** Names of documents worth looking at: cash orders, sales, services, entries made by hand. */
+const DOCUMENTS = /^Document_(ПриходныйКассовыйОрдер|РасходныйКассовыйОрдер|Реализация[^_]*|АктОбОказании[^_]*|ОказаниеУслуг[^_]*|ОперацияБух|Операция|ПоступлениеНаРасчетныйСчет|СписаниеСРасчетногоСчета)$/;
+
+const short = (value: unknown) => JSON.stringify(value, null, 1).replace(/\n\s*/g, " ");
+
+export async function lookAtOneC(client: OneCClient, say: (line: string) => void): Promise<void> {
+  const title = (text: string) => say(`\n=== ${text} ===`);
+  const ask = async (what: string, work: () => Promise<void>) => {
+    try {
+      await work();
+    } catch (error) {
+      say(`  (не прочитано: ${what}: ${(error as Error).message})`);
+    }
+  };
+
+  // What the base publishes at all.
+  let names: string[] = [];
+  title("Что опубликовано в базе");
+  await ask("список объектов", async () => {
+    const root = (await client.get("/")) as { value?: Array<{ name?: string }> };
+    names = (root.value ?? []).map((item) => item.name ?? "").filter(Boolean);
+    const count = (prefix: string) => names.filter((name) => name.startsWith(prefix)).length;
+    say(`  объектов: ${names.length}; справочников: ${count("Catalog_")}, документов: ${count("Document_")}, регистров накопления: ${count("AccumulationRegister_")}, регистров бухгалтерии: ${count("AccountingRegister_")}`);
+    say(`  документы: ${names.filter((name) => name.startsWith("Document_") && !name.includes("_", 9)).join(", ")}`);
+    say(`  планы счетов: ${names.filter((name) => name.startsWith("ChartOfAccounts_") && !name.includes("_", 16)).join(", ")}`);
+    say(`  регистры бухгалтерии: ${names.filter((name) => name.startsWith("AccountingRegister_") && !name.includes("_", 19)).join(", ")}`);
+  });
+  const has = (name: string) => names.length === 0 || names.includes(name);
+
+  for (const entity of WHOLE) {
+    if (!has(entity)) continue;
+    title(entity);
+    await ask(entity, async () => {
+      const rows = await client.all(entity, "Ref_Key,Code,Description,IsFolder,DeletionMark");
+      for (const row of rows) say(`  ${row.DeletionMark ? "(удалён) " : ""}${row.IsFolder ? "[папка] " : ""}${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")} | ${String(row.Ref_Key ?? "")}`);
+      if (rows.length === 0) say("  (пусто)");
+    });
+  }
+
+  for (const entity of SAMPLED) {
+    if (!has(entity)) continue;
+    title(entity);
+    await ask(entity, async () => {
+      const rows = await client.all(entity, "Ref_Key,Code,Description,IsFolder,DeletionMark");
+      const live = rows.filter((row) => !row.DeletionMark && !row.IsFolder);
+      say(`  строк: ${rows.length}; папок: ${rows.filter((row) => row.IsFolder).length}; помечено на удаление: ${rows.filter((row) => row.DeletionMark).length}`);
+      for (const row of rows.filter((item) => item.IsFolder)) say(`  [папка] ${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")} | ${String(row.Ref_Key ?? "")}`);
+      say("  первые названия:");
+      for (const row of live.slice(0, 40)) say(`    ${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")}`);
+      // One row with everything it has: which fields a row of this list is made of.
+      const whole = (await client.get(`/${entity}`, { $top: "2", $filter: "IsFolder eq false and DeletionMark eq false" })) as { value?: Json[] };
+      for (const row of whole.value ?? []) say(`  целиком: ${short(row)}`);
+    });
+  }
+
+  // The accounts of the chart, by code.
+  for (const chart of names.filter((name) => name.startsWith("ChartOfAccounts_") && !name.includes("_", 16))) {
+    title(chart);
+    await ask(chart, async () => {
+      const rows = await client.all(chart, "Ref_Key,Code,Description");
+      for (const row of rows.sort((one, other) => String(one.Code).localeCompare(String(other.Code)))) say(`  ${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")} | ${String(row.Ref_Key ?? "")}`);
+    });
+  }
+
+  // The documents the accountant made: the last few of each kind, whole, and the entries each one made in the books.
+  const registers = names.filter((name) => name.startsWith("AccountingRegister_") && name.endsWith("_RecordType"));
+  for (const entity of names.filter((name) => DOCUMENTS.test(name))) {
+    title(entity);
+    await ask(entity, async () => {
+      const last = (await client.get(`/${entity}`, { $top: "3", $orderby: "Date desc", $filter: "Posted eq true" })) as { value?: Json[] };
+      const documents = last.value ?? [];
+      if (documents.length === 0) say("  (проведённых документов нет)");
+      for (const document of documents) {
+        say(`  документ: ${short(document)}`);
+        for (const register of registers) {
+          await ask(`проводки ${register}`, async () => {
+            const entries = (await client.get(`/${register}`, { $top: "20", $filter: `Recorder eq cast(guid'${String(document.Ref_Key)}', '${entity}')` })) as { value?: Json[] };
+            for (const entry of entries.value ?? []) say(`    проводка: ${short(entry)}`);
+          });
+        }
+      }
+    });
+  }
+  say("\nГотово. В базе ничего не изменено.");
+}

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
@@ -29,6 +29,8 @@ import { parseWarehouses } from "../warehouses.js";
 import { readCategoryFile, setCategories } from "./categories.js";
 import { importHistory, type HistoryFile } from "./history.js";
 import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
+import { lookAtOneC } from "./onec-look.js";
+import { createOneCClient } from "../onec-api.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -92,6 +94,9 @@ Commands:
 
   onec-check                          look at 1C and change nothing: does it answer, are the accounts, the item of the
                                       payments, the organization, the cash desk and the currency of the settings there
+  onec-look      [--out <file>]       read a base of 1C that the cash desk has not written to yet, and change nothing:
+                                      what it holds, how its counterparties are named, a few of its cash orders and
+                                      sales as the accountant made them (needs ONEC_ODATA_URL, _USER, _PASSWORD)
   onec-status    [--limit <n>]        the payments of clients in the queue for 1C: written, waiting, failed
   onec-retry     --id <n>             put a payment that failed, waits, was skipped or was only rehearsed back in the queue
   onec-skip      --id <n>             do not write this payment to 1C (what is in 1C already stays there)
@@ -122,6 +127,7 @@ async function main(): Promise<void> {
       id: { type: "string" },
       limit: { type: "string" },
       file: { type: "string" },
+      out: { type: "string" },
     },
   });
 
@@ -349,6 +355,22 @@ async function main(): Promise<void> {
         const good = await checkOneC(settings!, (line) => console.log(line), written);
         if (!good) throw new AdminError("1C is not ready: see the lines marked ПРОБЛЕМА above");
         console.log("Всё готово.");
+        break;
+      }
+      case "onec-look": {
+        // Only the address and the login are needed: the base is read, and nothing of the rest is known yet.
+        const [address, user, password] = (["ONEC_ODATA_URL", "ONEC_ODATA_USER", "ONEC_ODATA_PASSWORD"] as const).map((name) => onecSetting(process.env, name).value?.trim());
+        if (!address || !user || password === undefined) throw new AdminError("onec-look needs ONEC_ODATA_URL, ONEC_ODATA_USER and ONEC_ODATA_PASSWORD in the settings file");
+        const lines: string[] = [];
+        await lookAtOneC(createOneCClient({ url: address, user, password }), (line) => {
+          if (values.out === undefined) console.log(line);
+          else lines.push(line);
+        });
+        if (values.out !== undefined) {
+          // With the mark of UTF-8 at the start: Notepad of Windows reads the Russian names right.
+          writeFileSync(values.out, "\ufeff" + lines.join("\r\n") + "\r\n", "utf8");
+          console.log(`Written to ${values.out}: ${lines.length} lines. Nothing was changed in 1C.`);
+        }
         break;
       }
       case "onec-status": {
