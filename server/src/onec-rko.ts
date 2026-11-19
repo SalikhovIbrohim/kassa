@@ -252,3 +252,25 @@ export function pickSupplier(counterparts: readonly Json[], name: string): { key
   if (found.length > 1) return { reason: `в 1С несколько контрагентов с названием «${name.trim()}»` };
   return { key: String(found[0]!.Ref_Key), name: String(found[0]!.Description) };
 }
+
+const TRANSFER_FLOW = "Внутреннее перемещение денежных средств";
+
+/** Money moved to another cash desk: «Прочий расход», the cash against the cash, filed under the item of moving money and the desk it went to. */
+export function transferBody(settings: Common, lists: ExpenseLists, order: ExpenseOrder, toKassaKey: string): Json | { reason: string } {
+  const flow = named(lists.flowItems, TRANSFER_FLOW);
+  if (!flow) return { reason: `в 1С нет статьи движения денег «${TRANSFER_FLOW}»` };
+  const none = "00000000-0000-0000-0000-000000000000";
+  return {
+    ...header(settings, lists, order),
+    ВидОперации: "ПрочийРасход",
+    СчетУчетаРасчетовСКонтрагентом_Key: lists.accounts.cash,
+    СубконтоДт1: flow.key,
+    СубконтоДт1_Type: "StandardODATA.Catalog_СтатьиДвиженияДенежныхСредств",
+    СубконтоДт2: toKassaKey,
+    СубконтоДт2_Type: "StandardODATA.Catalog_КассыОрганизаций",
+    ПодразделениеОрганизации_Key: none,
+    ПодразделениеДт_Key: none,
+    СтатьяДвиженияДенежныхСредств_Key: flow.key,
+    Выдать: order.recipient,
+  };
+}

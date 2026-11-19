@@ -180,7 +180,7 @@ describe("writing the expenses of the cash desk to 1C", () => {
     await post(started, ivan, expense({ category: moved }));
     expect((await until(started, "skipped", 2)).map((row) => row.detail)).toEqual([
       "выплата сотруднику записывается в 1С вручную",
-      "перемещение между кассами записывается в 1С вручную",
+      "перемещение без кассы-получателя записывается в 1С вручную",
     ]);
     await started.query("DELETE FROM onec_outbox");
 

@@ -29,6 +29,11 @@ export type Category = {
    * (a payment the owner took in Tashkent, written down by the cashier of Moscow); null: the desk of the person.
    */
   intoKassa: Kassa | null;
+  /**
+   * It moves money between the cash desks of the business. An expense of it names the desk the money went to and
+   * is written with an income of that desk, of the category of incomes that says the same.
+   */
+  transfer: boolean;
   /** The Telegram group is told of the entries of this category (see `groupEvents`). */
   notifyGroup: boolean;
   /** False for the money handed to the owner: it leaves the cash desk but is not a cost of the business. */
@@ -47,6 +52,7 @@ type CategoryRow = {
   requires_employee: boolean;
   city: Kassa | null;
   into_kassa: Kassa | null;
+  transfer: boolean;
   counts_as_cost: boolean;
   notify_group: boolean;
 };
@@ -64,6 +70,7 @@ export function toCategory(row: CategoryRow): Category {
     requiresEmployee: row.requires_employee,
     city: row.city,
     intoKassa: row.into_kassa,
+    transfer: row.transfer,
     countsAsCost: row.counts_as_cost,
     notifyGroup: row.notify_group,
   };
@@ -72,7 +79,7 @@ export function toCategory(row: CategoryRow): Category {
 /** Every category, archived ones too, incomes first, each kind in its order. */
 export async function readCategories(db: Queryable): Promise<Category[]> {
   const found = await db.query<CategoryRow>(
-    `SELECT code, kind, label, sort_order, archived, requires_client, requires_trip, requires_counterparty, requires_employee, city, into_kassa, counts_as_cost, notify_group
+    `SELECT code, kind, label, sort_order, archived, requires_client, requires_trip, requires_counterparty, requires_employee, city, into_kassa, transfer, counts_as_cost, notify_group
        FROM categories ORDER BY kind DESC, sort_order, code`,
   );
   return found.rows.map(toCategory);

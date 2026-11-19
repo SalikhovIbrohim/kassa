@@ -60,6 +60,8 @@ describe("income and balances", () => {
         recipient: null,
         clientCode: "K17",
         tripNumber: null,
+        toKassa: null,
+        transferOf: null,
         counterparty: null,
         employee: null,
         comment: "за рейс в Ташкент",

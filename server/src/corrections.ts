@@ -62,11 +62,16 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
     },
     async (request, reply) => {
       // A correction that leaves the category as it is stays valid after the category was archived.
-      const stored = await pool.query<{ category: string | null; client_code: string | null; kassa: string }>("SELECT category, client_code, kassa FROM operations WHERE id = $1", [request.params.id]);
+      const stored = await pool.query<{ category: string | null; client_code: string | null; kassa: string; to_kassa: string | null }>("SELECT category, client_code, kassa, to_kassa FROM operations WHERE id = $1", [request.params.id]);
       const categories = await readCategories(pool);
-      const normalized = normalizeEntry(request.body, categories, stored.rows[0]?.category);
+      const normalized = normalizeEntry(request.body, categories, stored.rows[0]?.category, { toKassa: stored.rows[0]?.to_kassa ?? null });
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
+      }
+      // Money moved to another desk stays money moved to that desk, and no other expense becomes one: the income of
+      // the other desk was written with it. What was entered wrongly is deleted and entered anew.
+      if (stored.rows[0] && (normalized.toKassa !== stored.rows[0].to_kassa || (stored.rows[0].to_kassa !== null && !categories.find((item) => item.code === normalized.fields.category)?.transfer))) {
+        return reply.code(409).send({ error: "transfer_cannot_change" });
       }
       // An entry stays in the desk it was written into. A category that sends its money to another desk cannot be
       // given to it: that would be other money, entered anew.
@@ -145,6 +150,8 @@ function answer(reply: FastifyReply, result: ChangeResult) {
       return reply.code(409).send({ error: "operation_deleted" });
     case "kind_changed":
       return reply.code(409).send({ error: "type_cannot_change" });
+    case "transfer_income":
+      return reply.code(409).send({ error: "transfer_income" });
     case "currency_not_kept":
       return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by the cash desk of this entry" });
   }

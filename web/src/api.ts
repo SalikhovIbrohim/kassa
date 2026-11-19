@@ -152,6 +152,10 @@ export type Operation = {
   tripNumber?: number | null;
   counterparty?: string | null;
   employee?: string | null;
+  /** Of an expense that moved money to another cash desk: that desk. */
+  toKassa?: string | null;
+  /** Of the income such an expense wrote into the other desk: the id of the expense. It is corrected through it. */
+  transferOf?: string | null;
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
@@ -208,6 +212,8 @@ export type Category = {
    * Tashkent, written down in Moscow); null or absent: the desk of the person.
    */
   intoKassa?: City | null;
+  /** It moves money between the cash desks: an expense of it names the desk the money went to. */
+  transfer?: boolean;
   /** False when it is of another city than the person's: the entry forms do not show it. Absent means shown. */
   offered?: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
@@ -342,6 +348,7 @@ function keptCategories(): Category[] | null {
       notifyGroup: item.notifyGroup ?? true,
       ...(item.city !== undefined && { city: item.city }),
       ...(item.intoKassa !== undefined && { intoKassa: item.intoKassa }),
+      ...(item.transfer !== undefined && { transfer: item.transfer }),
       ...(item.offered !== undefined && { offered: item.offered }),
     }));
   } catch {
@@ -411,6 +418,8 @@ export type OperationInput =
       tripNumber?: number;
       counterparty?: string;
       employee?: string;
+      /** Only for a category that moves money between the cash desks: the desk it went to. */
+      toKassa?: string;
     });
 
 export type OperationResult =

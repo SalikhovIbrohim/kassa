@@ -7,7 +7,14 @@ import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
 import type { Outbox } from "./outbox.js";
+import { createHash } from "node:crypto";
 import { NO_NUL, UUID } from "./schemas.js";
+
+/** The id of the income that an expense moving money writes into the other desk: always the same for the same expense. */
+export function transferIncomeId(expenseId: string): string {
+  const hex = createHash("sha256").update(`kassa.transfer.${expenseId.toLowerCase()}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 const MAX_SUGGESTIONS = 8;
 
@@ -181,6 +188,25 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by this cash desk" });
       }
 
+      // Money moved to another desk: that desk is another one of the business, keeps this money, and the business has
+      // a category of incomes for what comes in this way.
+      let transfer: { toKassa: Kassa; incomeId: string; incomeCategory: string; incomeComment: string } | undefined;
+      if (normalized.toKassa !== null) {
+        if (normalized.toKassa === kassa) return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/toKassa is the cash desk of the entry itself" });
+        if (!kassas.currenciesOf(normalized.toKassa).includes(normalized.fields.currency)) {
+          return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by the cash desk the money goes to" });
+        }
+        const income = categories.find((item) => item.kind === "income" && item.transfer && !item.archived);
+        if (!income) return reply.code(409).send({ error: "no_transfer_income_category" });
+        const from = `Из кассы ${kassas.labelOf(kassa)}`;
+        transfer = {
+          toKassa: normalized.toKassa,
+          incomeId: transferIncomeId(body.id),
+          incomeCategory: income.code,
+          incomeComment: normalized.fields.comment ? `${from}: ${normalized.fields.comment}`.slice(0, 500) : from,
+        };
+      }
+
       const recorded = await recordOperation(pool, {
         id: body.id,
         kind: normalized.kind,
@@ -188,6 +214,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
+        transfer,
       }, kassas, events);
       // The messages were written with the operation; now that it is committed, the worker is asked to send them.
       if (recorded.status === "created") outbox.nudge();

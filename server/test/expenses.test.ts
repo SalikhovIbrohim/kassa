@@ -80,6 +80,8 @@ describe("expenses", () => {
         recipient: "Азамат",
         clientCode: null,
         tripNumber: null,
+        toKassa: null,
+        transferOf: null,
         counterparty: null,
         employee: null,
         comment: "заправка, рейс 17",
@@ -263,7 +265,7 @@ describe("expenses", () => {
         label: "Топливо и дорога",
         sortOrder: 1,
         archived: false,
-        requiresClient: false, requiresTrip: false, requiresCounterparty: false, requiresEmployee: false, city: null, intoKassa: null,
+        requiresClient: false, requiresTrip: false, requiresCounterparty: false, requiresEmployee: false, city: null, intoKassa: null, transfer: false,
         countsAsCost: true,
         notifyGroup: true,
       });

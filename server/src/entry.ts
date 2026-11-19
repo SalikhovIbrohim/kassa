@@ -42,6 +42,8 @@ export type ExpenseEntry = {
   /** Required when the category asks for the employee, and not allowed otherwise. */
   employee?: string;
   comment?: string;
+  /** The cash desk the money went to: required when the category moves money between the desks, and not allowed otherwise. */
+  toKassa?: Kassa;
 };
 
 /** The cash desk it goes to (one of the installation's, see `Kassas`). */
@@ -95,6 +97,7 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
           type: { type: "string", const: "expense" },
           category: categoryProperty,
           recipient: { type: "string", maxLength: 100, pattern: NO_NUL },
+          toKassa: kassas.property,
           clientCode: clientCodeProperty,
           tripNumber: tripNumberProperty,
           counterparty: counterpartyProperty,
@@ -105,7 +108,7 @@ export function entrySchema(extra: { properties: Record<string, unknown>; requir
   };
 }
 
-export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot } | { error: string };
+export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot; /** The desk the money went to, of an expense that moves it. */ toKassa: Kassa | null } | { error: string };
 
 /**
  * Cleans the text (see `cleanText`), turns blanks into "nothing", and applies the rules the schema cannot:
@@ -114,12 +117,26 @@ export type NormalizedEntry = { kind: "income" | "expense"; fields: Snapshot } |
  * and a correction that leaves the category alone are not turned away); a category that names a client needs
  * one, any other does not take one; a rate goes with rubles only, and an income in rubles must have one.
  */
-export function normalizeEntry(body: Entry, categories: readonly Category[], keep?: string | null): NormalizedEntry {
+export function normalizeEntry(body: Entry, categories: readonly Category[], keep?: string | null, stored?: { toKassa: Kassa | null }): NormalizedEntry {
   const comment = cleanText(body.comment ?? "") || null;
   const code = body.category ?? (body.type === "income" ? DEFAULT_INCOME_CATEGORY : undefined);
   const category = categories.find((item) => item.code === code && item.kind === body.type);
   if (!category) return { error: `body/category is not a category of ${body.type === "income" ? "incomes" : "expenses"}` };
   if (category.archived && category.code !== keep) return { error: "body/category is not in use any more" };
+
+  // Money moved between the desks is entered once, by the desk that sends it: the income of the other desk is written
+  // with it. An income of such a category that is there already (of before this was so) may be corrected.
+  if (category.transfer && body.type === "income" && category.code !== keep) return { error: `body/category ${category.label} is entered as an expense of the desk that sends the money` };
+  let toKassa: Kassa | null = null;
+  if (body.type === "expense") {
+    if (category.transfer) {
+      // A correction keeps the desk the money went to; an entry of before the desks were named has none.
+      toKassa = body.toKassa ?? stored?.toKassa ?? null;
+      if (toKassa === null && stored === undefined) return { error: `body/toKassa is required for the category ${category.label}` };
+    } else if (body.toKassa !== undefined) {
+      return { error: `body/toKassa is not allowed for the category ${category.label}` };
+    }
+  }
 
   const recipient = body.type === "expense" ? cleanText(body.recipient ?? "") || null : null;
   let clientCode: string | null = null;
@@ -161,6 +178,7 @@ export function normalizeEntry(body: Entry, categories: readonly Category[], kee
 
   return {
     kind: body.type,
+    toKassa,
     fields: {
       amountMinor: body.amountMinor,
       currency: body.currency,

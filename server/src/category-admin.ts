@@ -36,7 +36,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
   /** One change at a time, so that two taps cannot each see the same order and number two categories alike. */
   const lockCategories = (client: pg.ClientBase) => client.query("SELECT pg_advisory_xact_lock(hashtext('kassa.categories'))");
 
-  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; city?: Kassa | null; intoKassa?: Kassa | null } }>(
+  app.post<{ Body: { kind: "income" | "expense"; label: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; city?: Kassa | null; intoKassa?: Kassa | null; transfer?: boolean } }>(
     "/api/admin/categories",
     {
       onRequest: admin,
@@ -57,6 +57,8 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             city: cityProperty,
             // The desk the money of its entries goes into; null is the desk of whoever enters it.
             intoKassa: cityProperty,
+            // It moves money between the cash desks (see `Category.transfer`).
+            transfer: { type: "boolean" },
           },
         },
       },
@@ -70,9 +72,9 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
           // A code is made once and never changes, so it says nothing about the label that it started with.
           const code = `c_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
           await client.query(
-            `INSERT INTO categories (code, kind, label, sort_order, requires_client, notify_group, requires_trip, requires_counterparty, requires_employee, city, into_kassa)
-             VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order) FROM categories WHERE kind = $2), 0) + 1, $4, $5, $6, $7, $8, $9, $10)`,
-            [code, request.body.kind, label, request.body.requiresClient ?? false, request.body.notifyGroup ?? true, request.body.requiresTrip ?? false, request.body.requiresCounterparty ?? false, request.body.requiresEmployee ?? false, request.body.city ?? null, request.body.intoKassa ?? null],
+            `INSERT INTO categories (code, kind, label, sort_order, requires_client, notify_group, requires_trip, requires_counterparty, requires_employee, city, into_kassa, transfer)
+             VALUES ($1, $2, $3, COALESCE((SELECT max(sort_order) FROM categories WHERE kind = $2), 0) + 1, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            [code, request.body.kind, label, request.body.requiresClient ?? false, request.body.notifyGroup ?? true, request.body.requiresTrip ?? false, request.body.requiresCounterparty ?? false, request.body.requiresEmployee ?? false, request.body.city ?? null, request.body.intoKassa ?? null, request.body.transfer ?? false],
           );
           return code;
         });
@@ -87,7 +89,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
 
   app.patch<{
     Params: { code: string };
-    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: "income" | "expense"; city?: Kassa | null; intoKassa?: Kassa | null };
+    Body: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: "income" | "expense"; city?: Kassa | null; intoKassa?: Kassa | null; transfer?: boolean };
   }>(
     "/api/admin/categories/:code",
     {
@@ -112,6 +114,7 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
             city: cityProperty,
             // The desk the money of its entries goes into; null is the desk of whoever enters it.
             intoKassa: cityProperty,
+            transfer: { type: "boolean" },
             move: { type: "string", enum: ["up", "down"] },
             // Where to put it in the list of its kind, counted from 0 (dragged there with the mouse); past the end is the end.
             position: { type: "integer", minimum: 0, maximum: 1000 },
@@ -160,9 +163,10 @@ export async function registerCategoryAdmin(app: FastifyInstance, options: Categ
                     requires_trip = COALESCE($6, requires_trip), requires_counterparty = COALESCE($7, requires_counterparty),
                     requires_employee = COALESCE($8, requires_employee),
                     city = CASE WHEN $9::boolean THEN $10 ELSE city END,
-                    into_kassa = CASE WHEN $11::boolean THEN $12 ELSE into_kassa END
+                    into_kassa = CASE WHEN $11::boolean THEN $12 ELSE into_kassa END,
+                    transfer = COALESCE($13, transfer)
               WHERE code = $1`,
-            [code, label ?? null, change.requiresClient ?? null, change.archived ?? null, change.notifyGroup ?? null, change.requiresTrip ?? null, change.requiresCounterparty ?? null, change.requiresEmployee ?? null, change.city !== undefined, change.city ?? null, change.intoKassa !== undefined, change.intoKassa ?? null],
+            [code, label ?? null, change.requiresClient ?? null, change.archived ?? null, change.notifyGroup ?? null, change.requiresTrip ?? null, change.requiresCounterparty ?? null, change.requiresEmployee ?? null, change.city !== undefined, change.city ?? null, change.intoKassa !== undefined, change.intoKassa ?? null, change.transfer ?? null],
           );
 
           if (change.move !== undefined) {

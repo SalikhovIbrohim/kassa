@@ -682,6 +682,8 @@ export function Journal({ mode, login, isAdmin = false, active = true, onSession
                         withDate={mode === "viewer"}
                         canChange={
                           operation.deletedAt === null &&
+                          // The income of money moved from another desk is corrected through the expense of that desk.
+                          !operation.transferOf &&
                           (isAdmin || (mode === "cashier" && login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase() && withinOwnDay(operation)))
                         }
                         labels={labels}
@@ -811,6 +813,7 @@ function OperationRow({
     operation.tripNumber && `Рейс ${operation.tripNumber}`,
     operation.counterparty && `Контрагент: ${operation.counterparty}`,
     operation.employee && `Сотрудник: ${operation.employee}`,
+    operation.toKassa && `В кассу: ${labelOf(operation.toKassa)}`,
   ]
     .filter(Boolean)
     .join(" · ");
