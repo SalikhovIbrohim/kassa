@@ -551,6 +551,26 @@ textarea.inp{height:auto;min-height:76px;padding:12px 16px;resize:vertical}
 #xlist{container-type:inline-size}
 @container (max-width:600px){.xth>:nth-child(n+5),.xtr>:nth-child(n+5){display:none}.xth,.xtr{grid-template-columns:64px minmax(0,1fr) 104px 80px}}
 .xpanel>*{flex-shrink:0}
+/* ЖУРНАЛ-ИТОГИ-СВЕРКИ: под кнопками Telegram и под нижней панелью ничего не просвечивает */
+.app .tg-fade{height:calc(var(--safe-top) + var(--cs) + 16px);background:linear-gradient(180deg,var(--bg1) 74%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none;-webkit-mask-image:none;mask-image:none}
+.app .tb-fade{height:calc(var(--safe-bot) + 100px);background:linear-gradient(0deg,var(--bg1) 60%,transparent)}
+.xact{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-4px 0 12px}
+.chip.xrm{height:30px;padding:0 8px 0 12px;font-size:12.5px;background:var(--fill-2);color:var(--fg);box-shadow:none;gap:4px}
+.xall{font-size:12.5px;font-weight:600;color:var(--fg2);padding:0 8px;height:30px}
+.xf2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.xf2 .inp{min-width:0;width:100%}
+.xrec{padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+.xrec+.xrec{border-top:1px solid var(--sep)}
+.xrec-h{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.xrec-h .rb{min-width:0}
+.xrec-r{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
+.xrec-r div{display:flex;flex-direction:column;gap:2px;min-width:0;white-space:nowrap}
+.xrec-r span{font-size:11.5px;font-weight:500;color:var(--fg2)}
+.xrec-r div:last-child{align-items:flex-end}
+.xfb{position:relative}
+.xfb .cnt{position:absolute;top:-3px;right:-3px;background:var(--accent);color:var(--on-accent);font-weight:700}
+.app:not(.web) .chips.xpre{overflow:visible;gap:6px}
+.app:not(.web) .chips.xpre .chip{flex:1;justify-content:center;padding:0 6px}
 </style>
 
 <div class="shell" id="shell">
@@ -1659,6 +1679,46 @@ function swEnd(){
  if(s.dy>90)closeSheet();
 }
 document.addEventListener('pointerup',swEnd);document.addEventListener('pointercancel',swEnd);
+
+/* ===== ЖУРНАЛ-ИТОГИ-СВЕРКИ: «Обновить» в шапке, фильтр шторкой, сверка тремя числами ===== */
+PRESETS[3][1]='Месяц';
+const refBtn=()=>`<button class="icon-btn" data-act="refresh" aria-label="Обновить" title="Обновить">${ic('refresh',18)}</button>`;
+const J_DEF={cur:'all',type:'all',cat:'all',user:'all',del:'hide'};
+function jActive(){const j=S.ui.j,a=[];
+ if(j.type!=='all')a.push(['type',j.type==='in'?'Приход':'Расход']);
+ if(j.cur!=='all')a.push(['cur',CUR_N[j.cur]]);
+ if(j.cat!=='all')a.push(['cat',catName(j.cat)]);
+ if(j.user!=='all')a.push(['user',shortName(j.user)]);
+ if(j.del!=='hide')a.push(['del',j.del==='only'?'Только удалённые':'С удалёнными']);
+ return a}
+IC.cal='M4 6.5h16v13H4zM4 10.5h16M8 4v4M16 4v4';
+const presetRow=(act,cur)=>`<div class="chips xpre" role="group" aria-label="Период">${PRESETS.map(([v,l])=>chip(act,v,l,cur===v)).join('')}</div>`;
+function swapChips(body,html){const i=body.indexOf('<div class="chips" role="group" aria-label="Период">'),e=i<0?-1:body.indexOf('</div>',i);return e<0?body:body.slice(0,i)+html+body.slice(e+6)}
+const baseJournal=P.journal;
+P.journal=()=>{const r=baseJournal();if(isCashierRole()||!online())return r;
+ const a=jActive(),j=S.ui.j,nf=a.length+(j.preset==='custom'?1:0);
+ r.action=`<button class="icon-btn xfb" data-act="jFilters" aria-label="Фильтры${nf?', включено: '+nf:''}" title="Фильтры">${ic('filter',18)}${nf?`<span class="cnt">${nf}</span>`:''}</button>`+refBtn()+(r.action||'');
+ r.body=swapChips(r.body,presetRow('jPreset',j.preset)+(a.length?`<div class="xact" role="group" aria-label="Включённые фильтры">${a.map(([k,l])=>`<button class="chip xrm" data-act="jClear" data-v="${k}" aria-label="Убрать фильтр: ${esc(l)}">${esc(l)}${ic('close',13,2.4)}</button>`).join('')}${a.length>1?`<button class="xall" data-act="jReset">Сбросить все</button>`:''}</div>`:''));
+ return r};
+const baseTotals=P.totals;
+P.totals=()=>{const r=baseTotals();if(!online())return r;const T=S.ui.tot,cu=T.preset==='custom';const[f,t]=periodRange(T.preset,T.from,T.to);
+ r.action=`<button class="icon-btn xfb" data-act="tCustom" aria-label="Свой период" title="Свой период">${ic('cal',18)}${cu?'<span class="cnt">1</span>':''}</button>`+refBtn()+(r.action||'');
+ r.body=swapChips(r.body,presetRow('tPreset',T.preset)+(cu?`<div class="xact"><button class="chip xrm" data-act="tPreset" data-v="today" aria-label="Убрать свой период">${dayLabel(f,false)} – ${dayLabel(t,false)}${ic('close',13,2.4)}</button></div>`:''));
+ return r};
+for(const k of ['recs']){const o=P[k];P[k]=()=>{const r=o();if(online())r.action=refBtn()+(r.action||'');return r}}
+ACT.jClear=el=>{const k=el.dataset.v;S.ui.j[k]=J_DEF[k];S.ui.j.limit=40;rer();save()};
+ACT.jFilters=()=>{const j=S.ui.j,vc=viewCities(),t=todayKey();const[from,to]=periodRange(j.preset,j.from,j.to);
+ const f=(id,l,html)=>`<div class="frow"><label for="${id}">${l}</label>${html}</div>`;
+ openSheet({title:'Фильтры',body:`<div class="frow"><span class="lbl">Период</span><div class="xf2"><input class="inp" type="date" id="jf-from" value="${from}" max="${t}" aria-label="С"><input class="inp" type="date" id="jf-to" value="${to}" max="${t}" aria-label="По"></div></div>
+ <div class="xf2">${f('jf-type','Тип',selectHTML('jf-type','',[['all','Все'],['in','Приход'],['out','Расход']],j.type,'Тип'))}${f('jf-cur','Валюта',selectHTML('jf-cur','',[['all','Все'],...['RUB','USD'].filter(c=>vc.some(x=>curs(x).includes(c))).map(c=>[c,CUR_N[c]])],j.cur,'Валюта'))}</div>
+ <div class="xf2">${f('jf-cat','Категория',selectHTML('jf-cat','',[['all','Все'],...D().cats.filter(c=>c.city==='all'||vc.includes(c.city)).map(c=>[c.id,(c.type==='in'?'↓ ':'↑ ')+c.name+(c.archived?' (в архиве)':'')])],j.cat,'Категория'))}${f('jf-user','Кассир',selectHTML('jf-user','',[['all','Все'],...D().users.filter(u=>u.role!=='viewer').map(u=>[u.id,u.name])],j.user,'Кассир'))}</div>
+ ${canSeeDel()?f('jf-del','Удалённые записи',selectHTML('jf-del','',[['hide','Скрывать'],['show','Показывать'],['only','Только удалённые']],j.del,'Удалённые записи')):''}`,
+ foot:`<div style="display:flex;gap:8px"><button class="btn" style="flex:1;height:48px" data-act="jReset">Сбросить</button><button class="btn acc" style="flex:2;height:48px" data-act="sheetSave">Показать</button></div>`,onSave:()=>{
+  const fr=$('#jf-from').value,tt=$('#jf-to').value;const[pf,pt]=periodRange(j.preset,j.from,j.to);if(fr&&tt&&(fr!==pf||tt!==pt)){j.preset='custom';j.from=fr<=tt?fr:tt;j.to=fr<=tt?tt:fr}
+  j.cur=$('#jf-cur').value;j.type=$('#jf-type').value;j.cat=$('#jf-cat').value;j.user=$('#jf-user').value;const d=$('#jf-del');if(d)j.del=d.value;j.limit=40;save();closeSheet();renderPage(null)}})};
+recRow=function(r){const many=viewCities().length>1,bad=r.rows.filter(x=>Math.abs(x.diff)>.005);
+ const badge=!bad.length?'<span class="badge g">Сошлось</span>':bad.some(x=>x.diff<0)?'<span class="badge r">Недостача</span>':'<span class="badge a">Излишек</span>';
+ return `<div class="xrec"><div class="xrec-h"><span class="rb"><span class="rt"><span class="tx">${esc(shortName(r.user))}</span></span><span class="rs">${many?`<b style="font-weight:650;color:var(--fg)">${CITY_S[r.city]}</b> · `:''}${dtMsk(r.ts)} МСК</span></span>${badge}</div>${r.rows.map(x=>{const d=Math.abs(x.diff)>.005;return `<div class="xrec-r"><div><span>По книге, ${SYM[x.cur]}</span>${money(x.book)}</div><div><span>Насчитано</span>${money(x.counted)}</div><div class="${d?(x.diff<0?'xr':'xa'):'xz'}"><span>Разница</span>${d?(x.diff<0?'−':'+')+money(Math.abs(x.diff)):'0'}</div></div>`}).join('')}</div>`};
 
 /* ---------- запуск ---------- */
 load();

@@ -43,6 +43,24 @@ export function Shell(props: Props) {
   const title = SECTIONS[active].label;
   // The tab under the lens: the section itself, or «Настройки» for a section opened from there.
   const activeTab = tabs.includes(active) ? active : "settings";
+  // The name of the page is said in the row of Telegram's buttons only once the page's own name has gone up under
+  // them: two names of one page are not read at once. A form has no name of its own on the page: there it is always said.
+  const pageTitle = useRef<HTMLDivElement>(null);
+  const fade = useRef<HTMLDivElement>(null);
+  const [titleGone, setTitleGone] = useState(compact);
+  useEffect(() => {
+    const look = () => {
+      const own = pageTitle.current;
+      setTitleGone(!own || own.getBoundingClientRect().bottom <= (fade.current?.offsetHeight ?? 0) - 12);
+    };
+    look();
+    window.addEventListener("scroll", look, { passive: true });
+    window.addEventListener("resize", look);
+    return () => {
+      window.removeEventListener("scroll", look);
+      window.removeEventListener("resize", look);
+    };
+  }, [active, compact]);
 
   return (
     <div className="min-h-dvh min-[960px]:grid min-[960px]:grid-cols-[264px_minmax(0,1fr)]" data-signed-in data-section={active}>
@@ -127,7 +145,7 @@ export function Shell(props: Props) {
             </button>
           )}
           {!compact && (
-            <div className="flex items-center gap-3 min-[960px]:hidden">
+            <div className="flex items-center gap-3 min-[960px]:hidden" ref={pageTitle}>
               <span aria-hidden="true" className="grid size-10 flex-none place-items-center rounded-[12px] bg-primary text-[19px] font-extrabold text-primary-foreground">
                 К
               </span>
@@ -139,8 +157,8 @@ export function Shell(props: Props) {
         </div>
       </div>
 
-      <div className="tg-fade" aria-hidden="true" />
-      <div className="tg-title" aria-hidden="true">
+      <div className="tg-fade" aria-hidden="true" ref={fade} />
+      <div className="tg-title" aria-hidden="true" data-shown={titleGone || undefined}>
         {title}
       </div>
       <TabBar tabs={tabs} active={activeTab} onOpen={onOpen} />
@@ -227,6 +245,7 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
       )}
       data-keyboard-up={keyboardUp || undefined}
     >
+      <div className="tb-fade" aria-hidden="true" />
       <div
         ref={bar}
         role="tablist"

@@ -246,7 +246,9 @@
     padding-top: calc(var(--app-safe-top) + 12px);
     padding-bottom: calc(var(--app-safe-bottom) + 104px);
   }
-  /* Telegram full screen: the name of the page in the row of Telegram's buttons, and the page fading out under them. */
+  /* Telegram full screen: the name of the page in the row of Telegram's buttons (once the page's own name has gone
+     up out of sight, see Shell.tsx), and under them a ground of the page's own color: nothing of the page shows
+     through the row of the buttons, and it fades out only at its lower edge. */
   .tg-title,
   .tg-fade {
     display: none;
@@ -267,17 +269,19 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s;
+  }
+  .tg-fullscreen .tg-title[data-shown] {
+    opacity: 1;
   }
   .tg-fullscreen .tg-fade {
     position: fixed;
     inset: 0 0 auto 0;
     z-index: 20;
     display: block;
-    height: calc(var(--app-safe-top) + 4px);
-    background: linear-gradient(180deg, var(--fade) 55%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    mask-image: linear-gradient(#000 60%, transparent);
+    height: calc(var(--app-safe-top) + 16px);
+    background: linear-gradient(180deg, var(--background) 74%, transparent);
     pointer-events: none;
   }
   @media (min-width: 960px) {
@@ -288,6 +292,15 @@
   }
   .tabbar-wrap {
     padding-bottom: calc(var(--app-safe-bottom) + 8px);
+  }
+  /* The same ground under the tab bar: the page does not show through around the bar, and fades in above it. */
+  .tb-fade {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: -1;
+    height: calc(var(--app-safe-bottom) + 100px);
+    background: linear-gradient(0deg, var(--background) 60%, transparent);
+    pointer-events: none;
   }
 
   /* The amount of a balance scales with the width of its card and the number of characters, so that a six- or seven-figure
