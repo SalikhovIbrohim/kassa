@@ -693,7 +693,7 @@ describe("the database of before the desks came from the settings", () => {
       );
     const was = (await stored()).rows[0];
 
-    expect(await migrate(pool)).toEqual(["0023_kassas_from_settings.sql", "0024_client_codes.sql", "0025_trips.sql", "0026_waybills_and_history.sql", "0027_debt_closings.sql", "0028_category_into_kassa.sql"]);
+    expect(await migrate(pool)).toEqual(["0023_kassas_from_settings.sql", "0024_client_codes.sql", "0025_trips.sql", "0026_waybills_and_history.sql", "0027_debt_closings.sql", "0028_category_into_kassa.sql", "0029_onec_trips.sql"]);
 
     expect((await stored()).rows[0]).toEqual(was);
     expect(was.operations).toEqual([[andijan, "andijan", "USD"], [moscow, "moscow", "RUB"]]);
