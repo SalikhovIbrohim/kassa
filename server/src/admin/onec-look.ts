@@ -9,7 +9,25 @@ import type { Json, OneCClient } from "../onec-api.js";
  */
 
 /** The lists that are read whole (they are short), and what is read of each row. */
-const WHOLE = ["Catalog_Организации", "Catalog_Кассы", "Catalog_Валюты", "Catalog_СтатьиДвиженияДенежныхСредств", "Catalog_СтатьиЗатрат", "Catalog_ПрочиеДоходыИРасходы", "Catalog_ВидыНоменклатуры"];
+const WHOLE = [
+  "Catalog_Организации",
+  "Catalog_Кассы",
+  "Catalog_Валюты",
+  "Catalog_ПодразделенияОрганизаций",
+  "Catalog_НоменклатурныеГруппы",
+  "Catalog_Пользователи",
+  "Catalog_СтатьиДвиженияДенежныхСредств",
+  "Catalog_СтатьиЗатрат",
+  "Catalog_ПрочиеДоходыИРасходы",
+  "Catalog_ВидыНоменклатуры",
+];
+/** Of these documents the last few hundred are counted by how they are filled in: which kinds, accounts, items and desks go together. */
+const COUNTED: Record<string, string[]> = {
+  Document_РасходныйКассовыйОрдер: ["ВидОперации", "СчетУчетаРасчетовСКонтрагентом_Key", "СубконтоДт1", "СубконтоДт2", "СубконтоДт3", "СтатьяДвиженияДенежныхСредств_Key", "ПодразделениеОрганизации_Key", "ПодразделениеДт_Key", "КассаОрганизации_Key", "ВалютаДокумента_Key", "Контрагент", "Ответственный_Key"],
+  Document_ПриходныйКассовыйОрдер: ["ВидОперации", "СтатьяДвиженияДенежныхСредств_Key", "КассаОрганизации_Key", "ВалютаДокумента_Key", "СчетУчетаРасчетовСКонтрагентом_Key", "Ответственный_Key"],
+  Document_ОказаниеУслуг: ["ПодразделениеОрганизации_Key", "Номенклатура_Key", "СчетДоходов_Key", "СчетРасходов_Key", "ВалютаДокумента_Key", "Ответственный_Key"],
+};
+const COUNTED_LAST = 400;
 /** The lists that may be long: how many rows, and the first of them whole. */
 const SAMPLED = ["Catalog_Контрагенты", "Catalog_ДоговорыКонтрагентов", "Catalog_Номенклатура", "Catalog_Сотрудники", "Catalog_ФизическиеЛица"];
 /** Names of documents worth looking at: cash orders, sales, services, entries made by hand. */
@@ -40,12 +58,25 @@ export async function lookAtOneC(client: OneCClient, say: (line: string) => void
     say(`  регистры бухгалтерии: ${names.filter((name) => name.startsWith("AccountingRegister_") && !name.includes("_", 19)).join(", ")}`);
   });
   const has = (name: string) => names.length === 0 || names.includes(name);
+  /** The rows of a list with what every list has of them; a list that is no tree, or has no codes, is asked for less. */
+  const anyRows = async (entity: string): Promise<Json[]> => {
+    for (const select of ["Ref_Key,Code,Description,IsFolder,DeletionMark", "Ref_Key,Code,Description,DeletionMark", "Ref_Key,Description,DeletionMark"]) {
+      try {
+        return await client.all(entity, select);
+      } catch (error) {
+        if (!/не найден/i.test((error as Error).message)) throw error;
+      }
+    }
+    return client.all(entity, "Ref_Key,Description");
+  };
+  // Every list that has to do with cash desks, whatever this base calls it.
+  for (const name of names) if (/^Catalog_[^_]*Касс[^_]*$/.test(name) && !WHOLE.includes(name)) WHOLE.push(name);
 
   for (const entity of WHOLE) {
     if (!has(entity)) continue;
     title(entity);
     await ask(entity, async () => {
-      const rows = await client.all(entity, "Ref_Key,Code,Description,IsFolder,DeletionMark");
+      const rows = await anyRows(entity);
       for (const row of rows) say(`  ${row.DeletionMark ? "(удалён) " : ""}${row.IsFolder ? "[папка] " : ""}${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")} | ${String(row.Ref_Key ?? "")}`);
       if (rows.length === 0) say("  (пусто)");
     });
@@ -55,14 +86,14 @@ export async function lookAtOneC(client: OneCClient, say: (line: string) => void
     if (!has(entity)) continue;
     title(entity);
     await ask(entity, async () => {
-      const rows = await client.all(entity, "Ref_Key,Code,Description,IsFolder,DeletionMark");
+      const rows = await anyRows(entity);
       const live = rows.filter((row) => !row.DeletionMark && !row.IsFolder);
       say(`  строк: ${rows.length}; папок: ${rows.filter((row) => row.IsFolder).length}; помечено на удаление: ${rows.filter((row) => row.DeletionMark).length}`);
       for (const row of rows.filter((item) => item.IsFolder)) say(`  [папка] ${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")} | ${String(row.Ref_Key ?? "")}`);
       say("  первые названия:");
       for (const row of live.slice(0, 40)) say(`    ${String(row.Code ?? "").trim()} | ${String(row.Description ?? "")}`);
       // One row with everything it has: which fields a row of this list is made of.
-      const whole = (await client.get(`/${entity}`, { $top: "2", $filter: "IsFolder eq false and DeletionMark eq false" })) as { value?: Json[] };
+      const whole = (await client.get(`/${entity}`, { $top: "2", $filter: rows.some((row) => "IsFolder" in row) ? "IsFolder eq false and DeletionMark eq false" : "DeletionMark eq false" })) as { value?: Json[] };
       for (const row of whole.value ?? []) say(`  целиком: ${short(row)}`);
     });
   }
@@ -81,6 +112,30 @@ export async function lookAtOneC(client: OneCClient, say: (line: string) => void
   for (const entity of names.filter((name) => DOCUMENTS.test(name))) {
     title(entity);
     await ask(entity, async () => {
+      // How many there are and from when to when; and, of the cash orders and the acts, how the last of them are filled in.
+      await ask("сколько", async () => {
+        const first = (await client.get(`/${entity}`, { $top: "1", $orderby: "Date asc", $select: "Date,Number", $filter: "Posted eq true" })) as { value?: Json[] };
+        const count = (await client.get(`/${entity}`, { $top: "1", $select: "Ref_Key", $filter: "Posted eq true", $inlinecount: "allpages" })) as { "odata.count"?: string };
+        say(`  проведённых: ${count["odata.count"] ?? "?"}; первый: ${String(first.value?.[0]?.Date ?? "-")} № ${String(first.value?.[0]?.Number ?? "-")}`);
+      });
+      const fields = COUNTED[entity];
+      if (fields) {
+        await ask("как заполнены", async () => {
+          const recent = (await client.get(`/${entity}`, { $top: String(COUNTED_LAST), $orderby: "Date desc", $filter: "Posted eq true", $select: [...fields, "Комментарий", "Date"].join(",") })) as { value?: Json[] };
+          const rows = recent.value ?? [];
+          say(`  последние ${rows.length} (с ${String(rows[rows.length - 1]?.Date ?? "-")}): какие значения полей встречаются вместе, сколько раз, и пример комментария`);
+          const seen = new Map<string, { count: number; comments: string[] }>();
+          for (const row of rows) {
+            const key = fields.map((field) => `${field}=${String(row[field] ?? "")}`).filter((part) => !/=(|00000000-0000-0000-0000-000000000000)$/.test(part)).join("; ");
+            const known = seen.get(key) ?? { count: 0, comments: [] };
+            known.count += 1;
+            const comment = String(row["Комментарий"] ?? "").trim();
+            if (comment && known.comments.length < 4 && !known.comments.includes(comment)) known.comments.push(comment);
+            seen.set(key, known);
+          }
+          for (const [key, value] of [...seen].sort((one, other) => other[1].count - one[1].count)) say(`    ${value.count} × ${key}  // ${value.comments.join(" | ")}`);
+        });
+      }
       const last = (await client.get(`/${entity}`, { $top: "3", $orderby: "Date desc", $filter: "Posted eq true" })) as { value?: Json[] };
       const documents = last.value ?? [];
       if (documents.length === 0) say("  (проведённых документов нет)");
