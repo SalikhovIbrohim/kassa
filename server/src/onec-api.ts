@@ -22,6 +22,11 @@ export type OneCSettings = {
    * the day's corrections and the day's average rate are final; left out, at once.
    */
   send?: "night" | "now";
+  /**
+   * A client of the cash desk who has no counterpart in the base gets one made, with a contract, when the first
+   * document that names them is written (`ONEC_CREATE_CLIENTS=yes`). Without it such a document waits for a person.
+   */
+  createClients?: boolean;
 };
 
 /**

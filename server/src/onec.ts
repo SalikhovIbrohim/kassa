@@ -7,6 +7,11 @@ import { mergeEvents, type LedgerEvents } from "./ledger.js";
 import { createOneCClient, OneCError, type Json, type OneCClient, type OneCSettings } from "./onec-api.js";
 import {
   clientCodeOf,
+  CONTRACT_ENTITY,
+  contractBody,
+  COUNTERPART_ENTITY,
+  counterpartBody,
+  type ClientCode,
   documentDate,
   dollarsOf,
   pickContract,
@@ -150,6 +155,53 @@ export function createOneC(options: OneCOptions): OneC {
     return counterparts.rows;
   }
 
+  /**
+   * The counterpart and the contract of a client in the base. Where the settings say so, a client the base does not
+   * have is made there with a contract, as its own clients are (and a contract alone, for a counterpart without one):
+   * by the name the directory of the cash desk has. In the rehearsal nothing is made: it is said what would be.
+   */
+  async function counterpartOf(
+    code: ClientCode,
+  ): Promise<{ picked: { found: true; counterpart: { key: string; name: string } }; contract: { key: string; name: string } } | { reason: string } | { wouldMake: string }> {
+    const make = settings!.createClients === true;
+    let picked = pickCounterpart(await counterpartsNow(), code, clientCodes);
+    if (!picked.found) {
+      if (!picked.none || !make) return { reason: picked.reason };
+      const known = await pool.query<{ name: string }>("SELECT name FROM clients WHERE code = $1", [code.code]);
+      const name = known.rows[0]?.name.trim();
+      if (!name) return { reason: `${picked.reason}, и в справочнике Кассы нет клиента с таким кодом: создать некого` };
+      const body = counterpartBody({ code: code.code, name }, await countryNow());
+      if (settings!.mode === "preview") return { wouldMake: `контрагент «${String(body.Description)}» с договором` };
+      const made = await client!.create(COUNTERPART_ENTITY, body);
+      counterparts = undefined;
+      picked = { found: true, counterpart: { key: String(made.Ref_Key), name: String(made.Description ?? body.Description) } };
+    }
+    const contracts = await client!.all(CONTRACT_ENTITY, "Ref_Key,Description,Owner_Key,ВидДоговора,DeletionMark", `Owner_Key eq guid'${picked.counterpart.key}'`);
+    let contract = pickContract(contracts, code.code);
+    if (!contract) {
+      if (!make) return { reason: `у контрагента «${picked.counterpart.name}» нет договора` };
+      if (settings!.mode === "preview") return { wouldMake: `договор контрагента «${picked.counterpart.name}»` };
+      const body = contractBody(settings!, picked.counterpart.key, code.code, Number(cashDayOf(today()).slice(0, 4)));
+      const made = await client!.create(CONTRACT_ENTITY, body);
+      contract = { key: String(made.Ref_Key), name: String(made.Description ?? body.Description) };
+    }
+    return { picked, contract };
+  }
+
+  /** The country the clients of the base are of: the one most of them have (a new client is made the same). */
+  let country: string | undefined | null = null;
+  async function countryNow(): Promise<string | undefined> {
+    if (country !== null) return country;
+    const some = (await client!.get(`/${COUNTERPART_ENTITY}`, { $top: "50", $select: "СтранаРегистрации_Key", $filter: "DeletionMark eq false" }).catch(() => ({ value: [] }))) as { value?: Json[] };
+    const counts = new Map<string, number>();
+    for (const row of some.value ?? []) {
+      const key = String(row["СтранаРегистрации_Key"] ?? "");
+      if (key && key !== "00000000-0000-0000-0000-000000000000") counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    country = [...counts].sort((one, other) => other[1] - one[1])[0]?.[0];
+    return country;
+  }
+
   async function claim(): Promise<Row | undefined> {
     const claimed = await pool.query<Row>(
       `WITH head AS (
@@ -203,11 +255,10 @@ export function createOneC(options: OneCOptions): OneC {
     try {
       const refs = await referencesNow();
       if ("missing" in refs) return { status: "blocked", reason: refs.missing };
-      const picked = pickCounterpart(await counterpartsNow(), code, clientCodes);
-      if (!picked.found) return { status: "blocked", reason: picked.reason };
-      const contracts = await client!.all("Catalog_ДоговорыКонтрагентов", "Ref_Key,Description,Owner_Key,ВидДоговора,DeletionMark", `Owner_Key eq guid'${picked.counterpart.key}'`);
-      const contract = pickContract(contracts, code.code);
-      if (!contract) return { status: "blocked", reason: `у контрагента «${picked.counterpart.name}» нет договора` };
+      const placed = await counterpartOf(code);
+      if ("reason" in placed) return { status: "blocked", reason: placed.reason };
+      if ("wouldMake" in placed) return { status: "preview", detail: `репетиция: был бы создан ${placed.wouldMake} и записан ПКО на ${money(dollars, "USD")}, дата ${documentDate(operation.created_at)}` };
+      const { picked, contract } = placed;
 
       const receipt = { date: documentDate(operation.created_at), dollarsMinor: dollars, comment: code.code };
       const kassaKey = kassaKeyOf(operation.kassa);

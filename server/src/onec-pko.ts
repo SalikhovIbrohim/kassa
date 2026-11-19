@@ -37,7 +37,8 @@ function keysOf(row: Json, codes: "letter" | "digits"): string[] {
   const name = cyrillic(String(row.Description ?? ""));
   const keys: string[] = [];
   if (codes === "digits") {
-    const digits = /^\s*(\d{1,9})\b/.exec(name);
+    // The code stands at the start of the name («757 Нурбек») or at its end («Нурбек 757»), as the base was filled in.
+    const digits = /^\s*(\d{1,9})\b/.exec(name) ?? /(?:^|\s)(\d{1,9})\s*$/.exec(name);
     if (digits) keys.push(digits[1]!);
     const number = String(row["ИНН"] ?? "").replace(/\D/g, "");
     if (number !== "" && Number(number) < 100_000) keys.push(String(Number(number)));
@@ -58,10 +59,10 @@ export function pickCounterpart(
   counterparts: readonly Json[],
   client: ClientCode,
   codes: "letter" | "digits" = "letter",
-): { found: true; counterpart: Counterpart } | { found: false; reason: string } {
+): { found: true; counterpart: Counterpart } | { found: false; reason: string; none?: true } {
   const live = counterparts.filter((row) => row.DeletionMark !== true && row.IsFolder !== true);
   let candidates = live.filter((row) => keysOf(row, codes).includes(client.code));
-  if (candidates.length === 0) return { found: false, reason: `в 1С нет контрагента с кодом ${client.code}` };
+  if (candidates.length === 0) return { found: false, reason: `в 1С нет контрагента с кодом ${client.code}`, none: true };
   if (client.name !== "") {
     const named = candidates.filter((row) => String(row.Description ?? "").toLowerCase().includes(client.name.toLowerCase()));
     if (named.length === 0) {
@@ -83,6 +84,39 @@ export function pickContract(contracts: readonly Json[], code: string): { key: s
   const own = live.find((row) => String(row.Description ?? "").startsWith(`№${code} `));
   const found = own ?? live.find((row) => row["ВидДоговора"] === "СПокупателем");
   return found ? { key: String(found.Ref_Key), name: String(found.Description) } : null;
+}
+
+export const COUNTERPART_ENTITY = "Catalog_Контрагенты";
+export const CONTRACT_ENTITY = "Catalog_ДоговорыКонтрагентов";
+
+/**
+ * A client of the cash desk as a counterpart of the base, the way its own are made: «Нурбек 757», a person, the code
+ * as the tax number in nine digits (the base finds a client by it). `country`: the country the other clients have.
+ */
+export function counterpartBody(client: { code: string; name: string }, country: string | undefined): Json {
+  const name = `${client.name} ${client.code}`.trim();
+  const digits = /^\d{1,9}$/.test(client.code) ? client.code.padStart(9, "0") : "";
+  return {
+    Description: name,
+    НаименованиеПолное: name,
+    ЮридическоеФизическоеЛицо: "ФизическоеЛицо",
+    ...(digits ? { ИНН: digits } : {}),
+    ...(country ? { СтранаРегистрации_Key: country } : {}),
+  };
+}
+
+/** The contract of a client with the company, as its own are made: «№757 от 01.01.2026», with a buyer, in the currency of the documents, for the year. */
+export function contractBody(settings: Pick<OneCSettings, "organizationKey" | "currencyKey">, owner: string, code: string, year: number): Json {
+  return {
+    Owner_Key: owner,
+    Description: `№${code} от 01.01.${year}`,
+    Номер: code,
+    Дата: `${year}-01-01T00:00:00`,
+    СрокДействия: `${year}-12-31T00:00:00`,
+    ВидДоговора: "СПокупателем",
+    ВалютаВзаиморасчетов_Key: settings.currencyKey,
+    Организация_Key: settings.organizationKey,
+  };
 }
 
 /** What the document is worth in dollars (cents): rubles at the rate of the entry, dollars as they are. Null while there is no rate. */

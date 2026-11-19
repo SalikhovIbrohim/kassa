@@ -113,6 +113,12 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return found ? answer(200, { Ref_Key: thing[2], Description: found }) : answer(404, { "odata.error": { message: { value: "Not Found" } } });
       }
       if (request.method === "GET" && path === "/Catalog_Контрагенты") return page(fake.counterparts);
+      // A counterpart or a contract made by the cash desk: kept as it was sent, with a key of its own.
+      if (request.method === "POST" && (path === "/Catalog_Контрагенты" || path === "/Catalog_ДоговорыКонтрагентов")) {
+        const row = { DeletionMark: false, IsFolder: false, ...(JSON.parse(raw) as Json), Ref_Key: randomUUID() };
+        (path === "/Catalog_Контрагенты" ? fake.counterparts : fake.contracts).push(row);
+        return answer(201, row);
+      }
       if (request.method === "GET" && path === "/Catalog_ДоговорыКонтрагентов") {
         const owner = /Owner_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         return page(fake.contracts.filter((row) => row.Owner_Key === owner));

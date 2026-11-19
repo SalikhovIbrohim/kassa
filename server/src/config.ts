@@ -285,6 +285,10 @@ export function loadOneC(env: NodeJS.ProcessEnv, kassas: Kassas = parseKassas(en
       return code.code;
     });
 
+  const creating = env.ONEC_CREATE_CLIENTS?.trim().toLowerCase() ?? "";
+  if (!["", "yes", "no"].includes(creating)) throw new Error(`ONEC_CREATE_CLIENTS must be yes or no, got "${env.ONEC_CREATE_CLIENTS}"`);
+  const createClients = creating === "yes";
+
   const writing = loadOneCKassas(env, kassas);
   // A key under the name of a desk that is not one (ONEC_KASSA_KEY_TASHKNET) would be left unread, and the payments of
   // the desk it was meant for would go to the cash desk of ONEC_KASSA_KEY: a wrong book in 1C, so not a start at all.
@@ -314,5 +318,6 @@ export function loadOneC(env: NodeJS.ProcessEnv, kassas: Kassas = parseKassas(en
     mode,
     onlyClients: clients.length > 0 ? clients : undefined,
     send,
+    ...(createClients ? { createClients } : {}),
   };
 }
