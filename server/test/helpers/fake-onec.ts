@@ -30,6 +30,8 @@ export type FakeOneC = {
   /** Puts right the entries of every posted document, as a person would in 1C. */
   fixPostings(): void;
   addClient(code: string, name: string): { counterpart: string; contract: string };
+  /** A cash payment order (РКО) the accountant made, with its entries (debit accounts by code). */
+  addPayment(document: Json, entries: Array<{ debit: keyof typeof ACCOUNTS; sum: number; analytics?: string[] }>): void;
   close(): Promise<void>;
 };
 
@@ -41,6 +43,7 @@ export async function startFakeOneC(): Promise<FakeOneC> {
   let wrong = false;
   const postings = new Map<string, Json[]>();
   let numbers = 1790;
+  const payments: Json[] = [];
 
   const fake: FakeOneC = {
     url: "",
@@ -61,6 +64,19 @@ export async function startFakeOneC(): Promise<FakeOneC> {
     },
     fixPostings() {
       for (const rows of postings.values()) for (const row of rows) row.AccountCr_Key = ACCOUNTS["6310"];
+    },
+    addPayment(document, entries) {
+      const ref = randomUUID();
+      payments.push({ Ref_Key: ref, Posted: true, ...document });
+      postings.set(
+        ref,
+        entries.map((entry) => ({
+          AccountDr_Key: ACCOUNTS[entry.debit],
+          AccountCr_Key: ACCOUNTS["5010"],
+          Сумма: entry.sum,
+          ...Object.fromEntries((entry.analytics ?? []).map((type, index) => [`ExtDimensionDr${index + 1}_Type`, `StandardODATA.Catalog_${type}`])),
+        })),
+      );
     },
     addClient(code, name) {
       const counterpart = randomUUID();
@@ -113,6 +129,8 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return found ? answer(200, { Ref_Key: thing[2], Description: found }) : answer(404, { "odata.error": { message: { value: "Not Found" } } });
       }
       if (request.method === "GET" && path === "/Catalog_Контрагенты") return page(fake.counterparts);
+      if (request.method === "GET" && path === "/Catalog_КассыОрганизаций") return page([{ Ref_Key: KEYS.kassa, Description: "Москва", DeletionMark: false }]);
+      if (request.method === "GET" && path === "/Document_РасходныйКассовыйОрдер") return page(payments.filter((row) => row.Posted === true));
       if (request.method === "GET" && path === "/Catalog_ДоговорыКонтрагентов") {
         const owner = /Owner_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         return page(fake.contracts.filter((row) => row.Owner_Key === owner));

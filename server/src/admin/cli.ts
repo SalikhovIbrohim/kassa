@@ -14,7 +14,7 @@ import { loadOneC } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
-import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
+import { checkOneC, onecRetry, onecSkip, onecStatus, studyExpenses } from "./onec.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -60,6 +60,8 @@ Commands:
   onec-check                          look at 1C and change nothing: does it answer, are the accounts, the item of the
                                       payments, the organization, the cash desk and the currency of the settings there
   onec-status    [--limit <n>]        the payments of clients in the queue for 1C: written, waiting, failed
+  onec-rko       [--limit <n>]        look at 1C and change nothing: how the last cash payment orders (РКО) are booked,
+                                      and the cash desks of the base with their keys
   onec-retry     --id <n>             put a payment that failed, waits, was skipped or was only rehearsed back in the queue
   onec-skip      --id <n>             do not write this payment to 1C (what is in 1C already stays there)
 
@@ -243,6 +245,18 @@ async function main(): Promise<void> {
         const good = await checkOneC(settings!, (line) => console.log(line));
         if (!good) throw new AdminError("1C is not ready: see the lines marked ПРОБЛЕМА above");
         console.log("Всё готово.");
+        break;
+      }
+      case "onec-rko": {
+        let settings;
+        try {
+          settings = loadOneC({ ...process.env, COSMO_1C_MODE: "preview" });
+        } catch (error) {
+          throw new AdminError(`${(error as Error).message} (in the settings file)`);
+        }
+        const limit = values.limit === undefined ? 300 : Number(values.limit);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 2000) throw new AdminError("--limit must be a number from 1 to 2000");
+        await studyExpenses(settings!, (line) => console.log(line), limit);
         break;
       }
       case "onec-status": {

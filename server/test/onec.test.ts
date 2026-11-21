@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import pg from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkOneC } from "../src/admin/onec.js";
-import { onecRetry, onecSkip, onecStatus } from "../src/admin/onec.js";
+import { onecRetry, onecSkip, onecStatus, studyExpenses } from "../src/admin/onec.js";
 import { AdminError } from "../src/admin/users.js";
 import type { OneCSettings } from "../src/onec-api.js";
 import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
@@ -567,6 +567,24 @@ describe("writing the payments of clients to 1C", () => {
       currencyKey: KEYS.currency,
       mode: "live",
       ...overrides,
+    });
+
+    it("onec-rko shows how the accountant books the expenses, grouped, and the cash desks with their keys, and changes nothing", async () => {
+      onec.addPayment({ Date: "2026-03-05T10:00:00", ВидОперации: "ПрочийРасход", СтатьяДвиженияДенежныхСредств_Key: "dds-payment-from-buyers", Основание: "Топливо фура 01", СуммаДокумента: 50 }, [{ debit: "9430", sum: 50, analytics: ["СтатьиЗатрат"] }]);
+      onec.addPayment({ Date: "2026-03-05T11:00:00", ВидОперации: "ПрочийРасход", СтатьяДвиженияДенежныхСредств_Key: "dds-payment-from-buyers", Основание: "Топливо фура 02", СуммаДокумента: 70 }, [{ debit: "9430", sum: 70, analytics: ["СтатьиЗатрат"] }]);
+      onec.addPayment({ Date: "2026-03-05T12:00:00", ВидОперации: "ВозвратДенежныхСредствПокупателю", Основание: "Возврат А406", СуммаДокумента: 10 }, [{ debit: "4010", sum: 10, analytics: ["Контрагенты", "ДоговорыКонтрагентов"] }]);
+      const lines: string[] = [];
+      await studyExpenses(settingsOf(), (line) => lines.push(line));
+      const text = lines.join("\n");
+
+      expect(text).toContain(`«Москва»  ${KEYS.kassa}`);
+      expect(text).toContain("Последние проведённые РКО: 3.");
+      expect(text).toContain("2 × ПрочийРасход | Дт 9430 | ДДС «Оплата от покупателей» | аналитика: СтатьиЗатрат");
+      expect(text).toContain("1 × ВозвратДенежныхСредствПокупателю | Дт 4010 | ДДС «—» | аналитика: Контрагенты, ДоговорыКонтрагентов");
+      expect(text).toContain("«Топливо фура 01», «Топливо фура 02»");
+      expect(text).toContain("заполненные поля: Date, Posted, ВидОперации, Основание, СтатьяДвиженияДенежныхСредств_Key, СуммаДокумента");
+      expect(onec.requests.some((line) => !line.startsWith("GET"))).toBe(false);
+      expect(text).not.toContain(onec.password);
     });
     const pools: pg.Pool[] = [];
     afterEach(async () => {
