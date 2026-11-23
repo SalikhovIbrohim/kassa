@@ -188,7 +188,7 @@ def read_waybills(folder):
     return sums, days, unread
 
 
-def read_card(path, until, cut, names, problems, waybills=None):
+def read_card(path, until, cut, names, problems, waybills=None, payments_cut=None):
     book = openpyxl.load_workbook(path, read_only=True, data_only=True)
     clients = {}  # code -> {name, opening, sheet}
     lines = []  # {code, trip, day, sum, sheet, row}
@@ -392,6 +392,12 @@ def read_card(path, until, cut, names, problems, waybills=None):
     if cut is not None:
         kept = [line for line in kept if arrival[line["trip"]] < cut]
         payments = [payment for payment in payments if payment["day"] < cut]
+    later = []
+    if payments_cut is not None:
+        # From that day the cash desk has the payments in its own book. A discount is no entry of the cash desk: it stays.
+        later = [payment for payment in payments if payment["day"] >= payments_cut and not payment["note"]]
+        payments = [payment for payment in payments if payment["day"] < payments_cut or payment["note"]]
+        read_card.later = later
     return clients, kept, arrival, payments, listed, passed_over, spread
 
 
@@ -400,6 +406,8 @@ def main():
     parser.add_argument("--card", required=True, help="the card file of clients (.xlsx)")
     parser.add_argument("--out", required=True, help="the history file to write (.json)")
     parser.add_argument("--until", help="YYYY-MM-DD: leave out the trips and the payments of this day and later (the cash desk keeps them itself from then on)")
+    parser.add_argument("--payments-until", help="YYYY-MM-DD: the day the cash desk began to take the payments itself: the payments of this day and later are left out (the trips and the discounts are not) and written to --later, to be compared with the journal of the cash desk")
+    parser.add_argument("--later", help="write the payments left out by --payments-until to this file (.csv)")
     parser.add_argument("--today", help="YYYY-MM-DD: the last day the card file can speak of (today unless said); a later date is a slip of the pen")
     parser.add_argument("--waybills", help="a folder with the waybills of the trips (.xlsx, .xls): they say the trip of a line that names none, and where the card file and a waybill disagree")
     parser.add_argument("--problems", help="write what a person has to look at to this file (.csv, opens in Excel)")
@@ -417,7 +425,18 @@ def main():
         way_sums, way_days, unread = read_waybills(args.waybills)
         waybills = (way_sums, way_days)
         print(f"waybills: {len(way_sums)} trips read" + (f"; not read: {', '.join(unread[:8])}{' ...' if len(unread) > 8 else ''}" if unread else ""))
-    clients, lines, arrival, payments, listed, passed_over, spread = read_card(args.card, today, cut, names, problems, waybills)
+    payments_cut = datetime.date.fromisoformat(args.payments_until) if args.payments_until else None
+    read_card.later = []
+    clients, lines, arrival, payments, listed, passed_over, spread = read_card(args.card, today, cut, names, problems, waybills, payments_cut)
+    if payments_cut is not None:
+        later = read_card.later
+        print(f"payments of {payments_cut.isoformat()} and later, left to the cash desk: {len(later)}, {sum(p['amount'] for p in later):,.2f}".replace(",", " "))
+        if args.later:
+            with open(args.later, "w", encoding="utf-8-sig", newline="") as out:
+                writer = csv.writer(out, delimiter=";")
+                writer.writerow(["День", "Код", "Сумма, $"])
+                for payment in sorted(later, key=lambda item: (item["day"], item["code"])):
+                    writer.writerow([payment["day"].isoformat(), payment["code"], str(round(payment["amount"], 2)).replace(".", ",")])
 
     money = lambda value: f"{value:,.2f}".replace(",", " ")
     # ---- what each client comes to, next to what the list «КЛИЕНТЫ» says of them (only where nothing was cut off)
