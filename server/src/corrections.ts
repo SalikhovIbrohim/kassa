@@ -74,7 +74,7 @@ export async function registerCorrections(app: FastifyInstance, options: Correct
   app.get<{ Params: { id: string } }>(
     "/api/operations/:id/history",
     {
-      onRequest: [app.authenticate, app.requireRole("viewer", "admin")],
+      onRequest: [app.authenticate, app.requireRole("viewer", "guest", "admin")],
       schema: { params: idParams, querystring: NO_QUERY },
     },
     async (request, reply) => {

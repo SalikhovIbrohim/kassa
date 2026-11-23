@@ -60,7 +60,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
   app.get<{ Querystring: SummaryQuery }>(
     "/api/summary",
     {
-      onRequest: [app.authenticate, app.requireRole("viewer", "admin")],
+      onRequest: [app.authenticate, app.requireRole("viewer", "guest", "admin")],
       schema: {
         querystring: {
           type: "object",

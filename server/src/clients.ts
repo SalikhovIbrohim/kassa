@@ -76,7 +76,11 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
     },
     async (request) => {
       const typed = cleanText(request.query.q ?? "");
-      const limit = Math.min(Number(request.query.limit ?? (typed ? 20 : 5000)), 5000);
+      // A guest gets what the form's suggestions need, and no more: a few codes and names for what he typed, never
+      // the whole directory, the phones or the notes.
+      const guest = request.user!.role === "guest";
+      if (guest && !typed) return { clients: [] };
+      const limit = guest ? 5 : Math.min(Number(request.query.limit ?? (typed ? 20 : 5000)), 5000);
       const code = clientCodeIn(typed);
       const codePrefix = (code ?? typed).toLowerCase().replace(/^a/, "а");
       const found = await pool.query<ClientRow>(
@@ -88,7 +92,8 @@ export async function registerClients(app: FastifyInstance, options: ClientsOpti
           LIMIT $4`,
         [request.query.all === "1", typed, codePrefix, limit],
       );
-      return { clients: found.rows.map(toClient) };
+      const clients = found.rows.map(toClient);
+      return { clients: guest ? clients.map((client) => ({ ...client, phone: null, note: null })) : clients };
     },
   );
 

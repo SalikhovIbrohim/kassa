@@ -125,12 +125,12 @@ describe("the admin role", () => {
     expect((await postJson(started, "/api/reconciliations", { ...count, id: randomUUID() }, ivan)).status).toBe(403);
   });
 
-  it("is a role the command line knows: only the four roles, and only for a user who is there", async () => {
+  it("is a role the command line knows: only the five roles, and only for a user who is there", async () => {
     const { started } = await desk();
 
     await expect(started.admin.setRole("ivan", "boss")).rejects.toThrow(AdminError);
     await expect(started.admin.setRole("nobody", "admin")).rejects.toThrow(/No user with login "nobody"/);
-    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "head_cashier", "admin" or "viewer/);
+    await expect(started.admin.createUser({ login: "kto", password: "some long pass", role: "boss" as never })).rejects.toThrow(/cashier", "head_cashier", "admin", "viewer" or "guest/);
   });
 
   it("takes an entry from a phone that was offline and still names a shift: the shifts are gone, the entry is not refused", async () => {

@@ -18,11 +18,12 @@ type Props = {
   active?: boolean;
 };
 
-const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", head_cashier: "Главный кассир", viewer: "Смотрящий", admin: "Админ" };
+const ROLE_LABEL: Record<Role, string> = { cashier: "Кассир", head_cashier: "Главный кассир", viewer: "Смотрящий", guest: "Гость", admin: "Админ" };
 const ROLE_HINT: Record<Role, string> = {
   cashier: "Кассир: вносит приходы и расходы, правит свои записи.",
   head_cashier: "Главный кассир: всё, что кассир, плюс кнопка «Сверить кассу». Сверяет кассу только он.",
   viewer: "Смотрящий (владелец): видит журнал, итоги, сверки, ведёт категории. Ничего не вносит.",
+  guest: "Гость: только смотрит журнал, итоги и сверки. Формы прихода и расхода видит и может заполнять, но ничего не сохраняется. Клиентов не видит.",
   admin: "Админ: вносит записи, видит всё, что смотрящий, ведёт пользователей. Кассу не сверяет.",
 };
 
@@ -208,7 +209,7 @@ function RoleField({ value, onChange, disabled }: { value: Role; onChange: (role
         value={value}
         disabled={disabled}
         onChange={(next) => onChange(next as Role)}
-        options={(["cashier", "head_cashier", "viewer", "admin"] as const).map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
+        options={(["cashier", "head_cashier", "viewer", "guest", "admin"] as const).map((role) => ({ value: role, label: ROLE_LABEL[role] }))}
       />
       <span className="text-sm font-normal text-muted-foreground">{disabled ? "Свою роль админ не меняет." : ROLE_HINT[value]}</span>
     </Label>

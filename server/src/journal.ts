@@ -221,7 +221,7 @@ export async function registerJournal(app: FastifyInstance, options: JournalOpti
   // also those whose access was withdrawn, since their old operations are still there.
   app.get(
     "/api/cashiers",
-    { onRequest: [app.authenticate, app.requireRole("viewer", "admin")] },
+    { onRequest: [app.authenticate, app.requireRole("viewer", "guest", "admin")] },
     async () => {
       const found = await pool.query<{ login: string; display_name: string }>(
         `SELECT login, display_name FROM users WHERE role IN ('cashier', 'head_cashier', 'admin') ORDER BY display_name, login`,

@@ -65,16 +65,17 @@ export function Icon({ name, size = 22, stroke = 1.8, className }: { name: IconN
 }
 
 export const SECTIONS: Record<SectionKey, SectionInfo> = {
-  income: { label: "Приход", icon: "income", roles: ["cashier", "head_cashier", "admin"] },
-  expense: { label: "Расход", icon: "expense", roles: ["cashier", "head_cashier", "admin"] },
-  journal: { label: "Журнал", icon: "journal", roles: ["cashier", "head_cashier", "admin", "viewer"] },
+  // The guest sees the forms too, to try them: nothing he enters is saved (see useEntry).
+  income: { label: "Приход", icon: "income", roles: ["cashier", "head_cashier", "admin", "guest"] },
+  expense: { label: "Расход", icon: "expense", roles: ["cashier", "head_cashier", "admin", "guest"] },
+  journal: { label: "Журнал", icon: "journal", roles: ["cashier", "head_cashier", "admin", "viewer", "guest"] },
   reconcile: { label: "Сверка", icon: "reconcile", roles: ["head_cashier"] },
-  totals: { label: "Итоги", icon: "totals", roles: ["admin", "viewer"] },
-  reconciliations: { label: "Сверки", icon: "reconciliations", roles: ["admin", "viewer"] },
+  totals: { label: "Итоги", icon: "totals", roles: ["admin", "viewer", "guest"] },
+  reconciliations: { label: "Сверки", icon: "reconciliations", roles: ["admin", "viewer", "guest"] },
   clients: { label: "Клиенты", icon: "clients", roles: ["admin", "viewer"] },
   categories: { label: "Категории", icon: "categories", roles: ["admin"] },
   users: { label: "Люди", icon: "users", roles: ["admin"] },
-  settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer"] },
+  settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer", "guest"] },
 };
 
 const ORDER: readonly SectionKey[] = ["income", "expense", "journal", "reconcile", "totals", "reconciliations", "clients", "categories", "users", "settings"];
@@ -95,6 +96,7 @@ const DEFAULT_TABS: Record<Role, readonly SectionKey[]> = {
   head_cashier: ["income", "expense", "journal", "reconcile"],
   admin: ["income", "journal", "totals", "clients"],
   viewer: ["journal", "totals", "reconciliations", "clients"],
+  guest: ["income", "expense", "journal", "totals"],
 };
 export const TAB_SLOTS = 4;
 

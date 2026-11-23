@@ -12,7 +12,8 @@ export const SESSION_COOKIE = "kassa_session";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer";
+/** The guest is shown the cash desk: he reads what the viewer reads, and no route that writes lets him in. */
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "guest";
 
 export type SessionUser = {
   id: string;

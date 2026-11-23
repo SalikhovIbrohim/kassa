@@ -6,9 +6,9 @@ import { hashPassword } from "../passwords.js";
  * the owner: he does what a cashier does (but does not reconcile),
  * reconciles the cash desk, and sees and settles what the viewer (the owner, who only looks) does.
  */
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer";
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "guest";
 
-export const ROLES: readonly Role[] = ["cashier", "head_cashier", "admin", "viewer"];
+export const ROLES: readonly Role[] = ["cashier", "head_cashier", "admin", "viewer", "guest"];
 
 /** A problem the developer can fix by changing the command (bad input, unknown login). */
 export class AdminError extends Error {}
@@ -62,7 +62,7 @@ export async function createUser(pool: pg.Pool, input: CreateUserInput): Promise
 
 function assertRole(role: string): asserts role is Role {
   if (!ROLES.includes(role as Role)) {
-    throw new AdminError('Role must be "cashier", "head_cashier", "admin" or "viewer"');
+    throw new AdminError('Role must be "cashier", "head_cashier", "admin", "viewer" or "guest"');
   }
 }
 

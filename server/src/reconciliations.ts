@@ -163,7 +163,7 @@ export async function registerReconciliations(app: FastifyInstance, options: Rec
   app.get<{ Querystring: { limit?: string; before?: string; kassa?: Kassa } }>(
     "/api/reconciliations",
     {
-      onRequest: [app.authenticate, app.requireRole("viewer", "admin")],
+      onRequest: [app.authenticate, app.requireRole("viewer", "guest", "admin")],
       schema: {
         querystring: {
           type: "object",

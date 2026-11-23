@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { EntryScreen, type Section as CashSection } from "./EntryScreen";
 import { LoginScreen } from "./LoginScreen";
 import { plural } from "./plural";
+import { GUEST_NOTE, GuestContext } from "./guest";
 import { QueueBanner } from "./QueueBanner";
 import { keepStorage, onQueuedEntrySaved, queue, setQueueLogin, useQueueState } from "./queue-instance";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
@@ -49,6 +50,7 @@ const ROLE_LABEL: Record<Role, string> = {
   head_cashier: "Главный кассир",
   admin: "Админ",
   viewer: "Смотрящий",
+  guest: "Гость",
 };
 
 export function App() {
@@ -90,7 +92,7 @@ export function App() {
         // entries: they are kept on the phone and go out when the server answers. Whether the
         // session is still alive is found out then.
         const remembered = rememberedUser();
-        setState(remembered && remembered.role !== "viewer" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
+        setState(remembered && remembered.role !== "viewer" && remembered.role !== "guest" ? { kind: "logged-in", user: remembered } : { kind: "unreachable" });
       },
     );
   }, []);
@@ -222,7 +224,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
   // A cashier's entries go out under this login, as soon as the connection is there: when the screen
   // opens, when the phone says it is online again, when the app comes back to the front, and after a
   // while by itself (the queue sees to that).
-  const cashier = user.role !== "viewer";
+  const cashier = user.role !== "viewer" && user.role !== "guest";
   useEffect(() => {
     if (!cashier) return;
     setQueueLogin(user.login);
@@ -382,7 +384,10 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       </div>
     );
 
+  const guest = user.role === "guest";
+
   return (
+    <GuestContext.Provider value={guest}>
     <Shell
       sections={sections}
       tabs={tabs}
@@ -399,6 +404,11 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
       {(opened.has("income") || opened.has("expense")) && (
         // The forms keep the width of a phone.
         <div hidden={!form} className="mx-auto grid w-full max-w-[480px] gap-3">
+          {guest && (
+            <p className={cn(alertVariants({ variant: "info" }), "guest-note")} role="note">
+              {GUEST_NOTE}
+            </p>
+          )}
           <BalanceStrip balances={balances} onRetry={loadBalances} />
           <BalanceNotes balances={balances} onRetry={loadBalances} unsent={kept} />
           <EntryScreen
@@ -513,6 +523,7 @@ function SignedIn({ user, onLoggedOut }: { user: User; onLoggedOut: () => void }
         />,
       )}
     </Shell>
+    </GuestContext.Provider>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Balance, Category, Operation, OperationInput } from "./api";
 import { onQueuedEntrySaved, submitEntry, useQueueState } from "./queue-instance";
+import { GUEST_NOTE, useGuest } from "./guest";
 import { entryText } from "./queue-text";
 import { rememberCurrency } from "./remembered-currency";
 import { rememberRate } from "./remembered-rate";
@@ -51,6 +52,7 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
   const [kept, setKept] = useState<{ id: string; echo: string; text: string } | null>(null);
   const keptId = useRef<string | null>(null);
   const queued = useQueueState().entries;
+  const guest = useGuest();
 
   // A correction shows in the banner; a deletion takes the banner away.
   useEffect(() => {
@@ -95,6 +97,12 @@ export function useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, 
    */
   async function send(build: (id: string) => OperationInput): Promise<boolean> {
     if (busy) return false;
+    if (guest) {
+      // Shown, not saved: what was typed stays in the form.
+      build(entryId.current);
+      setError(GUEST_NOTE);
+      return false;
+    }
     setBusy(true);
     setError(null);
     keptId.current = null;

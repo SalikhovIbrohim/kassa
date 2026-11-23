@@ -38,7 +38,7 @@ Commands:
   migrate                             apply the database migrations that have not run yet
                                       (the server does this at start too; this lets an update
                                       script see it fail before the new version is started)
-  create-user    --login <login> --role <cashier|head_cashier|admin|viewer> [--name <display name>]
+  create-user    --login <login> --role <cashier|head_cashier|admin|viewer|guest> [--name <display name>]
                                       cashier enters entries; head_cashier also reconciles the cash desk; admin keeps the users
                                       ("Сверить кассу"); viewer is the owner, who only looks
   list-users
