@@ -56,7 +56,7 @@ def cents(value):
 
 def code_of(value):
     """«А54», «а-54», «A54 Тимур», «А34-2»: the code as the cash desk writes it, «А54». None when there is none."""
-    found = re.search(r"(?<![А-Яа-яA-Za-z])[АAаa]\s*-?\s*(\d{1,5})(?:-(\d{1,3}))?(?!\d)", text(value))
+    found = re.search(r"(?<![А-ЙЛ-Яа-йл-яA-JL-Za-jl-z])[АAаa]\s*-?\s*(\d{1,5})(?:-(\d{1,3}))?(?!\d)", text(value))
     if not found:
         return None
     return "А" + str(int(found.group(1))) + (f"-{found.group(2)}" if found.group(2) else "")
@@ -87,8 +87,12 @@ class Problems:
     def __init__(self):
         self.rows = []
 
-    def add(self, sheet, row, what, value="", money=0.0):
-        self.rows.append({"sheet": sheet, "row": row, "what": what, "value": text(value)[:60], "money": round(money, 2)})
+    def add(self, sheet, row, what, value="", money=0.0, check=False):
+        """`check` is a place to look at that does not keep the history from being written: the card file is taken as it stands."""
+        self.rows.append({"sheet": sheet, "row": row, "what": what, "value": text(value)[:60], "money": round(money, 2), "check": check})
+
+    def blocking(self):
+        return [row for row in self.rows if not row["check"]]
 
 
 def columns(head):
@@ -112,7 +116,79 @@ def read_day(value, until, problems, sheet, row, what, money):
     return day
 
 
-def read_card(path, until, cut, names, problems):
+def trip_of_file(name):
+    """«01.11.2026. R271.xlsx», «R-262 19.10.2026.xls», «608 рейс.xlsx»: the number of the trip and the day in the name."""
+    name = re.sub(r"^[0-9a-f]{8}-", "", name)
+    found = re.search(r"[RrРр]\s*-?\s*(\d{1,3})(?!\d)", name) or re.match(r"\s*(\d{3})(?!\d)", name)
+    dated = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", re.sub(r"\s*\(\d+\)", "", name))
+    day = None
+    if dated:
+        try:
+            day = datetime.date(int(dated.group(3)), int(dated.group(2)), int(dated.group(1)))
+        except ValueError:
+            day = None
+    return (int(found.group(1)) if found else None), day
+
+
+def waybill_rows(path):
+    if path.lower().endswith(".xls"):
+        import xlrd  # only the older format needs it
+
+        sheet = xlrd.open_workbook(path).sheet_by_index(0)
+        return [[sheet.cell_value(row, column) for column in range(sheet.ncols)] for row in range(sheet.nrows)]
+    return [list(row) for row in openpyxl.load_workbook(path, read_only=True, data_only=True).worksheets[0].iter_rows(values_only=True, max_col=20)]
+
+
+def read_waybills(folder):
+    """
+    What each client was charged for each trip by its waybill, and the day in the name of the file. Two layouts: a block
+    to a client under a header «Код, Дата, ..., Сумма», and one table «№, ДАТА, ПОЛУЧАТЕЛЬ, КОД, ..., Приход $» where
+    the lines under a coded one are of the same client. Only for comparing with the card file: the debts are the card file's.
+    """
+    import os
+
+    sums, days, unread = collections.defaultdict(collections.Counter), {}, []
+    for name in sorted(os.listdir(folder)):
+        if not name.lower().endswith((".xlsx", ".xls")) or re.search(r"\(\d+\)", name):
+            continue  # «... (1).xlsx» is a second copy of the same file
+        trip, day = trip_of_file(name)
+        if trip is None:
+            unread.append(name)
+            continue
+        try:
+            rows = waybill_rows(os.path.join(folder, name))
+        except Exception:  # a file that is no spreadsheet after all
+            unread.append(name)
+            continue
+        code_at = sum_at = None
+        current = None
+        lines = 0
+        for row in rows:
+            titles = [text(value).lower() for value in row]
+            if any(title.startswith("код") for title in titles) and ("сумма" in titles or any(title.startswith("приход") for title in titles)):
+                code_at = next(index for index, title in enumerate(titles) if title.startswith("код"))
+                sum_at = titles.index("сумма") if "сумма" in titles else next(index for index, title in enumerate(titles) if title.startswith("приход"))
+                inherits = "сумма" not in titles
+                current = None
+                continue
+            if code_at is None or len(row) <= max(code_at, sum_at):
+                continue
+            code = code_of(row[code_at])
+            if code:
+                current = code
+            elif not inherits or text(row[code_at]):
+                current = None if not inherits else current
+            if (code or (inherits and current)) and number(row[sum_at]) and row[sum_at]:
+                sums[trip][code or current] += row[sum_at]
+                lines += 1
+        if lines == 0:
+            unread.append(name)
+        elif day and trip not in days:
+            days[trip] = day
+    return sums, days, unread
+
+
+def read_card(path, until, cut, names, problems, waybills=None):
     book = openpyxl.load_workbook(path, read_only=True, data_only=True)
     clients = {}  # code -> {name, opening, sheet}
     lines = []  # {code, trip, day, sum, sheet, row}
@@ -172,14 +248,11 @@ def read_card(path, until, cut, names, problems):
                     problems.add(title, at, "сумма карго меньше нуля", total, total)
                 elif trip == "opening":
                     entry["opening"] += total
-                elif trip is None:
-                    problems.add(title, at, "рейс записан не номером («412» или «Р204»)", row[col["trip"]], total)
                 else:
                     day = row[0].date() if isinstance(row[0], datetime.datetime) else None
                     if isinstance(row[0], datetime.datetime) and not (FIRST_DAY <= day <= until):
-                        problems.add(title, at, "рейс: дата вне времени картотеки (опечатка в годе?)", day.isoformat(), total)
                         day = "bad"
-                    lines.append({"code": code, "trip": trip, "day": day, "sum": total, "sheet": title, "row": at})
+                    lines.append({"code": code, "trip": trip, "day": day, "sum": total, "sheet": title, "row": at, "said": row[col["trip"]], "said_day": row[0]})
             if number(pay) and pay:
                 paid += pay
                 if pay < 0:
@@ -226,14 +299,11 @@ def read_card(path, until, cut, names, problems):
                 trip = trip_of(row[1])
                 if total < 0:
                     problems.add(once.title, at, "сумма карго меньше нуля", total, total)
-                elif trip is None or trip == "opening":
-                    problems.add(once.title, at, "рейс записан не номером («412» или «Р204»)", row[1], total)
                 else:
                     day = row[0].date() if isinstance(row[0], datetime.datetime) else None
                     if isinstance(row[0], datetime.datetime) and not (FIRST_DAY <= day <= until):
-                        problems.add(once.title, at, "рейс: дата вне времени картотеки (опечатка в годе?)", day.isoformat(), total)
                         day = "bad"
-                    lines.append({"code": code, "trip": trip, "day": day, "sum": total, "sheet": once.title, "row": at})
+                    lines.append({"code": code, "trip": None if trip == "opening" else trip, "day": day, "sum": total, "sheet": once.title, "row": at, "said": row[1], "said_day": row[0]})
             if number(pay) and pay:
                 if pay < 0:
                     problems.add(once.title, at, "оплата меньше нуля", pay, pay)
@@ -242,7 +312,24 @@ def read_card(path, until, cut, names, problems):
                     if day:
                         payments.append({"code": code, "day": day, "amount": pay, "note": None})
 
-    # ---- a trip arrived on one day: the day most of its lines say; a line without a day takes it
+    # ---- a line whose trip is no number: the waybills say which trip charged this client this sum, when one only did
+    way_sums, way_days = waybills if waybills else ({}, {})
+    taken = {(line["trip"], line["code"]) for line in lines if line["trip"] is not None}
+    answered = 0
+    for line in lines:
+        if line["trip"] is not None:
+            continue
+        fits = [trip for trip, sums in way_sums.items() if abs(sums.get(line["code"], 0) - line["sum"]) <= 0.51 and (trip, line["code"]) not in taken]
+        if len(fits) == 1:
+            line["trip"] = fits[0]
+            taken.add((fits[0], line["code"]))
+            answered += 1
+            problems.add(line["sheet"], line["row"], f"рейс не был записан номером: по накладной это рейс {fits[0]}, так и взято", line["said"], line["sum"], check=True)
+        else:
+            problems.add(line["sheet"], line["row"], "рейс записан не номером («412» или «Р204»)", line["said"], line["sum"])
+    lines = [line for line in lines if line["trip"] is not None]
+
+    # ---- a trip arrived on one day: the day most of its lines say; a line without a day, or with a slip in it, takes it
     days = collections.defaultdict(collections.Counter)
     for line in lines:
         if isinstance(line["day"], datetime.date):
@@ -250,12 +337,37 @@ def read_card(path, until, cut, names, problems):
     arrival = {trip: sorted(counter.items(), key=lambda item: (-item[1], item[0]))[0][0] for trip, counter in days.items()}
     kept = []
     for line in lines:
-        if line["day"] == "bad":
-            continue
+        if line["trip"] not in arrival and line["trip"] in way_days:
+            # Nobody's line dates this trip: the day in the name of its waybill (the day it was loaded) stands in.
+            arrival[line["trip"]] = way_days[line["trip"]]
+            problems.add(line["sheet"], line["row"], f"у рейса {line['trip']} нет даты в картотеке: взят день из названия накладной, {way_days[line['trip']].isoformat()}", line["said_day"], line["sum"], check=True)
         if line["trip"] not in arrival:
-            problems.add(line["sheet"], line["row"], "рейс: нет даты ни в этой строке, ни у других клиентов этого рейса", line["trip"], line["sum"])
+            problems.add(line["sheet"], line["row"], "рейс: нет даты ни в этой строке, ни у других клиентов этого рейса, ни накладной", line["trip"], line["sum"])
             continue
+        if line["day"] == "bad":
+            problems.add(line["sheet"], line["row"], f"рейс {line['trip']}: дата с опечаткой, взят день рейса {arrival[line['trip']].isoformat()}", line["said_day"], line["sum"], check=True)
         kept.append(line)
+
+    # ---- where the card file and a waybill disagree on who was charged, or for which trip: for a person to look at
+    if way_sums:
+        card = collections.Counter()
+        where = {}
+        for line in kept:
+            card[(line["trip"], line["code"])] += line["sum"]
+            where.setdefault((line["trip"], line["code"]), line)
+        only_way = collections.defaultdict(list)
+        for trip, sums in way_sums.items():
+            for code, total in sums.items():
+                if (trip, code) not in card:
+                    only_way[round(total, 2)].append((trip, code))
+        for (trip, code), total in card.items():
+            if trip in way_sums and code not in way_sums[trip]:
+                twins = only_way.get(round(total, 2), [])
+                if len(twins) == 1 and total >= 50:
+                    other_trip, other_code = twins[0]
+                    said = f"в накладной рейса {other_trip} эта же сумма у клиента {other_code}" if other_trip != trip or other_code != code else ""
+                    line = where[(trip, code)]
+                    problems.add(line["sheet"], line["row"], f"проверьте: в картотеке рейс {trip}, клиент {code}; {said}", "", total, check=True)
     spread = {trip: (min(counter), max(counter)) for trip, counter in days.items() if (max(counter) - min(counter)).days > 31}
 
     # ---- the list of all the clients, to compare with
@@ -289,6 +401,7 @@ def main():
     parser.add_argument("--out", required=True, help="the history file to write (.json)")
     parser.add_argument("--until", help="YYYY-MM-DD: leave out the trips and the payments of this day and later (the cash desk keeps them itself from then on)")
     parser.add_argument("--today", help="YYYY-MM-DD: the last day the card file can speak of (today unless said); a later date is a slip of the pen")
+    parser.add_argument("--waybills", help="a folder with the waybills of the trips (.xlsx, .xls): they say the trip of a line that names none, and where the card file and a waybill disagree")
     parser.add_argument("--problems", help="write what a person has to look at to this file (.csv, opens in Excel)")
     parser.add_argument("--name", action="append", default=[], help="CODE=NAME: the name of a client the card file has without one")
     parser.add_argument("--force", action="store_true", help="write the history although lines are in question: they are left out")
@@ -299,7 +412,12 @@ def main():
 
     warnings.simplefilter("ignore")  # dates that are no dates are reported line by line below
     problems = Problems()
-    clients, lines, arrival, payments, listed, passed_over, spread = read_card(args.card, today, cut, names, problems)
+    waybills = None
+    if args.waybills:
+        way_sums, way_days, unread = read_waybills(args.waybills)
+        waybills = (way_sums, way_days)
+        print(f"waybills: {len(way_sums)} trips read" + (f"; not read: {', '.join(unread[:8])}{' ...' if len(unread) > 8 else ''}" if unread else ""))
+    clients, lines, arrival, payments, listed, passed_over, spread = read_card(args.card, today, cut, names, problems, waybills)
 
     money = lambda value: f"{value:,.2f}".replace(",", " ")
     # ---- what each client comes to, next to what the list «КЛИЕНТЫ» says of them (only where nothing was cut off)
@@ -320,9 +438,9 @@ def main():
     if args.problems:
         with open(args.problems, "w", encoding="utf-8-sig", newline="") as out:
             writer = csv.writer(out, delimiter=";")
-            writer.writerow(["Лист", "Строка", "Что не так", "Что записано", "Сумма, $"])
-            for row in problems.rows:
-                writer.writerow([row["sheet"], row["row"] or "", row["what"], row["value"], str(row["money"]).replace(".", ",") if row["money"] else ""])
+            writer.writerow(["Надо исправить?", "Лист", "Строка", "Что не так", "Что записано", "Сумма, $"])
+            for row in sorted(problems.rows, key=lambda item: item["check"]):
+                writer.writerow(["посмотреть" if row["check"] else "ИСПРАВИТЬ", row["sheet"], row["row"] or "", row["what"], row["value"], str(row["money"]).replace(".", ",") if row["money"] else ""])
 
     opening = sum(entry["opening"] for entry in clients.values())
     total_charged, total_paid = sum(charged.values()), sum(paid.values())
@@ -335,13 +453,17 @@ def main():
         print(f"the list «КЛИЕНТЫ» closes with {money(sum(entry['closing'] for entry in listed.values()))} (without the clients who came once)")
     if spread:
         print(f"note: trips whose lines are dated more than a month apart (the day most lines say is taken): {len(spread)}")
-    kinds = collections.Counter(re.sub(r"\(.*?\)|«.*?»|\d+[.,]\d+|А\d+(-\d+)?", "", row["what"]).strip() for row in problems.rows)
-    print(f"to look at: {len(problems.rows)}" + ("" if not problems.rows else ", in question " + money(sum(abs(row["money"]) for row in problems.rows))))
-    for kind, count in kinds.most_common():
+    blocking = problems.blocking()
+    kind_of = lambda row: re.sub(r"\(.*?\)|«.*?»|\d{4}-\d{2}-\d{2}|\d+[.,]\d+|А\d+(-\d+)?|(?<=рейс[еа] )\d+|(?<=рейс )\d+|[:;,] .*$", "", row["what"]).strip()
+    print(f"to put right: {len(blocking)}" + ("" if not blocking else ", in question " + money(sum(abs(row["money"]) for row in blocking))))
+    for kind, count in collections.Counter(kind_of(row) for row in blocking).most_common():
+        print(f"  {count:4d}  {kind}")
+    print(f"to look at (taken as the card file has it): {len(problems.rows) - len(blocking)}")
+    for kind, count in collections.Counter(kind_of(row) for row in problems.rows if row["check"]).most_common():
         print(f"  {count:4d}  {kind}")
 
-    if problems.rows and not args.force:
-        sys.exit(f"The history was not written: {len(problems.rows)} places need a person" + (f" (see {args.problems})" if args.problems else " (--problems <file.csv> lists them)") + ". With --force they are left out.")
+    if blocking and not args.force:
+        sys.exit(f"The history was not written: {len(blocking)} places need a person" + (f" (see {args.problems})" if args.problems else " (--problems <file.csv> lists them)") + ". With --force they are left out.")
 
     by_trip = collections.defaultdict(collections.Counter)
     for line in lines:
