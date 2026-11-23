@@ -1,19 +1,30 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { getBalances } from "./balances.js";
-import { clientOfEntry } from "./clients.js";
-import { defaultKassa, KASSA_CURRENCIES, kassaProperty, mayUseKassa, type Kassa } from "./kassa.js";
+import { clientOfEntry, type ClientCodes } from "./clients.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { isForCity, readCategories } from "./categories.js";
 import { entrySchema, normalizeEntry, type Entry } from "./entry.js";
 import { recordOperation, toOperation, type LedgerEvents } from "./ledger.js";
 import type { Outbox } from "./outbox.js";
+import { createHash } from "node:crypto";
 import { NO_NUL, UUID } from "./schemas.js";
+
+/** The id of the income that an expense moving money writes into the other desk: always the same for the same expense. */
+export function transferIncomeId(expenseId: string): string {
+  const hex = createHash("sha256").update(`kassa.transfer.${expenseId.toLowerCase()}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 const MAX_SUGGESTIONS = 8;
 
 export type OperationsOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The cash desks of the installation. */
+  kassas: Kassas;
+  /** How the business writes the codes of its clients: «А707» unless said. */
+  clientCodes?: ClientCodes;
   /** What is written down with an operation besides it (the messages for the Telegram group). */
   events?: LedgerEvents;
   outbox: Pick<Outbox, "nudge">;
@@ -49,20 +60,29 @@ async function mustBeSentForTheSessionsOwner(request: FastifyRequest, reply: Fas
   }
 }
 
+/**
+ * The cash desk a category sends its money into, when it names one that the installation has; undefined for a
+ * category that names none (or a desk taken out of the settings since): the entry is of the desk of its author.
+ */
+export function kassaOfCategory(categories: readonly { code: string; intoKassa: Kassa | null }[], code: string | null, kassas: Kassas): Kassa | undefined {
+  const into = categories.find((item) => item.code === code)?.intoKassa;
+  return into !== null && into !== undefined && kassas.has(into) ? into : undefined;
+}
+
 export async function registerOperations(app: FastifyInstance, options: OperationsOptions) {
-  const { pool, now, events, outbox } = options;
+  const { pool, now, kassas, events, outbox } = options;
 
   // The balances of one cash desk: the one asked for (a person of everywhere chooses), or the person's own.
   app.get<{ Querystring: { kassa?: Kassa } }>(
     "/api/balances",
     {
       onRequest: app.authenticate,
-      schema: { querystring: { type: "object", additionalProperties: false, properties: { kassa: kassaProperty } } },
+      schema: { querystring: { type: "object", additionalProperties: false, properties: { kassa: kassas.property } } },
     },
     async (request, reply) => {
-      const kassa = request.query.kassa ?? defaultKassa(request.user!.city);
-      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
-      return { balances: await getBalances(pool, kassa) };
+      const kassa = request.query.kassa ?? kassas.defaultOf(request.user!.city);
+      if (!kassas.mayUse(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
+      return { balances: await getBalances(pool, kassas.currenciesOf(kassa), kassa) };
     },
   );
 
@@ -98,7 +118,8 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
     },
   );
 
-  // What the form should start with: the currency this person used last.
+  // What the form should start with: the currency this person used last (the first one the business keeps, before
+  // their first entry).
   app.get(
     "/api/operations/defaults",
     { onRequest: app.authenticate },
@@ -108,7 +129,7 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
           ORDER BY created_at DESC LIMIT 1`,
         [request.user!.id],
       );
-      return { currency: last.rows[0]?.currency ?? "RUB" };
+      return { currency: last.rows[0]?.currency ?? kassas.currencies[0] ?? "RUB" };
     },
   );
 
@@ -138,30 +159,52 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         // The id is made by the client, so that sending the same entry twice stores it once.
         // `shiftId` is accepted and ignored: a phone that was offline when the shifts were taken away still has entries
         // in its queue that name one, and an entry is never turned away for that.
-        body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }),
+        body: entrySchema({ properties: { id: UUID, shiftId: UUID }, required: ["id"] }, kassas),
       },
     },
     async (request, reply) => {
       const body = request.body;
       // An entry that is stored already (a retry) is not turned away because its category was archived since.
       const stored = await pool.query<{ category: string | null; client_code: string | null }>("SELECT category, client_code FROM operations WHERE id = $1", [body.id]);
-      const normalized = normalizeEntry(body, await readCategories(pool), stored.rows[0]?.category);
+      const categories = await readCategories(pool);
+      const normalized = normalizeEntry(body, categories, stored.rows[0]?.category);
       if ("error" in normalized) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: normalized.error });
       }
 
       // The client is one of the directory, and is written the way the directory names them ("А707 Карим").
       if (normalized.fields.clientCode !== null) {
-        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code);
+        const client = await clientOfEntry(pool, normalized.fields.clientCode, stored.rows[0]?.client_code, options.clientCodes);
         if ("error" in client) return reply.code(400).send({ statusCode: 400, error: client.error, message: "body/clientCode is not a client of the directory" });
         normalized.fields.clientCode = client.clientCode;
       }
 
       // The cash desk: the one sent, or the person's own; a person works only in the desks of their city.
-      const kassa = body.kassa ?? defaultKassa(request.user!.city);
-      if (!mayUseKassa(request.user!.city, kassa)) return reply.code(403).send({ error: "kassa_forbidden" });
-      if (!KASSA_CURRENCIES[kassa].includes(normalized.fields.currency)) {
+      const own = body.kassa ?? kassas.defaultOf(request.user!.city);
+      if (!kassas.mayUse(request.user!.city, own)) return reply.code(403).send({ error: "kassa_forbidden" });
+      // Unless the category says where its money goes: then it is an entry of that desk, whoever writes it down.
+      const kassa = kassaOfCategory(categories, normalized.fields.category, kassas) ?? own;
+      if (!kassas.currenciesOf(kassa).includes(normalized.fields.currency)) {
         return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by this cash desk" });
+      }
+
+      // Money moved to another desk: that desk is another one of the business, keeps this money, and the business has
+      // a category of incomes for what comes in this way.
+      let transfer: { toKassa: Kassa; incomeId: string; incomeCategory: string; incomeComment: string } | undefined;
+      if (normalized.toKassa !== null) {
+        if (normalized.toKassa === kassa) return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/toKassa is the cash desk of the entry itself" });
+        if (!kassas.currenciesOf(normalized.toKassa).includes(normalized.fields.currency)) {
+          return reply.code(400).send({ statusCode: 400, error: "Bad Request", message: "body/currency is not kept by the cash desk the money goes to" });
+        }
+        const income = categories.find((item) => item.kind === "income" && item.transfer && !item.archived);
+        if (!income) return reply.code(409).send({ error: "no_transfer_income_category" });
+        const from = `Из кассы ${kassas.labelOf(kassa)}`;
+        transfer = {
+          toKassa: normalized.toKassa,
+          incomeId: transferIncomeId(body.id),
+          incomeCategory: income.code,
+          incomeComment: normalized.fields.comment ? `${from}: ${normalized.fields.comment}`.slice(0, 500) : from,
+        };
       }
 
       const recorded = await recordOperation(pool, {
@@ -171,7 +214,8 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         ...normalized.fields,
         authorId: request.user!.id,
         createdAt: now(),
-      }, events);
+        transfer,
+      }, kassas, events);
       // The messages were written with the operation; now that it is committed, the worker is asked to send them.
       if (recorded.status === "created") outbox.nudge();
 
@@ -180,7 +224,9 @@ export async function registerOperations(app: FastifyInstance, options: Operatio
         case "replayed":
           return reply.code(recorded.status === "created" ? 201 : 200).send({
             operation: toOperation(recorded.row),
-            balances: recorded.balances,
+            // The balances the form shows are of the desk the person works in: an entry a category sent to another
+            // desk has not moved them, and the balance of that desk is not this person's to see.
+            balances: recorded.row.kassa === own ? recorded.balances : await getBalances(pool, kassas.currenciesOf(own), own),
           });
         case "id_conflict":
           return reply.code(409).send({ error: "operation_id_conflict" });

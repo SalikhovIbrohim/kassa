@@ -1,20 +1,36 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { getBalances } from "../balances.js";
-import { isKassa, type Kassa } from "../kassa.js";
+import { parseKassas, type Kassa, type Kassas } from "../kassa.js";
 
-/** --kassa moscow or andijan; undefined when not given. */
-function kassaOption(text: string | undefined): Kassa | undefined {
+/** The cash desks of the installation, as its settings file names them (KASSAS; Moscow and Andijan without it). */
+function kassasOfSettings(): Kassas {
+  try {
+    return parseKassas(process.env.KASSAS);
+  } catch (error) {
+    throw new AdminError(`${(error as Error).message} (in the settings file)`);
+  }
+}
+
+/** --kassa moscow, andijan or another desk of the installation; undefined when not given. */
+function kassaOption(text: string | undefined, kassas: Kassas): Kassa | undefined {
   if (text === undefined) return undefined;
   const kassa = text.trim().toLowerCase();
-  if (!isKassa(kassa)) throw new AdminError(`--kassa must be moscow or andijan, got "${text}"`);
+  if (!kassas.has(kassa)) throw new AdminError(`--kassa must be ${kassas.ids.join(" or ")}, got "${text}"`);
   return kassa;
 }
-import { loadOneC } from "../config.js";
+import { kassaSettingName, loadOneC, loadOneCKassas, onecSetting, strangerSettings } from "../config.js";
 import { formatAmount } from "../money.js";
 import { DatabaseSetupError, MigrationFailedError, migrate } from "../migrate.js";
 import { botState, seenChats, sendToGroup, TelegramError } from "../telegram-api.js";
-import { checkOneC, onecRetry, onecSkip, onecStatus, studyExpenses } from "./onec.js";
+import { parseClientCodes } from "../clients.js";
+import { parseWarehouses } from "../warehouses.js";
+import { readCategoryFile, setCategories } from "./categories.js";
+import { importHistory, type HistoryFile } from "./history.js";
+import { checkOneC, onecRetry, onecSkip, onecStatus } from "./onec.js";
+import { lookAtOneC } from "./onec-look.js";
+import { createOneCClient } from "../onec-api.js";
 import { setOpeningBalance } from "./opening-balances.js";
 import {
   AdminError,
@@ -38,30 +54,50 @@ Commands:
   migrate                             apply the database migrations that have not run yet
                                       (the server does this at start too; this lets an update
                                       script see it fail before the new version is started)
-  create-user    --login <login> --role <cashier|head_cashier|admin|viewer|guest> [--name <display name>]
+  create-user    --login <login> --role <cashier|head_cashier|admin|viewer|warehouse|guest> [--name <display name>]
                                       cashier enters entries; head_cashier also reconciles the cash desk; admin keeps the users
-                                      ("Сверить кассу"); viewer is the owner, who only looks
+                                      ("Сверить кассу"); viewer is the owner, who only looks; warehouse keeps a
+                                      warehouse and writes the cargo of the trips (where WAREHOUSES is set; which
+                                      warehouse, the admin says in «Люди»)
   list-users
-  set-role       --login <login> --role <cashier|head_cashier|admin|viewer>
+  set-role       --login <login> --role <cashier|head_cashier|admin|viewer|warehouse>
                                       change what a user may do (at their next request; their entries stay)
   revoke-user    --login <login>      block access and end all sessions
   restore-user   --login <login>      give access back (the user logs in again)
   reset-password --login <login>      set a new password and end all sessions
   set-opening-balance --currency <RUB|USD> --amount <1000.50> [--kassa <moscow|andijan>]
                                       the amount a currency's balance starts from, in a cash desk (Moscow
-                                      unless said; Andijan keeps dollars only)
+                                      unless said; Andijan keeps dollars only). The cash desks are those of
+                                      KASSAS in the settings file, the first of them unless said
   balances [--kassa <moscow|andijan>] current balance per currency (opening balance + income), of one cash
-                                      desk or of both added up
+                                      desk or of all of them added up
+  set-categories --file <categories.json>
+                                      make the lists of categories those of the file, in its order: what is not in
+                                      it goes to the archive, nothing is deleted. The file:
+                                      { "income": [ { "label": "Оплата от покупателей", "code": "client_payment", "requiresClient": true } ],
+                                        "expense": [ { "label": "Обед", "city": "andijan" }, { "label": "Толкач", "city": "tashkent", "requiresTrip": true } ] }
+                                      (also requiresCounterparty, requiresEmployee; no "city" is everywhere)
+  import-history --file <history.json> [--login <admin>]
+                                      load the history of before the trips were kept here (where WAREHOUSES is set):
+                                      the clients with what each owed at the start, the trips of before with the sum
+                                      of each client, the payments of before, and the waybills of the trips on the
+                                      road. All of it or nothing; loading the file again replaces what was loaded
+                                      before and touches nothing that was entered here since. The payments of before
+                                      are no entries of the cash book: no balance of a cash desk changes. At the end
+                                      it prints the debts month by month next to the control sheet of the file.
+                                      tools/express makes the file from the spreadsheets of the business
   telegram-chats                      the Telegram chats the bot has been told about lately (add it to the group
                                       first): the number of the group for TELEGRAM_GROUP_CHAT_ID
   telegram-test                       send a test message to the group of TELEGRAM_GROUP_CHAT_ID
-                                      (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set)
+                                      (into TELEGRAM_THREAD_INCOME and TELEGRAM_THREAD_EXPENSE, if set, and
+                                      into the topic of each cash desk that has one, TELEGRAM_THREAD_<DESK>)
 
   onec-check                          look at 1C and change nothing: does it answer, are the accounts, the item of the
                                       payments, the organization, the cash desk and the currency of the settings there
+  onec-look      [--out <file>]       read a base of 1C that the cash desk has not written to yet, and change nothing:
+                                      what it holds, how its counterparties are named, a few of its cash orders and
+                                      sales as the accountant made them (needs ONEC_ODATA_URL, _USER, _PASSWORD)
   onec-status    [--limit <n>]        the payments of clients in the queue for 1C: written, waiting, failed
-  onec-rko       [--limit <n>]        look at 1C and change nothing: how the last cash payment orders (РКО) are booked,
-                                      and the cash desks of the base with their keys
   onec-retry     --id <n>             put a payment that failed, waits, was skipped or was only rehearsed back in the queue
   onec-skip      --id <n>             do not write this payment to 1C (what is in 1C already stays there)
 
@@ -90,6 +126,8 @@ async function main(): Promise<void> {
       amount: { type: "string" },
       id: { type: "string" },
       limit: { type: "string" },
+      file: { type: "string" },
+      out: { type: "string" },
     },
   });
 
@@ -148,8 +186,9 @@ async function main(): Promise<void> {
       case "set-opening-balance": {
         const currency = required(values.currency, "--currency");
         const amount = required(values.amount, "--amount");
-        const kassa = kassaOption(values.kassa) ?? "moscow";
-        const minor = await setOpeningBalance(pool, currency, amount, kassa);
+        const kassas = kassasOfSettings();
+        const kassa = kassaOption(values.kassa, kassas) ?? kassas.primary;
+        const minor = await setOpeningBalance(pool, currency, amount, kassa, kassas);
         console.log(`Opening balance for ${currency.trim().toUpperCase()} in ${kassa} set to ${formatAmount(minor)}.`);
         const entered = (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM operations WHERE kassa = $1", [kassa])).rows[0]!.n;
         if (entered > 0) {
@@ -161,9 +200,64 @@ async function main(): Promise<void> {
         break;
       }
       case "balances": {
-        for (const balance of await getBalances(pool, kassaOption(values.kassa))) {
+        const kassas = kassasOfSettings();
+        const kassa = kassaOption(values.kassa, kassas);
+        for (const balance of await getBalances(pool, kassa === undefined ? kassas.currencies : kassas.currenciesOf(kassa), kassa)) {
           console.log(`${balance.currency}  ${formatAmount(balance.amountMinor)}`);
         }
+        break;
+      }
+      case "set-categories": {
+        const wanted = readCategoryFile(required(values.file, "--file"), kassasOfSettings());
+        for (const line of await setCategories(pool, wanted)) console.log(line);
+        console.log("The lists of categories are those of the file.");
+        break;
+      }
+      case "import-history": {
+        const path = required(values.file, "--file");
+        let file: HistoryFile;
+        try {
+          file = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as HistoryFile;
+        } catch (error) {
+          throw new AdminError(`The history file ${path} cannot be read: ${(error as Error).message}`);
+        }
+        let warehouses;
+        let clientCodes;
+        try {
+          warehouses = parseWarehouses(process.env.WAREHOUSES);
+          clientCodes = parseClientCodes(process.env.CLIENT_CODES);
+        } catch (error) {
+          throw new AdminError(`${(error as Error).message} (in the settings file)`);
+        }
+        const report = await importHistory(pool, file, { warehouses, kassas: kassasOfSettings(), clientCodes, actorLogin: values.login });
+        console.log(`Clients: ${report.clients.added} added, ${report.clients.there} were there (their opening debts are those of the file).`);
+        console.log(`Trips of before: ${report.trips.added} added, ${report.trips.there} were there, ${report.trips.removed} taken away; ${report.trips.sums} sums of clients.`);
+        console.log(`Payments of before: ${report.payments}.`);
+        for (const waybill of report.waybills) console.log(`Trip ${waybill.number} on the road: ${waybill.lines} lines (${waybill.note}).`);
+        // The history month by month, as the control sheet of the card file has it: the proof that the load is whole.
+        // Only the history: what the cash desk took and what arrived here since the file was closed is said after it.
+        const money = (minor: number) => formatAmount(minor).padStart(13);
+        console.log("\nThe history as it was loaded:");
+        console.log("Month        opening       charged          paid       closing   the file says");
+        let apart = 0;
+        for (const month of report.control) {
+          const difference = month.file ? month.closingMinor - month.file.closingMinor : 0;
+          apart = Math.max(apart, Math.abs(difference));
+          const said = month.file ? `${money(month.file.closingMinor)}  ${difference === 0 ? "the same" : `apart by ${formatAmount(difference)}`}` : "   (not in the file)";
+          console.log(`${month.month} ${money(month.openingMinor)} ${money(month.chargedMinor)} ${money(month.paidMinor)} ${money(month.closingMinor)} ${said}`);
+        }
+        // The card file adds up sums with a third decimal, the debts here are whole cents: a cent here and there, never dollars.
+        if (report.control.some((month) => month.file)) {
+          console.log(apart < 100 ? "\nThe debts agree with the control sheet of the file (to less than a dollar: the file keeps a third decimal, the debts here are whole cents)." : "\nTHE DEBTS DO NOT AGREE with the control sheet of the file: look at the months above before anybody works with them.");
+        }
+        const closing = report.control.at(-1)?.closingMinor ?? 0;
+        const since = report.debtsNowMinor - closing;
+        console.log(
+          since === 0
+            ? `All the clients owe ${formatAmount(report.debtsNowMinor)} now: nothing was entered here since the file was closed.`
+            : `All the clients owe ${formatAmount(report.debtsNowMinor)} now: ${formatAmount(Math.abs(since))} ${since < 0 ? "less" : "more"} than the history closes with, by what was entered here since ` +
+                "(the entries of the cash book that name a client, the trips that arrived). Look at those in the journal: a test entry that names a client counts as a payment until it is deleted.",
+        );
         break;
       }
       case "telegram-chats": {
@@ -215,14 +309,22 @@ async function main(): Promise<void> {
         const topic = (name: string) => (process.env[name]?.trim() ? Number(process.env[name]!.trim()) : undefined);
         const incomeThread = topic("TELEGRAM_THREAD_INCOME");
         const expenseThread = topic("TELEGRAM_THREAD_EXPENSE");
-        // One message into each topic that is set, or into the main topic when none is.
-        const targets: Array<{ thread: number | undefined; about: string }> =
-          incomeThread === undefined && expenseThread === undefined
+        // The topic of everything of one cash desk, for each desk that has one (TELEGRAM_THREAD_ANDIJAN).
+        const kassas = kassasOfSettings();
+        const deskTargets = kassas.list.flatMap((desk) => {
+          const thread = topic(kassaSettingName("TELEGRAM_THREAD", desk.id));
+          return thread === undefined ? [] : [{ thread, about: ` Эта тема для кассы «${desk.label}».` }];
+        });
+        // One message into each topic of a kind that is set, or into the main topic when neither is; then the desks' own.
+        const targets: Array<{ thread: number | undefined; about: string }> = [
+          ...(incomeThread === undefined && expenseThread === undefined
             ? [{ thread: undefined, about: "" }]
             : [
                 ...(incomeThread === undefined ? [] : [{ thread: incomeThread, about: " Эта тема для приходов." }]),
                 ...(expenseThread === undefined ? [] : [{ thread: expenseThread, about: " Эта тема для расходов." }]),
-              ];
+              ]),
+          ...deskTargets,
+        ];
         try {
           for (const target of targets) {
             await sendToGroup({ botToken, groupChatId, apiUrl }, `✅ Касса: проверка связи.${target.about}`, target.thread);
@@ -231,32 +333,44 @@ async function main(): Promise<void> {
         } catch (error) {
           throw new AdminError(telegramProblem(error));
         }
+        // A topic set for a cash desk the installation does not have is a slip of the hand: its messages would go elsewhere.
+        for (const name of strangerSettings(process.env, "TELEGRAM_THREAD", kassas, ["TELEGRAM_THREAD_INCOME", "TELEGRAM_THREAD_EXPENSE"])) {
+          console.log(`Note: ${name} is not used: the cash desks of this installation are ${kassas.ids.join(", ")} (KASSAS in the settings file).`);
+        }
         break;
       }
       case "onec-check": {
         // The look works with the rehearsal settings when the writing is off: all but the mode must be set.
-        const mode = process.env.COSMO_1C_MODE?.trim().toLowerCase();
+        const modeSetting = onecSetting(process.env, "ONEC_MODE");
+        const mode = modeSetting.value?.trim().toLowerCase();
+        const kassas = kassasOfSettings();
         let settings;
+        let written;
         try {
-          settings = loadOneC({ ...process.env, COSMO_1C_MODE: mode === "live" ? "live" : "preview" });
+          settings = loadOneC({ ...process.env, [modeSetting.name]: mode === "live" ? "live" : "preview" }, kassas);
+          written = loadOneCKassas(process.env, kassas);
         } catch (error) {
           throw new AdminError(`${(error as Error).message} (in the settings file)`);
         }
-        const good = await checkOneC(settings!, (line) => console.log(line));
+        const good = await checkOneC(settings!, (line) => console.log(line), written);
         if (!good) throw new AdminError("1C is not ready: see the lines marked ПРОБЛЕМА above");
         console.log("Всё готово.");
         break;
       }
-      case "onec-rko": {
-        let settings;
-        try {
-          settings = loadOneC({ ...process.env, COSMO_1C_MODE: "preview" });
-        } catch (error) {
-          throw new AdminError(`${(error as Error).message} (in the settings file)`);
+      case "onec-look": {
+        // Only the address and the login are needed: the base is read, and nothing of the rest is known yet.
+        const [address, user, password] = (["ONEC_ODATA_URL", "ONEC_ODATA_USER", "ONEC_ODATA_PASSWORD"] as const).map((name) => onecSetting(process.env, name).value?.trim());
+        if (!address || !user || password === undefined) throw new AdminError("onec-look needs ONEC_ODATA_URL, ONEC_ODATA_USER and ONEC_ODATA_PASSWORD in the settings file");
+        const lines: string[] = [];
+        await lookAtOneC(createOneCClient({ url: address, user, password }), (line) => {
+          if (values.out === undefined) console.log(line);
+          else lines.push(line);
+        });
+        if (values.out !== undefined) {
+          // With the mark of UTF-8 at the start: Notepad of Windows reads the Russian names right.
+          writeFileSync(values.out, "\ufeff" + lines.join("\r\n") + "\r\n", "utf8");
+          console.log(`Written to ${values.out}: ${lines.length} lines. Nothing was changed in 1C.`);
         }
-        const limit = values.limit === undefined ? 300 : Number(values.limit);
-        if (!Number.isInteger(limit) || limit < 1 || limit > 2000) throw new AdminError("--limit must be a number from 1 to 2000");
-        await studyExpenses(settings!, (line) => console.log(line), limit);
         break;
       }
       case "onec-status": {

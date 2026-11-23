@@ -8,6 +8,11 @@ export type OneCSettings = {
   organizationKey: string;
   kassaKey: string;
   currencyKey: string;
+  /**
+   * The cash desk in the base of a cash desk of the installation that has one of its own there, by the id of the desk:
+   * `{ tashkent: "0d2c…" }`. The payments of any other desk go to `kassaKey`.
+   */
+  kassaKeys?: Readonly<Record<string, string>>;
   /** `preview` only looks and says what would be written; `live` writes. */
   mode: "preview" | "live";
   /** When set, only the payments of these clients (codes like А339) are written; the others are left alone. */
@@ -17,6 +22,22 @@ export type OneCSettings = {
    * the day's corrections and the day's average rate are final; left out, at once.
    */
   send?: "night" | "now";
+  /**
+   * A client of the cash desk who has no counterpart in the base gets one made, with a contract, when the first
+   * document that names them is written (`ONEC_CREATE_CLIENTS=yes`). Without it such a document waits for a person.
+   */
+  createClients?: boolean;
+  /**
+   * What goes to the base besides the payments of clients (`ONEC_DOCUMENTS`): `incomes`, any income of a category
+   * that names a client; `expenses`, the expenses of the cash desk as expense orders; `trips`, a trip that has arrived
+   * as the services rendered to its clients.
+   */
+  documents?: ReadonlyArray<"incomes" | "expenses" | "trips">;
+  /**
+   * The first day of the cash desk that goes to the base (`ONEC_FROM`, "2026-11-19"): what is of before it was put
+   * there by hand, and an entry or a trip of before it is left alone even when it is corrected now.
+   */
+  from?: string;
 };
 
 /**

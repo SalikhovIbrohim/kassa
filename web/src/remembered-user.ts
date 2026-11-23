@@ -29,7 +29,9 @@ export function rememberedUser(): User | null {
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<User>;
     if (typeof value.login === "string" && typeof value.displayName === "string" && (value.role === "cashier" || value.role === "head_cashier" || value.role === "admin" || value.role === "guest" || value.role === "viewer")) {
-      return { login: value.login, displayName: value.displayName, role: value.role };
+      // The city is the cash desk the person works in: without it an entry made without a connection would be of another desk.
+      const city = typeof value.city === "string" && value.city !== "" ? { city: value.city } : {};
+      return { login: value.login, displayName: value.displayName, role: value.role, ...city };
     }
   } catch {
     // unreadable: as if there was none

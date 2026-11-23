@@ -1,5 +1,12 @@
-/** A cashier enters entries; the head cashier also counts the cash ("Сверить кассу"); an admin enters and keeps the users and the lists; the viewer is the owner, who only looks. */
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "guest";
+/**
+ * A cashier enters entries; the head cashier also counts the cash ("Сверить кассу"); an admin enters and keeps the users
+ * and the lists; the viewer is the owner, who only looks; the keeper of a warehouse writes the cargo of the trips
+ * (where the business keeps trips) and sees nothing of the cash; the guest is shown the cash desk and changes nothing.
+ */
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "warehouse" | "guest";
+
+/** The roles that make entries of the cash desk: theirs is the queue of the phone, the balances, the lists of categories. */
+export const entersCash = (role: Role) => role === "cashier" || role === "head_cashier" || role === "admin";
 
 export type User = {
   login: string;
@@ -121,7 +128,7 @@ export async function logOut(): Promise<boolean> {
 // ---- Operations and balances ----
 
 import type { Currency } from "./money";
-import type { Kassa } from "./kassa";
+import { DEFAULT_KASSAS, type Kassa, type KassaInfo } from "./kassa";
 
 export type Balance = { currency: Currency; amountMinor: number };
 
@@ -145,6 +152,10 @@ export type Operation = {
   tripNumber?: number | null;
   counterparty?: string | null;
   employee?: string | null;
+  /** Of an expense that moved money to another cash desk: that desk. */
+  toKassa?: string | null;
+  /** Of the income such an expense wrote into the other desk: the id of the expense. It is corrected through it. */
+  transferOf?: string | null;
   comment: string | null;
   author: { login: string; displayName: string };
   createdAt: string;
@@ -196,6 +207,13 @@ export type Category = {
   requiresEmployee: boolean;
   /** The city it belongs to, for the reports and 1C (the cashiers do not see it); null is everywhere. */
   city?: City | null;
+  /**
+   * The cash desk the money of an entry of this category goes into, whoever enters it (a payment the owner took in
+   * Tashkent, written down in Moscow); null or absent: the desk of the person.
+   */
+  intoKassa?: City | null;
+  /** It moves money between the cash desks: an expense of it names the desk the money went to. */
+  transfer?: boolean;
   /** False when it is of another city than the person's: the entry forms do not show it. Absent means shown. */
   offered?: boolean;
   /** False for the money handed to the owner: it is not a cost of the business. */
@@ -216,6 +234,72 @@ export const DEFAULT_INCOME_CATEGORY = "client_payment";
 export function operationTitle(type: "income" | "expense", category: string | null, labels: ReadonlyMap<string, string>): string {
   if (type === "expense") return labels.get(category ?? "") ?? "Расход";
   return category !== null && category !== DEFAULT_INCOME_CATEGORY ? (labels.get(category) ?? "Приход") : "Приход";
+}
+
+const KASSAS_KEY = "kassa.kassas";
+
+/** The cash desks out of an answer of the server or out of what the phone kept; null when it is not a list of desks. */
+function readKassas(value: unknown): KassaInfo[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const list: KassaInfo[] = [];
+  for (const item of value as Array<Partial<KassaInfo> | null>) {
+    if (!item || typeof item.id !== "string" || item.id === "" || typeof item.label !== "string" || !Array.isArray(item.currencies)) return null;
+    const currencies = (["RUB", "USD"] as const).filter((code) => (item.currencies as readonly string[]).includes(code));
+    if (currencies.length === 0) return null;
+    list.push({
+      id: item.id,
+      label: item.label,
+      short: typeof item.short === "string" && item.short !== "" ? item.short : item.label.slice(0, 3).toUpperCase(),
+      currencies,
+      onec: item.onec === true,
+    });
+  }
+  return list;
+}
+
+/** The cash desks as the server named them last, kept on the phone; null when it never did. */
+export function keptKassas(): KassaInfo[] | null {
+  try {
+    const raw = localStorage.getItem(KASSAS_KEY);
+    return raw ? readKassas(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The cash desks of the business: which there are, what each is called and what money it keeps is the server's to say
+ * (the settings of its installation). The last answer is kept on the phone, for opening the app without a connection.
+ * A server that does not know the question (an older version) has the two desks there were then. Never throws:
+ * `fresh` says whether the server answered now; when it did not, the desks are the ones kept, or those two.
+ */
+export async function fetchKassas(): Promise<{ kassas: readonly KassaInfo[]; fresh: boolean }> {
+  try {
+    const response = await request("/api/kassas", undefined, 5_000);
+    if (response.status === 404) {
+      // What a newer version left on the phone is not this server's.
+      try {
+        localStorage.removeItem(KASSAS_KEY);
+      } catch {
+        // nothing to do
+      }
+      return { kassas: DEFAULT_KASSAS, fresh: true };
+    }
+    if (response.ok) {
+      const kassas = readKassas(((await response.json()) as { kassas?: unknown }).kassas);
+      if (kassas) {
+        try {
+          localStorage.setItem(KASSAS_KEY, JSON.stringify(kassas));
+        } catch {
+          // not kept; the next visit with a connection asks again
+        }
+        return { kassas, fresh: true };
+      }
+    }
+  } catch {
+    // no connection: what the phone kept
+  }
+  return { kassas: keptKassas() ?? DEFAULT_KASSAS, fresh: false };
 }
 
 export async function fetchBalances(kassa?: Kassa): Promise<Balance[]> {
@@ -263,6 +347,8 @@ function keptCategories(): Category[] | null {
       countsAsCost: item.countsAsCost ?? item.code !== "owner_handover",
       notifyGroup: item.notifyGroup ?? true,
       ...(item.city !== undefined && { city: item.city }),
+      ...(item.intoKassa !== undefined && { intoKassa: item.intoKassa }),
+      ...(item.transfer !== undefined && { transfer: item.transfer }),
       ...(item.offered !== undefined && { offered: item.offered }),
     }));
   } catch {
@@ -332,6 +418,8 @@ export type OperationInput =
       tripNumber?: number;
       counterparty?: string;
       employee?: string;
+      /** Only for a category that moves money between the cash desks: the desk it went to. */
+      toKassa?: string;
     });
 
 export type OperationResult =
@@ -679,12 +767,10 @@ async function categoryChangeResult(response: Response): Promise<CategoryChangeR
 }
 
 /** The owner adds a category at the end of its list. */
-/** The cities a category or a person can belong to; none means everywhere. */
-export type City = "andijan" | "moscow";
+/** The city a category or a person belongs to, which is the id of a cash desk; none means everywhere. */
+export type City = Kassa;
 
-export const CITY_LABEL: Record<City, string> = { andijan: "Андижан", moscow: "Москва" };
-
-export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null };
+export type CategoryFlags = { requiresClient: boolean; requiresTrip: boolean; requiresCounterparty: boolean; requiresEmployee: boolean; notifyGroup: boolean; city?: City | null; intoKassa?: City | null };
 
 export async function createCategory(kind: CategoryKind, label: string, flags: CategoryFlags): Promise<CategoryChangeResult> {
   const response = await request("/api/admin/categories", {
@@ -698,7 +784,7 @@ export async function createCategory(kind: CategoryKind, label: string, flags: C
 /** The owner renames a category, changes whether it names a client or the group is told of it, archives or brings it back, or moves it in its list. */
 export async function changeCategory(
   code: string,
-  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind; city?: City | null },
+  change: { label?: string; requiresClient?: boolean; requiresTrip?: boolean; requiresCounterparty?: boolean; requiresEmployee?: boolean; notifyGroup?: boolean; archived?: boolean; move?: "up" | "down"; position?: number; kind?: CategoryKind; city?: City | null; intoKassa?: City | null },
 ): Promise<CategoryChangeResult> {
   const response = await request(`/api/admin/categories/${encodeURIComponent(code)}`, {
     method: "PATCH",
@@ -729,7 +815,7 @@ export type Account = {
   login: string;
   displayName: string;
   role: Role;
-  /** The city the person works in, for the reports and 1C; null is everywhere. */
+  /** The city the person works in, for the reports and 1C; null is everywhere. Of the keeper of a warehouse, the warehouse. */
   city?: City | null;
   active: boolean;
   createdAt: string;
@@ -741,7 +827,7 @@ export type AccountResult =
   | { ok: true }
   | {
       ok: false;
-      reason: "session-expired" | "forbidden" | "not-found" | "login-taken" | "bad-login" | "bad-password" | "bad-name" | "self" | "has-entries" | "rejected" | "server-error";
+      reason: "session-expired" | "forbidden" | "not-found" | "login-taken" | "bad-login" | "bad-password" | "bad-name" | "bad-city" | "self" | "has-entries" | "rejected" | "server-error";
     };
 
 async function accountResult(response: Response): Promise<AccountResult> {
@@ -756,6 +842,7 @@ async function accountResult(response: Response): Promise<AccountResult> {
     bad_login: "bad-login",
     bad_password: "bad-password",
     bad_name: "bad-name",
+    bad_city: "bad-city",
     self: "self",
     has_entries: "has-entries",
   };
@@ -799,8 +886,32 @@ export async function deleteAccount(id: string): Promise<AccountResult> {
 
 // ---- Clients ----
 
-/** A client of the directory: one to a code (А707, А34-2); the names may repeat. */
-export type Client = { code: string; name: string; phone: string | null; note: string | null; active: boolean };
+/**
+ * A client of the directory: one to a code (А707, А34-2); the names may repeat. Where the business keeps trips, the
+ * directory also says what a kilogram costs the client (thousandths of a dollar) and what they owe, in cents: what
+ * they owed at the start, plus their cargo on the trips that have arrived, less what the cash desk took in from them.
+ */
+export type Client = {
+  code: string;
+  name: string;
+  phone: string | null;
+  note: string | null;
+  active: boolean;
+  priceMilli?: number | null;
+  openingDebtMinor?: number;
+  chargedMinor?: number;
+  paidMinor?: number;
+  /** More than nothing: the client owes; less: they have paid ahead. Not there where the business keeps no trips. */
+  debtMinor?: number;
+  /** The day of the last payment and the day the last truck with their cargo came; null: never. */
+  lastPaidDay?: string | null;
+  lastTripDay?: string | null;
+  /** For how many days the client has not paid (since the history began, with no payment at all). */
+  daysUnpaid?: number;
+};
+
+/** How the business writes the codes of its clients: the letter А and digits («А707»), or digits alone («707»). */
+export type ClientCodes = "letter" | "digits";
 
 /** How an entry names a client: "А707 Карим", or the code alone. */
 export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.name ? `${client.code} ${client.name}` : client.code);
@@ -810,16 +921,22 @@ export const clientLabel = (client: Pick<Client, "code" | "name">) => (client.na
  * «Управление»), switched off ones too with `all`.
  */
 export async function fetchClients(q = "", options: { all?: boolean; limit?: number } = {}): Promise<Client[]> {
+  return (await fetchClientDirectory(q, options)).clients;
+}
+
+/** The same, with how a code is written in this business (a server that does not say writes «А707»). */
+export async function fetchClientDirectory(q = "", options: { all?: boolean; limit?: number } = {}): Promise<{ clients: Client[]; codes: ClientCodes }> {
   const query = new URLSearchParams({ ...(q ? { q } : {}), ...(options.all ? { all: "1" } : {}), ...(options.limit ? { limit: String(options.limit) } : {}) });
   const response = await request(`/api/clients${query.toString() ? `?${query}` : ""}`);
   if (response.status === 401) throw new SessionExpiredError("Session ended");
   if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/clients`);
-  return ((await response.json()) as { clients: Client[] }).clients;
+  const body = (await response.json()) as { clients: Client[]; codes?: string };
+  return { clients: body.clients, codes: body.codes === "digits" ? "digits" : "letter" };
 }
 
 export type ClientResult =
   | { ok: true; client?: Client }
-  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "bad-code" | "rejected" | "server-error" };
+  | { ok: false; reason: "session-expired" | "forbidden" | "not-found" | "exists" | "bad-code" | "bad-name" | "rejected" | "server-error" };
 
 async function clientResult(response: Response): Promise<ClientResult> {
   if (response.ok) {
@@ -833,11 +950,12 @@ async function clientResult(response: Response): Promise<ClientResult> {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   if (body?.error === "client_exists") return { ok: false, reason: "exists" };
   if (body?.error === "bad_code") return { ok: false, reason: "bad-code" };
+  if (body?.error === "bad_name") return { ok: false, reason: "bad-name" };
   return { ok: false, reason: "rejected" };
 }
 
 /** A new client (the admin, in «Клиенты»). */
-export async function createClient(input: { code: string; name: string; phone?: string; note?: string }): Promise<ClientResult> {
+export async function createClient(input: { code: string; name: string; phone?: string; note?: string; priceMilli?: number | null; openingDebtMinor?: number }): Promise<ClientResult> {
   const response = await request("/api/admin/clients", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -847,7 +965,10 @@ export async function createClient(input: { code: string; name: string; phone?: 
 }
 
 /** The admin changes a client's name, phone, note, or switches them off. The code never changes. */
-export async function changeClient(code: string, change: { name?: string; phone?: string | null; note?: string | null; active?: boolean }): Promise<ClientResult> {
+export async function changeClient(
+  code: string,
+  change: { name?: string; phone?: string | null; note?: string | null; active?: boolean; priceMilli?: number | null; openingDebtMinor?: number },
+): Promise<ClientResult> {
   const response = await request(`/api/admin/clients/${encodeURIComponent(code)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -858,10 +979,17 @@ export async function changeClient(code: string, change: { name?: string; phone?
 
 export type ImportResult =
   | { ok: true; added: number; skipped: number }
-  | { ok: false; reason: "session-expired" | "forbidden" | "server-error" | "rejected"; repeated?: Array<{ code: string; lines: number[] }>; bad?: Array<{ line: number; code: string }> };
+  | {
+      ok: false;
+      reason: "session-expired" | "forbidden" | "server-error" | "rejected";
+      repeated?: Array<{ code: string; lines: number[] }>;
+      bad?: Array<{ line: number; code: string }>;
+      /** The lines of the list that have a code and no name: a client is both. */
+      nameless?: Array<{ line: number; code: string }>;
+    };
 
 /** A whole list at once: new codes are added, codes already there are left alone. A code twice: nothing is loaded. */
-export async function importClients(clients: Array<{ code: string; name: string; phone?: string }>): Promise<ImportResult> {
+export async function importClients(clients: Array<{ code: string; name: string; phone?: string; priceMilli?: number; openingDebtMinor?: number }>): Promise<ImportResult> {
   const response = await request("/api/admin/clients/import", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -871,6 +999,405 @@ export async function importClients(clients: Array<{ code: string; name: string;
   if (response.status === 401) return { ok: false, reason: "session-expired" };
   if (response.status === 403) return { ok: false, reason: "forbidden" };
   if (response.status >= 500) return { ok: false, reason: "server-error" };
-  const body = (await response.json().catch(() => null)) as { codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
+  const body = (await response.json().catch(() => null)) as { error?: string; codes?: Array<{ code: string; lines: number[] }>; rows?: Array<{ line: number; code: string }> } | null;
+  if (body?.error === "nameless") return { ok: false, reason: "rejected", nameless: body.rows };
   return { ok: false, reason: "rejected", repeated: body?.codes, bad: body?.rows };
+}
+
+// ---- Groupage: the warehouses, the trips and the cargo on them ----
+
+import type { TripStatus } from "./cargo";
+
+/** A warehouse where cargo is put on the trucks, as the server names it (the settings of its installation). */
+export type Warehouse = { id: string; label: string };
+
+const WAREHOUSES_KEY = "kassa.warehouses";
+
+function readWarehouses(value: unknown): Warehouse[] | null {
+  if (!Array.isArray(value)) return null;
+  const list: Warehouse[] = [];
+  for (const item of value as Array<Record<string, unknown>>) {
+    if (typeof item?.id !== "string" || typeof item.label !== "string") return null;
+    list.push({ id: item.id, label: item.label });
+  }
+  return list;
+}
+
+/**
+ * The warehouses of the business: with none it keeps no trips, and the app has no section «Сборные грузы». The last
+ * answer is kept on the phone, so that the menu is the same at once on the next visit. Never throws: a server that
+ * does not know the question (an older version) has none, and without a connection the ones kept are used.
+ */
+export async function fetchWarehouses(): Promise<Warehouse[]> {
+  try {
+    const response = await request("/api/warehouses", undefined, 5_000);
+    const warehouses = response.ok ? readWarehouses(((await response.json()) as { warehouses?: unknown }).warehouses) : response.status === 404 ? [] : null;
+    if (warehouses) {
+      try {
+        localStorage.setItem(WAREHOUSES_KEY, JSON.stringify(warehouses));
+      } catch {
+        // not kept; the next visit asks again
+      }
+      return warehouses;
+    }
+  } catch {
+    // no connection: what the phone kept
+  }
+  try {
+    return readWarehouses(JSON.parse(localStorage.getItem(WAREHOUSES_KEY) ?? "null")) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** A trip: a truck, and what is on it. Days are YYYY-MM-DD, the weight is grams, the money cents of a dollar. */
+export type Trip = {
+  number: number;
+  driverName: string | null;
+  driverPhone: string | null;
+  truckPlates: string | null;
+  note: string | null;
+  /** Where it goes: «АНДИЖОН - МОСКВА (через КЗХ)». */
+  direction: string | null;
+  /** The day it was loaded; it leaves (`departureDay`) a day or two later. */
+  loadingDay: string | null;
+  departureDay: string | null;
+  arrivalDay: string | null;
+  status: TripStatus;
+  /** A trip of the history, taken over from the card file: no waybill, only what each client owed for it. */
+  fromCardFile?: boolean;
+  lines: number;
+  bags: number;
+  weightG: number;
+  amountMinor: number;
+};
+
+/** A line of the waybill of a trip: the goods of one client, put on at one warehouse. */
+export type TruckPart = "head" | "trailer";
+
+export type CargoLine = {
+  id: string;
+  warehouse: string;
+  /** Where on the truck it lies: the head (the front part) or the trailer; and its turn there («Голова 3»). */
+  truckPart: TruckPart | null;
+  place: number | null;
+  /** The day the warehouse took it in. */
+  acceptedDay: string | null;
+  clientCode: string;
+  clientName: string;
+  /** Who receives it, by name: most often the client, sometimes somebody else under the client's code. */
+  receiver: string | null;
+  sender: string | null;
+  receiverPhone: string | null;
+  item: string | null;
+  brand: string | null;
+  size: string | null;
+  bags: number | null;
+  perBag: number | null;
+  /** What it is packed in: «пэ меш», «коробка». */
+  packaging: string | null;
+  pieces: number | null;
+  weightG: number;
+  /** The price of a kilogram, thousandths of a dollar. */
+  priceMilli: number;
+  amountMinor: number;
+  note: string | null;
+  createdAt: string;
+  author: string;
+  /** The person who is signed in may correct the line and take it off. */
+  mine: boolean;
+};
+
+export type TripDetail = {
+  trip: Trip;
+  cargo: CargoLine[];
+  /** What each client has on the truck, and what they owe in all (the cash book counted in). */
+  clients: Array<{ code: string; name: string; bags: number; weightG: number; amountMinor: number; debtMinor: number }>;
+  /** The places on the head and on the trailer, as the foot of the waybill says them. */
+  places?: { head: number; trailer: number };
+  /** What the person who is signed in may do with this trip. */
+  may: { edit: boolean; warehouses: string[]; forward: TripStatus | null; back: TripStatus | null; admin: boolean; remove: boolean };
+  /** For the owner and the admin: what the cash desk spent on the trip, and what is left of its cargo after that. */
+  money?: { expenseMinor: number; profitMinor: number };
+  /** For the admin, where trips go to 1C: what became of this one there. */
+  onec?: { id: number; status: string; docNumber: string | null; detail: string | null };
+};
+
+export type TripsPage = { trips: Trip[]; nextBefore: number | null; nextNumber: number; mayCreate: boolean };
+
+/** The trips, the newest number first. */
+export async function fetchTrips(before?: number): Promise<TripsPage> {
+  const response = await request(before === undefined ? "/api/trips" : `/api/trips?${new URLSearchParams({ before: String(before) })}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/trips`);
+  return (await response.json()) as TripsPage;
+}
+
+/** One trip with its waybill; null when there is no such trip (any more). */
+export async function fetchTrip(number: number): Promise<TripDetail | null> {
+  const response = await request(`/api/trips/${number}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/trips/${number}`);
+  return (await response.json()) as TripDetail;
+}
+
+export type TripRefusal =
+  | "session-expired"
+  | "forbidden"
+  | "not-found"
+  /** Another trip has this number. */
+  | "trip-exists"
+  /** The truck has arrived: its waybill is closed to the keepers of the warehouses. */
+  | "trip-arrived"
+  | "trip-has-cargo"
+  | "wrong-status"
+  | "arrival-before-departure"
+  | "unknown-client"
+  /** The client has no price of their own, and the line says none. */
+  | "price-required"
+  | "warehouse-forbidden"
+  | "rejected"
+  | "server-error";
+
+/** What a change of a trip answers: the trip as it is afterwards (none when it was taken away), or why not. */
+export type TripResult = { ok: true; detail: TripDetail | null } | { ok: false; reason: TripRefusal };
+
+const TRIP_REFUSALS: Record<string, TripRefusal> = {
+  trip_exists: "trip-exists",
+  trip_arrived: "trip-arrived",
+  trip_has_cargo: "trip-has-cargo",
+  wrong_status: "wrong-status",
+  not_arrived: "wrong-status",
+  arrival_before_departure: "arrival-before-departure",
+  unknown_client: "unknown-client",
+  price_required: "price-required",
+  warehouse_forbidden: "warehouse-forbidden",
+  cargo_id_conflict: "rejected",
+  trip_from_card_file: "trip-arrived",
+};
+
+async function tripResult(response: Response): Promise<TripResult> {
+  const body = (await response.json().catch(() => null)) as (Partial<TripDetail> & { error?: string; deleted?: boolean }) | null;
+  if (response.ok) return { ok: true, detail: body?.trip ? (body as TripDetail) : null };
+  if (response.status === 401) return { ok: false, reason: "session-expired" };
+  if (response.status >= 500) return { ok: false, reason: "server-error" };
+  const known = body?.error ? TRIP_REFUSALS[body.error] : undefined;
+  if (known) return { ok: false, reason: known };
+  if (response.status === 403) return { ok: false, reason: "forbidden" };
+  if (response.status === 404) return { ok: false, reason: "not-found" };
+  return { ok: false, reason: "rejected" };
+}
+
+const sendJson = (path: string, method: string, body?: unknown) =>
+  request(path, { method, ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }) });
+
+/** What the header of a trip says: who drives which truck, and when it left. */
+export type TripHeader = {
+  driverName?: string | null;
+  driverPhone?: string | null;
+  truckPlates?: string | null;
+  note?: string | null;
+  direction?: string | null;
+  loadingDay?: string | null;
+  departureDay?: string | null;
+};
+
+export const createTrip = async (input: TripHeader & { number: number }) => tripResult(await sendJson("/api/trips", "POST", input));
+
+/** The header of a trip; its number and the day it arrived are the admin's to put right. */
+export const changeTrip = async (number: number, change: TripHeader & { number?: number; arrivalDay?: string }) =>
+  tripResult(await sendJson(`/api/trips/${number}`, "PATCH", change));
+
+/** The truck left, the truck arrived (on `arrivalDay`: from then on its cargo is owed), or a step back by the admin. */
+export const setTripStatus = async (number: number, status: TripStatus, arrivalDay?: string) =>
+  tripResult(await sendJson(`/api/trips/${number}/status`, "POST", { status, ...(arrivalDay ? { arrivalDay } : {}) }));
+
+export const deleteTrip = async (number: number) => tripResult(await sendJson(`/api/trips/${number}`, "DELETE"));
+
+/** What a line of cargo says. Without a price, the client's own. */
+export type CargoInput = {
+  warehouse: string;
+  truckPart?: TruckPart | null;
+  acceptedDay?: string | null;
+  clientCode: string;
+  receiver?: string | null;
+  sender?: string | null;
+  receiverPhone?: string | null;
+  item?: string | null;
+  brand?: string | null;
+  size?: string | null;
+  bags?: number | null;
+  perBag?: number | null;
+  packaging?: string | null;
+  pieces?: number | null;
+  weightG: number;
+  priceMilli?: number;
+  note?: string | null;
+};
+
+/** A line onto the waybill. `id` is made here, so that a line sent twice is stored once. */
+export const addCargo = async (number: number, id: string, input: CargoInput) => tripResult(await sendJson(`/api/trips/${number}/cargo`, "POST", { id, ...input }));
+
+export const changeCargo = async (number: number, id: string, input: CargoInput) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "PUT", input));
+
+export const deleteCargo = async (number: number, id: string) => tripResult(await sendJson(`/api/trips/${number}/cargo/${id}`, "DELETE"));
+
+// ---- The card of a client, and the control sheet of a year ----
+
+/** One line of the card of a client: a trip that arrived, a payment, or money given back to the client. */
+export type Movement = {
+  day: string;
+  kind: "trip" | "payment" | "refund";
+  tripNumber: number | null;
+  amountMinor: number;
+  /** The cash desk that took a payment, where it is known. */
+  kassa: string | null;
+  /** A payment of before the cash book was kept here (taken over from the card file). */
+  past: boolean;
+  note: string | null;
+  /** The debt after this line. */
+  debtMinor: number;
+};
+
+export type ClientStatement = { code: string; name: string; openingDebtMinor: number; movements: Movement[]; debtMinor: number };
+
+/** Everything behind the debt of one client, oldest first; null when there is no such client. */
+export async function fetchClientStatement(code: string): Promise<ClientStatement | null> {
+  const response = await request(`/api/clients/${encodeURIComponent(code)}/statement`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from the statement of a client`);
+  return (await response.json()) as ClientStatement;
+}
+
+/** The card of a client as a workbook of Excel. */
+export async function fetchClientSheet(code: string): Promise<Blob> {
+  const response = await request(`/api/clients/${encodeURIComponent(code)}/statement.xlsx`, undefined, 30_000);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from the workbook of a client`);
+  return response.blob();
+}
+
+/** A month of the control sheet: what all the clients owed when it began, what arrived, what was paid, what they owed when it ended. */
+export type ControlMonth = { month: string; openingMinor: number; chargedMinor: number; paidMinor: number; closingMinor: number };
+
+/** The control sheet of a year (the one that is running, unless said), month by month. */
+export async function fetchDebtControl(year?: number): Promise<{ year: number; months: ControlMonth[] }> {
+  const response = await request(year === undefined ? "/api/debts/control" : `/api/debts/control?${new URLSearchParams({ year: String(year) })}`);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/control`);
+  return (await response.json()) as { year: number; months: ControlMonth[] };
+}
+
+export type Named = { code: string; name: string };
+
+/** A line of the thirty who owe most. */
+export type DebtTopRow = Named & {
+  place: number;
+  debtMinor: number;
+  /** The debt now less the debt on the day compared with. */
+  changeMinor: number;
+  /** The day of the last payment; null when there was none since the history began. */
+  lastPaidDay: string | null;
+  daysUnpaid: number;
+  /** Was not among the thirty on the day compared with. */
+  isNew: boolean;
+};
+
+/** A line of those who have not paid for long. */
+export type DebtOverdueRow = Named & {
+  debtMinor: number;
+  lastPaidDay: string | null;
+  daysUnpaid: number;
+  lastTripDay: string | null;
+  isNew: boolean;
+  /** Got cargo in the period of the report. */
+  gotCargo: boolean;
+};
+
+/**
+ * The report on the debts of the clients for a day of the cash desk (see debt-report.ts of the server): how the debt
+ * of all moved since the day compared with, the thirty who owe most, those who do not pay, the control sheet.
+ */
+export type DebtReport = {
+  day: string;
+  since: string;
+  /** The first day of the history: a client with no payment at all has not paid since then. */
+  historyFrom: string;
+  /** The main cash desk; what another desk took is marked with that desk. */
+  primaryKassa: string;
+  openingMinor: number;
+  closingMinor: number;
+  chargedMinor: number;
+  paidMinor: number;
+  trips: Array<{ number: number; day: string; amountMinor: number; clients: number }>;
+  chargedClients: number;
+  paidElsewhere: Array<{ kassa: string; amountMinor: number }>;
+  /** Day by day, when the period is longer than one. */
+  days: Array<{ day: string; trips: Array<{ number: number; amountMinor: number }>; chargedMinor: number; paidMinor: number; closingMinor: number }>;
+  payers: Array<Named & { amountMinor: number; kassas: string[]; debtMinor: number; closed: boolean }>;
+  refunds: Array<Named & { amountMinor: number }>;
+  charged: Array<Named & { amountMinor: number; trips: number[] }>;
+  events: {
+    closed: Named[];
+    paidTrip: Array<Named & { trip: number; amountMinor: number; daysAfter: number; closed: boolean }>;
+    firstPayment: Array<Named & { amountMinor: number; previousDay: string | null }>;
+    crossed: { boundaryMinor: number; down: boolean } | null;
+  };
+  /** What was written into the days already closed; null when no closing of `since` was kept. */
+  backdated: {
+    takenAt: string;
+    thenMinor: number;
+    changes: Array<Named & { changeMinor: number }>;
+    trips: Array<{ number: number; day: string; amountMinor: number; clients: number }>;
+    topIn: Named[];
+    topOut: Named[];
+    overdueIn: Named[];
+    overdueOut: Named[];
+  } | null;
+  debtors: { count: number; totalMinor: number };
+  top: {
+    rows: DebtTopRow[];
+    totalMinor: number;
+    left: Array<Named & { paidMinor: number; debtMinor: number; changeMinor: number }>;
+    entered: Array<Named & { chargedMinor: number; trips: number[]; changeMinor: number }>;
+    moved: Array<Named & { from: number; to: number }>;
+    near: Array<Named & { days: number }>;
+    crossed: Array<Named & { days: number }>;
+  };
+  overdue: {
+    rows: DebtOverdueRow[];
+    totalMinor: number;
+    long: number;
+    left: Array<Named & { paidMinor: number; debtMinor: number }>;
+    came: Array<Named & { debtMinor: number; daysUnpaid: number; lastPaidDay: string | null; reason: "days" | "debt" }>;
+  };
+  control: { year: number; months: ControlMonth[]; agrees: boolean };
+  /** The month as a whole, when `day` is its last day: what all the clients owed day by day. Null on any other day. */
+  dynamics: {
+    month: string;
+    openingMinor: number;
+    trips: number;
+    days: Array<{ day: string; chargedMinor: number; paidMinor: number; closingMinor: number }>;
+  } | null;
+};
+
+/** The report of a day (today's, unless said), compared with the day before it or with an earlier one. */
+export async function fetchDebtReport(day?: string, since?: string): Promise<DebtReport> {
+  const query = new URLSearchParams();
+  if (day) query.set("day", day);
+  if (since) query.set("since", since);
+  const response = await request(query.size > 0 ? `/api/debts/report?${query}` : "/api/debts/report");
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/report`);
+  return (await response.json()) as DebtReport;
+}
+
+/** The sheet «Не платят больше 7 дней» of a day, as a workbook of Excel. */
+export async function fetchUnpaidSheet(day: string): Promise<Blob> {
+  const response = await request(`/api/debts/unpaid.xlsx?${new URLSearchParams({ day })}`, undefined, 30_000);
+  if (response.status === 401) throw new SessionExpiredError("Session ended");
+  if (!response.ok) throw new Error(`Unexpected status ${response.status} from /api/debts/unpaid.xlsx`);
+  return response.blob();
 }

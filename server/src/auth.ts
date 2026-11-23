@@ -5,6 +5,7 @@ import type pg from "pg";
 import { AttemptLimiter } from "./attempt-limiter.js";
 import { clientNetwork } from "./client-network.js";
 import { ConcurrencyGate, GateFullError } from "./concurrency-gate.js";
+import type { Kassa } from "./kassa.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { NO_NUL } from "./schemas.js";
 
@@ -12,16 +13,23 @@ export const SESSION_COOKIE = "kassa_session";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The guest is shown the cash desk: he reads what the viewer reads, and no route that writes lets him in. */
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "guest";
+/**
+ * The keeper of a warehouse writes the cargo of the trips and has nothing to do with the cash (see `authenticate`). The
+ * guest is shown the cash desk: he reads what the viewer reads, and no route that writes lets him in.
+ */
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "warehouse" | "guest";
 
 export type SessionUser = {
   id: string;
   login: string;
   displayName: string;
   role: Role;
-  /** The city the person works in: the entry forms offer only its categories and those of everywhere. Null is everywhere. */
-  city: "andijan" | "moscow" | null;
+  /**
+   * The city the person works in, which is the id of their cash desk: they work in that desk only, and the entry forms
+   * offer its categories and those of everywhere. Null is everywhere. Of the keeper of a warehouse it is the id of
+   * that warehouse (see warehouses.ts), whose cargo they write.
+   */
+  city: Kassa | null;
 };
 
 export type LoginProtectionOptions = {
@@ -64,6 +72,13 @@ type UserRow = {
 };
 
 declare module "fastify" {
+  interface FastifyContextConfig {
+    /**
+     * The keeper of a warehouse may use this route. Every route is closed to them unless it says so: a route of the
+     * cash that is added later is not theirs by an oversight.
+     */
+    warehouse?: boolean;
+  }
   interface FastifyRequest {
     /** Set by `app.authenticate`: the person behind the session cookie. */
     user?: SessionUser;
@@ -139,6 +154,10 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
       return reply.code(401).send({ error: "unauthorized" });
     }
     request.user = session.user;
+    // The keeper of a warehouse writes cargo: the balances, the journal and the lists of the cash are not for them.
+    if (session.user.role === "warehouse" && !request.routeOptions.config.warehouse) {
+      return reply.code(403).send({ error: "forbidden" });
+    }
 
     // Sliding expiry: someone who uses the app never has to log in again. The write
     // is throttled to once a day, and the cookie is re-sent so the browser keeps up.
@@ -176,7 +195,7 @@ export async function registerAuth(app: FastifyInstance, options: AuthOptions): 
     };
   }
 
-  app.get("/api/me", { onRequest: app.authenticate }, async (request) => {
+  app.get("/api/me", { onRequest: app.authenticate, config: { warehouse: true } }, async (request) => {
     const { id, login, displayName, role, city } = request.user!;
     const linked = await pool.query<{ linked: boolean }>("SELECT telegram_id IS NOT NULL AS linked FROM users WHERE id = $1", [id]);
     // The city is the cash desk the person works in; none: both (they choose on the screen).

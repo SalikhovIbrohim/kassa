@@ -88,7 +88,7 @@ export async function registerTelegram(app: FastifyInstance, options: TelegramOp
 
   app.post<{ Body: { initData: string } }>(
     "/api/telegram/link",
-    { onRequest: app.authenticate, schema: { body: BODY } },
+    { onRequest: app.authenticate, config: { warehouse: true }, schema: { body: BODY } },
     async (request, reply) => {
       const checked = verified(request.body.initData);
       if (checked === null) return reply.code(404).send({ error: "telegram_disabled" });
@@ -106,7 +106,7 @@ export async function registerTelegram(app: FastifyInstance, options: TelegramOp
     },
   );
 
-  app.delete("/api/telegram/link", { onRequest: app.authenticate }, async (request, reply) => {
+  app.delete("/api/telegram/link", { onRequest: app.authenticate, config: { warehouse: true } }, async (request, reply) => {
     await pool.query("UPDATE users SET telegram_id = NULL WHERE id = $1", [request.user!.id]);
     return reply.code(204).send();
   });

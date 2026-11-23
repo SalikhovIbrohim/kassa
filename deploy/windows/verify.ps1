@@ -58,7 +58,7 @@ Invoke-Main {
     $layout = Get-KassaLayout -Root $Root
     $checker = [IO.Path]::Combine($layout.App, 'deploy', 'check.mjs')
 
-    Write-Host "Kassa installation in $($layout.Root), application in $($layout.App)"
+    Write-Host "Kassa installation$($layout.Label) in $($layout.Root), application in $($layout.App)"
     Write-Host ''
 
     Test-Part 'PostgreSQL service' {
@@ -68,7 +68,7 @@ Invoke-Main {
         else { Write-Report 'FAIL' 'PostgreSQL' "$name is $($service.Status)" }
     }
 
-    foreach ($id in $(if ($NoProxy) { @('KassaApp') } else { @('KassaApp', 'KassaProxy') })) {
+    foreach ($id in $(if ($NoProxy) { @($layout.AppService) } else { @($layout.AppService, $layout.ProxyService) })) {
         Test-Part "service $id" {
             $service = Get-Service -Name $id -ErrorAction SilentlyContinue
             if (-not $service) { Write-Report 'FAIL' $id 'is not installed (install-services.ps1)'; return }
@@ -143,7 +143,7 @@ Invoke-Main {
     }
 
     if (-not $NoProxy) { Test-Part 'certificate' {
-        $log = [IO.Path]::Combine($layout.Logs, 'KassaProxy.err.log')
+        $log = [IO.Path]::Combine($layout.Logs, $layout.ProxyService + '.err.log')
         if (-not (Test-Path -LiteralPath $log)) { Write-Report 'info' 'certificate' 'the proxy has not written a log yet'; return }
         $found = @(Select-String -LiteralPath $log -Pattern 'certificate obtained successfully' -SimpleMatch)
         if ($found.Count -gt 0) { Write-Report 'ok' 'certificate' 'the proxy log says a certificate was obtained' }
@@ -159,13 +159,14 @@ Invoke-Main {
     }
 
     Test-Part 'copies of the database' {
-        $task = Get-ScheduledTask -TaskName 'Kassa backup' -ErrorAction SilentlyContinue
-        if (-not $task) { Write-Report 'FAIL' 'nightly copy' 'there is no task "Kassa backup" (schedule-backup.ps1)' }
+        $taskName = $layout.BackupTask
+        $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+        if (-not $task) { Write-Report 'FAIL' 'nightly copy' "there is no task `"$taskName`" (schedule-backup.ps1)" }
         else {
             $info = $task | Get-ScheduledTaskInfo
             if ($task.State -eq 'Disabled') { Write-Report 'FAIL' 'nightly copy' 'the task is disabled' }
             elseif ($info.LastTaskResult -eq 0) { Write-Report 'ok' 'nightly copy' "the task ran at $($info.LastRunTime) and succeeded" }
-            elseif ($info.LastTaskResult -eq 267011) { Write-Report 'WARN' 'nightly copy' 'the task has not run yet (Start-ScheduledTask -TaskName "Kassa backup")' }
+            elseif ($info.LastTaskResult -eq 267011) { Write-Report 'WARN' 'nightly copy' "the task has not run yet (Start-ScheduledTask -TaskName `"$taskName`")" }
             else { Write-Report 'FAIL' 'nightly copy' "the last run ended with result $($info.LastTaskResult) (the log: $($layout.Logs)\backup.log)" }
         }
         & "$PSScriptRoot\backup.ps1" -Root $Root -Status | Out-Null

@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { useKassa } from "./kassa";
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import { activeCategories, DEFAULT_INCOME_CATEGORY, type Balance, type Category, type Operation } from "./api";
 import { CategoryField } from "./CategoryField";
@@ -11,6 +11,7 @@ import { RateField } from "./RateField";
 import { rememberedRate } from "./remembered-rate";
 import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
+import { ofCity, useIntoKassaConfirm } from "./IntoKassaConfirm";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -76,7 +77,8 @@ export function IncomeForm({
   const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const { kassa } = useKassa();
+  const { kassa, currenciesOf, labelOf } = useKassa();
+  const intoKassa = useIntoKassaConfirm();
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
 
   // Without the lists (never loaded, nothing kept on the phone) an income can still be entered: it is a payment of a client.
@@ -141,6 +143,10 @@ export function IncomeForm({
       return;
     }
 
+    // A category that sends its money into another desk: the cashier is told so, every time, before it is written.
+    const into = chosen.intoKassa ?? null;
+    if (into !== null && into !== kassa && !(await intoKassa.ask({ what: `Приход ${formatMoney(amountMinor, currency)}`, into: labelOf(into), own: labelOf(kassa) }))) return;
+
     const saved = await entry.send((id) => ({
       type: "income",
       id,
@@ -169,12 +175,13 @@ export function IncomeForm({
   return (
     <Card asChild className="gap-4 p-5">
     <form onSubmit={submit}>
+      {intoKassa.dialog}
       <h2 className="sr-only">Приход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "income" && (
           <p className={cn(alertVariants({ variant: "success" }), "success")}>
-            Записано: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}
+            Записано{entry.saved.kassa && entry.saved.kassa !== kassa ? ` в кассу ${ofCity(labelOf(entry.saved.kassa))}` : ""}: приход {formatMoney(entry.saved.amountMinor, entry.saved.currency)}
             {savedCategory ? ` (${savedCategory})` : ""}
             {entry.saved.clientCode ? `, клиент ${entry.saved.clientCode}` : ""}.
           </p>
@@ -183,7 +190,8 @@ export function IncomeForm({
 
       <CategoryField list={lists} kind="income" label="Откуда деньги" value={category} onChange={setCategory} onReload={onReloadCategories} />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+      {/* Where the business keeps trips, what the client owes is said under the code: the cashier sees it before taking the money. */}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside debt />}
 
       <TripFields
         needsTrip={needsTrip}
@@ -199,7 +207,7 @@ export function IncomeForm({
       />
 
       {/* Andijan keeps dollars only: nothing to choose. */}
-      {KASSA_CURRENCIES[kassa].length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
+      {currenciesOf(kassa).length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
 
       <Label className="relative">
         <span className="sr-only">Сумма</span>

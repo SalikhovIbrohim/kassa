@@ -1,8 +1,8 @@
 <!-- Caddy, the HTTPS front of Kassa, as a Windows service run by WinSW. install-services.ps1 fills in
      the __PLACEHOLDERS__ and writes this next to a copy of WinSW named KassaProxy.exe. -->
 <service>
-  <id>KassaProxy</id>
-  <name>Kassa proxy (Caddy)</name>
+  <id>__ID__</id>
+  <name>__NAME__</name>
   <description>HTTPS in front of the Kassa application (Caddy).</description>
   <executable>__CADDY__</executable>
   <arguments>run --config "__CADDYFILE__" --adapter caddyfile</arguments>

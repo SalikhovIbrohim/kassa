@@ -9,12 +9,20 @@ export type SectionKey =
   | "reconcile"
   | "totals"
   | "reconciliations"
+  | "reports"
+  | "trips"
   | "clients"
   | "categories"
   | "users"
   | "settings";
 
-type SectionInfo = { label: string; icon: string; roles: readonly Role[] };
+type SectionInfo = {
+  label: string;
+  /** What the tab bar of a phone calls it, when the label is too long for a button. */
+  tab?: string;
+  icon: string;
+  roles: readonly Role[];
+};
 
 /** The icons of the prototype (design/kassa.html), drawn in a 24 by 24 box with one stroke. */
 const ICONS = {
@@ -24,6 +32,8 @@ const ICONS = {
   reconcile: "M12 4v16M8 20h8M4 7h16M7 7l-3 7h6zM17 7l-3 7h6z",
   totals: "M5 20V11M10 20V5M15 20v-7M20 20v-4M3 20h18",
   reconciliations: "M9 3.5h6v3H9zM8 5H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2M9 14l2 2 4-4",
+  reports: "M3 20h18M6 16l4-5 3 3 5-7M4 4v16",
+  trips: "M2.5 6.5h11v10h-11zM13.5 10h4l3 3.2v3.3h-7zM6.5 19a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8zM17 19a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8z",
   clients: "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5M16 4.5a3.5 3.5 0 0 1 0 6.5M18 14.8c1.8.7 3 2.6 3 5.2",
   categories: "M3.5 12V4.5a1 1 0 0 1 1-1H12l8.5 8.5-8.5 8.5zM8 8.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z",
   users: "M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6zM12 12a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM8.5 16.5c.7-1.4 2-2.2 3.5-2.2s2.8.8 3.5 2.2",
@@ -38,6 +48,9 @@ const ICONS = {
   edit: "M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4",
   trash: "M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13",
   check: "M5 12.5l4.5 4.5L19 7",
+  filter: "M4 5h16l-6.2 7.4V18l-3.6 2v-7.6z",
+  calendar: "M5 6h14a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM4 10h16M8 3.5v4M16 3.5v4",
+  close: "M6 6l12 12M18 6L6 18",
   refresh: "M20 11a8 8 0 0 0-14.6-4.5M4 4v3.5h3.5M4 13a8 8 0 0 0 14.6 4.5M20 20v-3.5h-3.5",
 } as const;
 
@@ -72,23 +85,31 @@ export const SECTIONS: Record<SectionKey, SectionInfo> = {
   reconcile: { label: "Сверка", icon: "reconcile", roles: ["head_cashier"] },
   totals: { label: "Итоги", icon: "totals", roles: ["admin", "viewer", "guest"] },
   reconciliations: { label: "Сверки", icon: "reconciliations", roles: ["admin", "viewer", "guest"] },
+  // These two only where the business keeps trips (see `sectionsOf`): the debts of the clients come from the trips.
+  reports: { label: "Отчёты", icon: "reports", roles: ["cashier", "head_cashier", "admin", "viewer"] },
+  trips: { label: "Сборные грузы", tab: "Грузы", icon: "trips", roles: ["admin", "viewer", "warehouse", "guest"] },
   clients: { label: "Клиенты", icon: "clients", roles: ["admin", "viewer"] },
   categories: { label: "Категории", icon: "categories", roles: ["admin"] },
   users: { label: "Люди", icon: "users", roles: ["admin"] },
-  settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer", "guest"] },
+  settings: { label: "Настройки", icon: "settings", roles: ["cashier", "head_cashier", "admin", "viewer", "warehouse", "guest"] },
 };
 
-const ORDER: readonly SectionKey[] = ["income", "expense", "journal", "reconcile", "totals", "reconciliations", "clients", "categories", "users", "settings"];
+const ORDER: readonly SectionKey[] = ["income", "expense", "journal", "reconcile", "totals", "reconciliations", "reports", "trips", "clients", "categories", "users", "settings"];
 
 /** The menu of a computer, in groups as in the prototype. */
 export const GROUPS: ReadonlyArray<{ title: string | null; keys: readonly SectionKey[] }> = [
   { title: "Касса", keys: ["income", "expense"] },
-  { title: null, keys: ["journal", "reconcile", "totals", "reconciliations"] },
+  { title: null, keys: ["journal", "reconcile", "totals", "reconciliations", "reports"] },
+  { title: "Грузы", keys: ["trips"] },
   { title: "Справочники", keys: ["clients"] },
   { title: "Настройки", keys: ["categories", "users", "settings"] },
 ];
 
-export const sectionsOf = (role: Role): SectionKey[] => ORDER.filter((key) => SECTIONS[key].roles.includes(role));
+/**
+ * The sections of a role. `trips`: the business keeps trips (its server names warehouses); where it does not, the
+ * sections «Сборные грузы» and «Отчёты» are nobody's.
+ */
+export const sectionsOf = (role: Role, trips = false): SectionKey[] => ORDER.filter((key) => SECTIONS[key].roles.includes(role) && ((key !== "trips" && key !== "reports") || trips));
 
 /** The four buttons of the tab bar a role starts with (the fifth is always «Настройки»). */
 const DEFAULT_TABS: Record<Role, readonly SectionKey[]> = {
@@ -97,13 +118,14 @@ const DEFAULT_TABS: Record<Role, readonly SectionKey[]> = {
   admin: ["income", "journal", "totals", "clients"],
   viewer: ["journal", "totals", "reconciliations", "clients"],
   guest: ["income", "expense", "journal", "totals"],
+  warehouse: ["trips"],
 };
 export const TAB_SLOTS = 4;
 
 const tabsKey = (role: Role) => `kassa.tabs.${role}`;
 
-function storedTabs(role: Role): SectionKey[] {
-  const allowed: SectionKey[] = sectionsOf(role).filter((key) => key !== "settings");
+function storedTabs(role: Role, trips: boolean): SectionKey[] {
+  const allowed: SectionKey[] = sectionsOf(role, trips).filter((key) => key !== "settings");
   try {
     const saved = JSON.parse(localStorage.getItem(tabsKey(role)) ?? "null") as unknown;
     if (Array.isArray(saved)) {
@@ -120,8 +142,8 @@ function storedTabs(role: Role): SectionKey[] {
  * The buttons of the tab bar of a phone: four the person chooses (kept on this device, one choice for each role), and
  * «Настройки» last, from where every other section opens.
  */
-export function useTabs(role: Role): { tabs: SectionKey[]; chosen: SectionKey[]; setChosen: (keys: SectionKey[] | null) => void } {
-  const [chosen, setChosenState] = useState<SectionKey[]>(() => storedTabs(role));
+export function useTabs(role: Role, trips = false): { tabs: SectionKey[]; chosen: SectionKey[]; setChosen: (keys: SectionKey[] | null) => void } {
+  const [chosen, setChosenState] = useState<SectionKey[]>(() => storedTabs(role, trips));
   const setChosen = useCallback(
     (keys: SectionKey[] | null) => {
       try {
@@ -130,9 +152,9 @@ export function useTabs(role: Role): { tabs: SectionKey[]; chosen: SectionKey[];
       } catch {
         // not kept: this visit only
       }
-      setChosenState(keys === null ? DEFAULT_TABS[role].filter((key) => sectionsOf(role).includes(key)) : keys.slice(0, TAB_SLOTS));
+      setChosenState(keys === null ? DEFAULT_TABS[role].filter((key) => sectionsOf(role, trips).includes(key)) : keys.slice(0, TAB_SLOTS));
     },
-    [role],
+    [role, trips],
   );
   return { tabs: [...chosen, "settings"], chosen, setChosen };
 }

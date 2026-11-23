@@ -11,6 +11,9 @@ import {
 } from "./api";
 import { formatDay, cashDayToday, presetPeriod, type PeriodPreset } from "./days";
 import { CURRENCY_NAME, formatDifference, formatMoney } from "./money";
+import { IconButton, PageActions } from "./page-actions";
+import { Icon } from "./sections";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
@@ -44,7 +47,7 @@ const PRESETS: Array<{ preset: PeriodPreset; label: string }> = [
   { preset: "today", label: "Сегодня" },
   { preset: "yesterday", label: "Вчера" },
   { preset: "week", label: "7 дней" },
-  { preset: "month", label: "Этот месяц" },
+  { preset: "month", label: "Месяц" },
 ];
 
 /** The only category that is shown even when nothing was returned to clients in the period. */
@@ -108,6 +111,15 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
     setTo(period.to);
   };
 
+  // The period is one of the person's own when no quick choice is it.
+  const own = !PRESETS.some(({ preset }) => {
+    const wanted = presetPeriod(preset, today);
+    return wanted.from === from && wanted.to === to;
+  });
+  // The two days as they are being chosen in the sheet; asked for on «Показать». What is wrong with them is said there.
+  const [sheet, setSheet] = useState<{ from: string; to: string } | null>(null);
+  const sheetProblem = sheet === null ? null : sheet.from === "" || sheet.to === "" ? "Выберите обе даты." : sheet.from > sheet.to ? "Начало периода позже конца." : null;
+
   const label = (code: string) => categories.find((item) => item.code === code)?.label ?? code;
 
   const shown = load.kind === "ready" ? load : null;
@@ -120,14 +132,13 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
 
   return (
     <section className="totals" aria-label="Итоги" aria-busy={shown?.stale === true || load.kind === "loading"}>
-      <div className="journal-head">
-        <h2>Итоги</h2>
-        <Button type="button" variant="outline" size="sm" onClick={refresh}>
-          Обновить
-        </Button>
-      </div>
+      <h2 className="sr-only">Итоги</h2>
+      <PageActions active={active}>
+        <IconButton icon="calendar" label="Период" pressed={own} onClick={() => setSheet({ from, to })} />
+        <IconButton icon="refresh" label="Обновить" onClick={refresh} />
+      </PageActions>
 
-      <div className="presets" role="group" aria-label="Быстрый выбор периода">
+      <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Быстрый выбор периода" data-presets>
         {PRESETS.map(({ preset, label: text }) => {
           const wanted = presetPeriod(preset, today);
           const chosen = wanted.from === from && wanted.to === to;
@@ -137,6 +148,7 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
               type="button"
               variant={chosen ? "default" : "outline"}
               size="sm"
+              className="min-w-0 px-1"
               aria-pressed={chosen}
               onClick={() => choose(preset)}
             >
@@ -146,16 +158,55 @@ export function Totals({ onSessionExpired, onRefresh, active = true }: Props) {
         })}
       </div>
 
-      <div className="filter-grid">
-        <Label>
-          С
-          <Input type="date" name="from" aria-label="Период: с" value={from} max={today} onChange={(event) => setFrom(event.target.value)} />
-        </Label>
-        <Label>
-          По
-          <Input type="date" name="to" aria-label="Период: по" value={to} max={today} onChange={(event) => setTo(event.target.value)} />
-        </Label>
-      </div>
+      {/* A period of the person's own, chosen in the sheet: said as a mark that takes it off (back to today). */}
+      {own && (
+        <div className="flex flex-wrap items-center gap-1.5" data-chips>
+          <span className="inline-flex h-8 items-center gap-1 rounded-full bg-accent pr-1 pl-3 text-[13px] font-semibold" data-chip="period">
+            {from === to ? formatDay(from) : `${formatDay(from)} – ${formatDay(to)}`}
+            <button type="button" className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-muted" aria-label="Убрать свой период" onClick={() => choose("today")}>
+              <Icon name="close" size={13} stroke={2.4} />
+            </button>
+          </span>
+        </div>
+      )}
+      <Dialog open={sheet !== null} onOpenChange={(next) => !next && setSheet(null)}>
+        <DialogContent>
+          <DialogTitle>Период</DialogTitle>
+          <DialogDescription className="sr-only">Первый и последний день периода, за который считать итоги.</DialogDescription>
+          {sheet && (
+            <form
+              className="grid gap-3"
+              aria-label="Период"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (sheetProblem) return;
+                setFrom(sheet.from);
+                setTo(sheet.to);
+                setSheet(null);
+              }}
+            >
+              <div className="grid grid-cols-2 gap-2.5 [&_input]:min-w-0">
+                <Label>
+                  С
+                  <Input type="date" name="from" aria-label="Период: с" value={sheet.from} max={today} onChange={(event) => setSheet({ ...sheet, from: event.target.value })} />
+                </Label>
+                <Label>
+                  По
+                  <Input type="date" name="to" aria-label="Период: по" value={sheet.to} max={today} onChange={(event) => setSheet({ ...sheet, to: event.target.value })} />
+                </Label>
+              </div>
+              {sheetProblem && (
+                <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+                  {sheetProblem}
+                </p>
+              )}
+              <Button type="submit" className="h-12" disabled={sheetProblem !== null}>
+                Показать
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {problem && (
         <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">

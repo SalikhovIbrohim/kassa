@@ -1,4 +1,4 @@
-import { KASSA_SHORT, scopeCurrencies, scopeKassa, useKassa } from "./kassa";
+import { scopeKassa, useKassa } from "./kassa";
 import { Icon } from "./sections";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -20,9 +20,11 @@ import { ClientCodeField } from "./ClientCodeField";
 import { DeleteConfirm } from "./DeleteConfirm";
 import { HistoryPanel } from "./HistoryPanel";
 import { OperationEditor } from "./OperationEditor";
-import { formatDay, formatMoscowClock, formatMoscowShort, cashDayToday, shiftDay } from "./days";
+import { formatDay, formatMoscowClock, formatMoscowShort, cashDayToday, presetPeriod, shiftDay, type PeriodPreset } from "./days";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { CURRENCY_NAME, formatMoney, formatRate, type Currency } from "./money";
 import { Badge } from "@/components/ui/badge";
+import { IconButton, PageActions } from "./page-actions";
 import { Button } from "@/components/ui/button";
 import { alertVariants } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
@@ -38,6 +40,8 @@ type Props = {
   login?: string;
   /** The admin corrects and deletes any entry, at any time. */
   isAdmin?: boolean;
+  /** The journal is the page on show: only then are its buttons in the row of the page's name. */
+  active?: boolean;
   onSessionExpired: () => void;
   /** Called when the person asks for fresh data, so the screen can refresh its balances too. */
   onRefresh?: () => void;
@@ -85,6 +89,15 @@ type Load =
 
 const TYPING_PAUSE_MS = 300;
 
+/** The quick choices of a period, the same as in «Итоги». */
+const PRESETS: Array<{ preset: PeriodPreset; label: string }> = [
+  { preset: "today", label: "Сегодня" },
+  { preset: "yesterday", label: "Вчера" },
+  { preset: "week", label: "7 дней" },
+  { preset: "month", label: "Месяц" },
+];
+const ONEC_FILTER_LABEL: Record<OneCFilter, string> = { problem: "ошибки и ждут", waiting: "в очереди", written: "записаны", none: "не отправлялись" };
+
 /** How long the author may correct or delete their own entry; the server keeps the same rule. */
 const OWN_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -111,14 +124,15 @@ function toFilters(draft: Draft): JournalFilters {
   };
 }
 
-export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
+export function Journal({ mode, login, isAdmin = false, active = true, onSessionExpired, onRefresh, onBalances, onOperationChanged }: Props) {
   // Worked out again on every render: a page left open overnight must still know what day it is.
   const today = cashDayToday();
-  const { scope } = useKassa();
+  const { scope, scopeCurrencies } = useKassa();
   const kassa = scopeKassa(scope);
   const [draft, setDraft] = useState<Draft>(() => startingDraft(today));
-  // Laptops start with the filters open, phones with them folded; the person's choice sticks.
-  const [filtersOpen] = useState(() => window.matchMedia("(min-width: 720px)").matches);
+  // The filters as they are being chosen in the sheet; they are asked for on «Показать», not field by field.
+  const [sheet, setSheet] = useState<Draft | null>(null);
+  const edit = (changes: Partial<Draft>) => setSheet((previous) => (previous ? { ...previous, ...changes } : previous));
   const [panel, setPanel] = useState<Panel | null>(null);
   // Where keyboard focus should go next: a row (after an action) or nothing. A request is
   // handed over once and forgotten, so that a row appearing later cannot take focus again.
@@ -325,6 +339,29 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
   }
 
   const labels = useMemo(() => new Map(categories.map((item) => [item.code, item.label])), [categories]);
+  /** Asks for the journal with these filters, at once. */
+  const show = (next: Draft) => {
+    setDraft(next);
+    setApplied(next);
+  };
+  // The filters that are on, each as a mark that takes it off. A period of the person's own (no quick choice) is one too.
+  const chips = useMemo(() => {
+    const list: Array<{ key: string; text: string; off: Partial<Draft> }> = [];
+    if (mode !== "viewer") return list;
+    const quick = PRESETS.some(({ preset }) => {
+      const wanted = presetPeriod(preset, today);
+      return wanted.from === applied.from && wanted.to === applied.to;
+    });
+    if (!quick) list.push({ key: "period", text: applied.from === applied.to ? formatDay(applied.from) : `${formatDay(applied.from)} – ${formatDay(applied.to)}`, off: { from: today, to: today } });
+    if (applied.type) list.push({ key: "type", text: applied.type === "income" ? "Приход" : "Расход", off: { type: "" } });
+    if (applied.currency) list.push({ key: "currency", text: CURRENCY_NAME[applied.currency], off: { currency: "" } });
+    if (applied.category) list.push({ key: "category", text: labels.get(applied.category) ?? applied.category, off: { category: "" } });
+    if (applied.author) list.push({ key: "author", text: cashiers.find((cashier) => cashier.login === applied.author)?.displayName ?? applied.author, off: { author: "" } });
+    if (applied.deleted) list.push({ key: "deleted", text: applied.deleted === "only" ? "Только удалённые" : "С удалёнными", off: { deleted: "" } });
+    if (applied.onec) list.push({ key: "onec", text: `1С: ${ONEC_FILTER_LABEL[applied.onec]}`, off: { onec: "" } });
+    if (applied.clientCode.trim()) list.push({ key: "client", text: `Клиент ${applied.clientCode.trim()}`, off: { clientCode: "" } });
+    return list;
+  }, [mode, applied, today, labels, cashiers]);
   const change = (changes: Partial<Draft>) => setDraft((previous) => ({ ...previous, ...changes }));
   const periodIsBackwards = draft.from !== "" && draft.to !== "" && draft.from > draft.to;
   const periodIsIncomplete = draft.from === "" || draft.to === "";
@@ -332,14 +369,12 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
 
   return (
     <section className="journal" aria-label="Журнал">
-      <div className="journal-head">
-        <h2 ref={heading} tabIndex={-1}>
-          Журнал
-        </h2>
-        <Button type="button" variant="outline" size="sm" onClick={refresh}>
-          Обновить
-        </Button>
-      </div>
+      <h2 ref={heading} tabIndex={-1} className="sr-only">
+        Журнал
+      </h2>
+      <PageActions active={active}>
+        <IconButton icon="refresh" label="Обновить" onClick={refresh} />
+      </PageActions>
 
       {mode === "cashier" ? (
         <div className="day-picker">
@@ -371,104 +406,170 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
           </Button>
         </div>
       ) : (
-        <details className="filters" open={filtersOpen}>
-          <summary>Фильтры</summary>
-          <div className="filter-grid">
-            <Label>
-              С
-              <Input type="date" name="from" aria-label="Период: с" value={draft.from} max={today} onChange={(e) => change({ from: e.target.value })} />
-            </Label>
-            <Label>
-              По
-              <Input type="date" name="to" aria-label="Период: по" value={draft.to} max={today} onChange={(e) => change({ to: e.target.value })} />
-            </Label>
-            <Label>
-              Валюта
-              <Select
-                name="currency"
-                value={draft.currency}
-                onChange={(next) => change({ currency: next as Draft["currency"] })}
-                options={[{ value: "", label: "Все" }, ...scopeCurrencies(scope).map((code) => ({ value: code, label: CURRENCY_NAME[code] }))]}
-              />
-            </Label>
-            <Label>
-              Тип
-              <Select
-                name="type"
-                value={draft.type}
-                onChange={(next) => change({ type: next as Draft["type"] })}
-                options={[
-                  { value: "", label: "Все" },
-                  { value: "income", label: "Приход" },
-                  { value: "expense", label: "Расход" },
-                ]}
-              />
-            </Label>
-            <Label>
-              Категория
-              <Select
-                name="category"
-                value={draft.category}
-                onChange={(category) => change({ category })}
-                options={[
-                  { value: "", label: "Все" },
-                  ...(["income", "expense"] as const).flatMap((kind) =>
-                    categories
-                      .filter((item) => item.kind === kind)
-                      .map((item) => ({
-                        value: item.code,
-                        label: `${item.label}${item.archived ? " (в архиве)" : ""}`,
-                        group: kind === "income" ? "Приход" : "Расход",
-                      })),
-                  ),
-                ]}
-              />
-            </Label>
-            <Label>
-              Кассир
-              <Select
-                name="author"
-                value={draft.author}
-                onChange={(author) => change({ author })}
-                options={[{ value: "", label: "Все" }, ...cashiers.map((cashier) => ({ value: cashier.login, label: cashier.displayName }))]}
-              />
-            </Label>
-            <Label className="whole-line-on-phone">
-              Удалённые записи
-              <Select
-                name="deleted"
-                value={draft.deleted}
-                onChange={(next) => change({ deleted: next as Draft["deleted"] })}
-                options={[
-                  { value: "", label: "Скрывать" },
-                  { value: "include", label: "Показывать" },
-                  { value: "only", label: "Только удалённые" },
-                ]}
-              />
-            </Label>
-            {isAdmin && (
-              <Label className="whole-line-on-phone">
-                1С
-                <Select
-                  name="onec"
-                  value={draft.onec}
-                  onChange={(next) => change({ onec: next as Draft["onec"] })}
-                  options={[
-                    { value: "", label: "Все" },
-                    { value: "problem", label: "Ошибки и ждут" },
-                    { value: "waiting", label: "В очереди" },
-                    { value: "written", label: "Записаны" },
-                    { value: "none", label: "Не отправлялись" },
-                  ]}
-                />
-              </Label>
-            )}
-            <ClientCodeField required={false} value={draft.clientCode} onChange={(clientCode) => change({ clientCode })} />
-            <Button type="button" variant="outline" className="reset" onClick={() => setDraft(startingDraft(today))}>
-              Сбросить
-            </Button>
+        <>
+          <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Быстрый выбор периода" data-presets>
+            {PRESETS.map(({ preset, label: text }) => {
+              const wanted = presetPeriod(preset, today);
+              const chosen = wanted.from === applied.from && wanted.to === applied.to;
+              return (
+                <Button key={preset} type="button" size="sm" variant={chosen ? "default" : "outline"} className="min-w-0 px-1" aria-pressed={chosen} onClick={() => show({ ...applied, ...wanted })}>
+                  {text}
+                </Button>
+              );
+            })}
           </div>
-        </details>
+          {chips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-chips>
+              {chips.map((chip) => (
+                <span key={chip.key} className="inline-flex h-8 items-center gap-1 rounded-full bg-accent pr-1 pl-3 text-[13px] font-semibold" data-chip={chip.key}>
+                  {chip.text}
+                  <button type="button" className="grid size-6 place-items-center rounded-full text-muted-foreground hover:bg-muted" aria-label={`Убрать фильтр: ${chip.text}`} onClick={() => show({ ...applied, ...chip.off })}>
+                    <Icon name="close" size={13} stroke={2.4} />
+                  </button>
+                </span>
+              ))}
+              {chips.length > 1 && (
+                <button type="button" className="h-8 px-2 text-[13px] font-semibold text-muted-foreground" onClick={() => show(startingDraft(today))}>
+                  Сбросить все
+                </button>
+              )}
+            </div>
+          )}
+          <PageActions active={active}>
+            <IconButton icon="filter" label="Фильтры" count={chips.length} onClick={() => setSheet({ ...applied })} />
+          </PageActions>
+          <Dialog open={sheet !== null} onOpenChange={(next) => !next && setSheet(null)}>
+            <DialogContent>
+              <DialogTitle>Фильтры</DialogTitle>
+              <DialogDescription className="sr-only">Период, тип, валюта, категория, кассир, удалённые записи и код клиента.</DialogDescription>
+              {sheet && (
+                <form
+                  className="grid gap-3"
+                  aria-label="Фильтры"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (sheet.from === "" || sheet.to === "" || sheet.from > sheet.to) return;
+                    show(sheet);
+                    setSheet(null);
+                  }}
+                >
+                  <div className="grid grid-cols-2 gap-2.5 [&_input]:min-w-0">
+                    <Label>
+                      С
+                      <Input type="date" name="from" aria-label="Период: с" value={sheet.from} max={today} onChange={(e) => edit({ from: e.target.value })} />
+                    </Label>
+                    <Label>
+                      По
+                      <Input type="date" name="to" aria-label="Период: по" value={sheet.to} max={today} onChange={(e) => edit({ to: e.target.value })} />
+                    </Label>
+                  </div>
+                  {sheet.from !== "" && sheet.to !== "" && sheet.from > sheet.to && (
+                    <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+                      Начало периода позже его конца.
+                    </p>
+                  )}
+                  {(sheet.from === "" || sheet.to === "") && (
+                    <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
+                      Укажите начало и конец периода.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <Label>
+                      Тип
+                      <Select
+                        name="type"
+                        value={sheet.type}
+                        onChange={(next) => edit({ type: next as Draft["type"] })}
+                        options={[
+                          { value: "", label: "Все" },
+                          { value: "income", label: "Приход" },
+                          { value: "expense", label: "Расход" },
+                        ]}
+                      />
+                    </Label>
+                    <Label>
+                      Валюта
+                      <Select
+                        name="currency"
+                        value={sheet.currency}
+                        onChange={(next) => edit({ currency: next as Draft["currency"] })}
+                        options={[{ value: "", label: "Все" }, ...scopeCurrencies(scope).map((code) => ({ value: code, label: CURRENCY_NAME[code] }))]}
+                      />
+                    </Label>
+                    <Label>
+                      Категория
+                      <Select
+                        name="category"
+                        value={sheet.category}
+                        onChange={(category) => edit({ category })}
+                        options={[
+                          { value: "", label: "Все" },
+                          ...(["income", "expense"] as const).flatMap((kind) =>
+                            categories
+                              .filter((item) => item.kind === kind)
+                              .map((item) => ({
+                                value: item.code,
+                                label: `${item.label}${item.archived ? " (в архиве)" : ""}`,
+                                group: kind === "income" ? "Приход" : "Расход",
+                              })),
+                          ),
+                        ]}
+                      />
+                    </Label>
+                    <Label>
+                      Кассир
+                      <Select
+                        name="author"
+                        value={sheet.author}
+                        onChange={(author) => edit({ author })}
+                        options={[{ value: "", label: "Все" }, ...cashiers.map((cashier) => ({ value: cashier.login, label: cashier.displayName }))]}
+                      />
+                    </Label>
+                    <Label className="col-span-2">
+                      Удалённые записи
+                      <Select
+                        name="deleted"
+                        value={sheet.deleted}
+                        onChange={(next) => edit({ deleted: next as Draft["deleted"] })}
+                        options={[
+                          { value: "", label: "Скрывать" },
+                          { value: "include", label: "Показывать" },
+                          { value: "only", label: "Только удалённые" },
+                        ]}
+                      />
+                    </Label>
+                    {isAdmin && (
+                      <Label className="col-span-2">
+                        1С
+                        <Select
+                          name="onec"
+                          value={sheet.onec}
+                          onChange={(next) => edit({ onec: next as Draft["onec"] })}
+                          options={[
+                            { value: "", label: "Все" },
+                            { value: "problem", label: "Ошибки и ждут" },
+                            { value: "waiting", label: "В очереди" },
+                            { value: "written", label: "Записаны" },
+                            { value: "none", label: "Не отправлялись" },
+                          ]}
+                        />
+                      </Label>
+                    )}
+                  </div>
+                  <ClientCodeField required={false} value={sheet.clientCode} onChange={(clientCode) => edit({ clientCode })} />
+                  <div className="mt-1 grid grid-cols-[1fr_2fr] gap-2">
+                    <Button type="button" variant="outline" className="h-12" onClick={() => setSheet(startingDraft(today))}>
+                      Сбросить
+                    </Button>
+                    <Button type="submit" className="h-12">
+                      Показать
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+        </>
       )}
 
       {/* The cashier sees the day in the date field right above: said once is enough. */}
@@ -523,9 +624,19 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
             </p>
           )}
           {load.operations.length === 0 ? (
-            <p className="hint">
-              {mode === "cashier" ? "Записей нет." : "По этим условиям записей нет."}
-            </p>
+            mode === "cashier" ? (
+              <p className="hint">Записей нет.</p>
+            ) : (
+              <div className="glass-card grid justify-items-center gap-2 rounded-[26px] px-5 py-9 text-center" data-empty>
+                <b className="text-[15px]">Записей нет</b>
+                <span className="text-[13.5px] text-muted-foreground">По этим условиям записей нет.</span>
+                {chips.length > 0 && (
+                  <Button type="button" variant="outline" size="sm" className="mt-1" onClick={() => show(startingDraft(today))}>
+                    Сбросить фильтры
+                  </Button>
+                )}
+              </div>
+            )
           ) : (
             <table className="journal-table" aria-label="Журнал операций" aria-busy={load.stale}>
               <thead>
@@ -564,12 +675,15 @@ export function Journal({ mode, login, isAdmin = false, onSessionExpired, onRefr
                   return (
                     <Fragment key={operation.id}>
                       <OperationRow
-                        markKassa={scope === "both"}
+                        // Every desk at once, or an entry the person wrote into another desk than the one shown.
+                        markKassa={scope === "both" || (operation.kassa !== undefined && operation.kassa !== scope)}
                         operation={operation}
                         mode={mode}
                         withDate={mode === "viewer"}
                         canChange={
                           operation.deletedAt === null &&
+                          // The income of money moved from another desk is corrected through the expense of that desk.
+                          !operation.transferOf &&
                           (isAdmin || (mode === "cashier" && login !== undefined && operation.author.login.toLowerCase() === login.toLowerCase() && withinOwnDay(operation)))
                         }
                         labels={labels}
@@ -666,7 +780,7 @@ function OperationRow({
   oneC,
 }: {
   operation: Operation;
-  /** Both desks are shown: each entry says which one it is of (МСК, АНД). */
+  /** Several desks are shown: each entry says which one it is of (МСК, АНД). */
   markKassa: boolean;
   mode: Props["mode"];
   /** The day is shown with the time (a period of several days). */
@@ -684,6 +798,7 @@ function OperationRow({
   oneC: ReactNode;
 }) {
   const row = useRef<HTMLTableRowElement>(null);
+  const { labelOf, shortOf } = useKassa();
   useEffect(() => {
     if (!focusRequest) return;
     row.current?.focus();
@@ -698,6 +813,7 @@ function OperationRow({
     operation.tripNumber && `Рейс ${operation.tripNumber}`,
     operation.counterparty && `Контрагент: ${operation.counterparty}`,
     operation.employee && `Сотрудник: ${operation.employee}`,
+    operation.toKassa && `В кассу: ${labelOf(operation.toKassa)}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -710,8 +826,8 @@ function OperationRow({
     >
       <td className="c-time">
         {markKassa && (
-          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={operation.kassa === "andijan" ? "Андижан" : "Москва"}>
-            {KASSA_SHORT[operation.kassa ?? "moscow"]}
+          <span className="kassa-mark mr-1.5 rounded-full bg-primary px-1.5 py-px text-[10.5px] font-bold tracking-wide text-primary-foreground" title={labelOf(operation.kassa)}>
+            {shortOf(operation.kassa)}
           </span>
         )}
         <time dateTime={operation.createdAt}>
@@ -855,9 +971,12 @@ const ONEC_LOOK: Record<OneCState["status"], { label: string; tone: string }> = 
   removed: { label: "Удалён в 1С", tone: "bg-muted text-muted-foreground" },
 };
 
-/** A payment of a client of the Moscow desk: what goes to 1C (the server keeps the same rule, see onec.ts). */
-const isForOneC = (operation: Operation) =>
-  operation.type === "income" && (operation.category === null || operation.category === "client_payment") && (operation.kassa ?? "moscow") === "moscow";
+/**
+ * A payment of a client of a desk that keeps its book in 1C (the main desk, unless the settings of the server name
+ * others): what goes to 1C. The server keeps the same rule, see onec.ts.
+ */
+const isForOneC = (operation: Operation, deskWrites: boolean) =>
+  operation.type === "income" && (operation.category === null || operation.category === "client_payment") && deskWrites;
 
 /**
  * The admin's column «1С»: what became of the entry in 1C, why when it is not written, and the two things he can do
@@ -867,9 +986,10 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const state = operation.onec ?? null;
+  const { writesToOneC } = useKassa();
 
   if (state === null) {
-    if (!isForOneC(operation) || operation.deletedAt !== null) return null;
+    if (!isForOneC(operation, writesToOneC(operation.kassa)) || operation.deletedAt !== null) return null;
     return (
       <span className="onec-state text-muted-foreground" data-onec="none" title="Внесён, когда запись в 1С была выключена: в 1С его нет">
         Не отправлялся
@@ -906,7 +1026,7 @@ function OneCCell({ operation, onSessionExpired, onChanged }: { operation: Opera
     <span className="onec-state grid gap-1" data-onec={state.status}>
       <span className="flex flex-wrap items-center gap-1.5">
         <span className={cn("rounded-full px-2 py-px text-[12px] font-semibold whitespace-nowrap", look.tone)}>{look.label}</span>
-        {state.docNumber && <span className="text-[13px] whitespace-nowrap">ПКО №{state.docNumber}</span>}
+        {state.docNumber && <span className="text-[13px] whitespace-nowrap">{operation.type === "expense" ? "РКО" : "ПКО"} №{state.docNumber}</span>}
         {state.status === "pending" && state.attempts > 0 && <span className="text-[12px] text-muted-foreground">попытка {state.attempts + 1}</span>}
       </span>
       {state.detail && state.status !== "written" && <span className="onec-detail text-[12.5px] leading-snug text-muted-foreground">{state.detail}</span>}

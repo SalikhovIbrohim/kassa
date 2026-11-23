@@ -46,11 +46,14 @@ Invoke-Main {
         throw "The settings file $($layout.Settings) does not exist. Run setup.ps1 first."
     }
 
+    # The service of this installation: KassaApp, or KassaApp-<name> for another installation on the machine.
+    $serviceName = $layout.AppService
     $appService = $null
     if (-not $NoServices) {
-        $appService = Get-Service -Name 'KassaApp' -ErrorAction SilentlyContinue
+        Assert-OwnService -Layout $layout -Name $serviceName
+        $appService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if (-not $appService) {
-            throw 'The service KassaApp is not installed. Run install-services.ps1 first, or use -NoServices.'
+            throw "The service $serviceName is not installed. Run install-services.ps1 first, or use -NoServices."
         }
     }
     $updateLog = [IO.Path]::Combine($layout.Logs, 'update.log')
@@ -143,9 +146,9 @@ Invoke-Main {
         try {
             if ($appService) {
                 Write-Step 'Stopping the application'
-                Stop-Service -Name 'KassaApp' -Force
+                Stop-Service -Name $serviceName -Force
                 # A restart of the machine in the middle of the update must not start a half built application.
-                Invoke-Native -File 'sc.exe' -Arguments @('config', 'KassaApp', 'start=', 'demand')
+                Invoke-Native -File 'sc.exe' -Arguments @('config', $serviceName, 'start=', 'demand')
             }
             $stage = 'stopped'
 
@@ -191,10 +194,10 @@ Invoke-Main {
 
             if ($appService) {
                 Write-Step 'Starting the application'
-                Start-Service -Name 'KassaApp'
+                Start-Service -Name $serviceName
                 Write-Step 'Checking that it answers'
                 if (-not (Wait-Application -Layout $layout)) {
-                    throw "The new version does not answer. Its log: $($layout.Logs)\KassaApp.err.log"
+                    throw "The new version does not answer. Its log: $($layout.Logs)\$serviceName.err.log"
                 }
             }
             $stage = 'answering'
@@ -225,12 +228,12 @@ Invoke-Main {
                         Write-Step "Going back to the version that ran before ($beforeText)"
                         # A new version that was started and crashes is started again by the service itself (that is what
                         # its failure actions are for), while the old one is being built over it.
-                        if ($appService) { Stop-Service -Name 'KassaApp' -Force }
+                        if ($appService) { Stop-Service -Name $serviceName -Force }
                         Invoke-Native -File 'git' -Arguments @('checkout', '--detach', $before)
                         Build-Application -Install $packagesChange
                     }
                     if ($appService) {
-                        Start-Service -Name 'KassaApp'
+                        Start-Service -Name $serviceName
                         if (-not (Wait-Application -Layout $layout)) { throw 'The old version does not answer either.' }
                     }
                     Write-Host "The version that ran before is running again: $beforeText" -ForegroundColor Yellow
@@ -247,7 +250,7 @@ Invoke-Main {
         finally {
             # The service starts with the machine again, whatever became of the update.
             if ($appService) {
-                & sc.exe config KassaApp start= delayed-auto | Out-Null
+                & sc.exe config $serviceName start= delayed-auto | Out-Null
             }
         }
 

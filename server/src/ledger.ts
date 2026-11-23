@@ -1,7 +1,7 @@
 import type pg from "pg";
 import { getBalances, type Balance } from "./balances.js";
 import { cashDayStartSql } from "./cash-day.js";
-import { KASSA_CURRENCIES, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import { CURRENCIES, toUsdMinor, type Currency } from "./money.js";
 
 export type OperationRow = {
@@ -22,6 +22,10 @@ export type OperationRow = {
   trip_number: number | null;
   counterparty: string | null;
   employee: string | null;
+  /** Of an expense that moves money to another cash desk: that desk. */
+  to_kassa: Kassa | null;
+  /** Of the income that such an expense wrote into the other desk: the expense. */
+  transfer_of: string | null;
   comment: string | null;
   created_at: Date;
   author_id: string;
@@ -92,6 +96,8 @@ export function toOperation(row: OperationRow) {
     tripNumber: row.trip_number,
     counterparty: row.counterparty,
     employee: row.employee,
+    toKassa: row.to_kassa,
+    transferOf: row.transfer_of,
     comment: row.comment,
     author: { login: row.author_login, displayName: row.author_display_name },
     createdAt: row.created_at.toISOString(),
@@ -170,6 +176,11 @@ export type NewOperation = Snapshot & {
   kassa: Kassa;
   authorId: string;
   createdAt: Date;
+  /**
+   * Of an expense that moves money to another cash desk: that desk, and the income that is written into it with the
+   * expense (its id, its category, what its comment says).
+   */
+  transfer?: { toKassa: Kassa; incomeId: string; incomeCategory: string; incomeComment: string };
 };
 
 /**
@@ -290,6 +301,7 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
     stored.author_id === wanted.authorId &&
     stored.kind === wanted.kind &&
     stored.kassa === wanted.kassa &&
+    stored.to_kassa === (wanted.transfer?.toKassa ?? null) &&
     sameSnapshot(await originalOf(db, stored), wanted)
   );
 }
@@ -305,7 +317,8 @@ async function isSameEntry(db: pg.ClientBase, stored: OperationRow, wanted: NewO
  * - A retry of an entry that was accepted is answered as before. The answer is read in one
  *   snapshot (see `answerRetry`), so it never mixes two moments.
  */
-export async function recordOperation(pool: pg.Pool, wanted: NewOperation, events?: LedgerEvents): Promise<RecordResult> {
+export async function recordOperation(pool: pg.Pool, wanted: NewOperation, kassas: Kassas, events?: LedgerEvents): Promise<RecordResult> {
+  const balancesOf = (db: pg.ClientBase, kassa: Kassa) => getBalances(db, kassas.currenciesOf(kassa), kassa);
   const recorded = await inTransaction(pool, async (client): Promise<RecordResult | "stored already"> => {
     // The entry may be stored already: a retry, or a clash of ids.
     if (await findOperation(client, wanted.id)) return "stored already";
@@ -313,8 +326,8 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const inserted = await client.query(
       `INSERT INTO operations
          (id, kind, amount_minor, currency, rate_e4, category, recipient, client_code,
-          client_code_key, comment, author_id, created_at, trip_number, counterparty, employee, kassa)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          client_code_key, comment, author_id, created_at, trip_number, counterparty, employee, kassa, to_kassa)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        ON CONFLICT (id) DO NOTHING`,
       [
         wanted.id,
@@ -333,6 +346,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
         wanted.counterparty,
         wanted.employee,
         wanted.kassa,
+        wanted.transfer?.toKassa ?? null,
       ],
     );
     // Zero rows: another request with this id got in between our look and our insert. The
@@ -342,10 +356,22 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
     const row = await findOperation(client, wanted.id);
     if (!row) throw new Error(`Operation ${wanted.id} is neither inserted nor found`);
     await events?.created?.(client, row);
-    return { status: "created", row, balances: await getBalances(client, row.kassa) };
+    // The same money, at the same moment, as an income of the desk it went to.
+    if (wanted.transfer) {
+      const { incomeId, toKassa, incomeCategory, incomeComment } = wanted.transfer;
+      await client.query(
+        `INSERT INTO operations (id, kind, amount_minor, currency, rate_e4, category, comment, author_id, created_at, kassa, transfer_of)
+         VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [incomeId, wanted.amountMinor, wanted.currency, wanted.rateE4, incomeCategory, incomeComment, wanted.authorId, wanted.createdAt, toKassa, wanted.id],
+      );
+      const income = await findOperation(client, incomeId);
+      if (!income) throw new Error(`The income ${incomeId} of the transfer ${wanted.id} is neither inserted nor found`);
+      await events?.created?.(client, income);
+    }
+    return { status: "created", row, balances: await balancesOf(client, row.kassa) };
   });
 
-  return recorded === "stored already" ? answerRetry(pool, wanted) : recorded;
+  return recorded === "stored already" ? answerRetry(pool, wanted, kassas) : recorded;
 }
 
 /**
@@ -355,7 +381,7 @@ export async function recordOperation(pool: pg.Pool, wanted: NewOperation, event
  * committed in between would leave an answer showing the operation as it was and the
  * balances as they are.
  */
-async function answerRetry(pool: pg.Pool, wanted: NewOperation): Promise<RecordResult> {
+async function answerRetry(pool: pg.Pool, wanted: NewOperation, kassas: Kassas): Promise<RecordResult> {
   return inTransaction(
     pool,
     async (client): Promise<RecordResult> => {
@@ -363,7 +389,7 @@ async function answerRetry(pool: pg.Pool, wanted: NewOperation): Promise<RecordR
       // Nothing is ever physically deleted, so what was there a moment ago is still there.
       if (!stored) throw new Error(`Operation ${wanted.id} was stored and is gone`);
       if (!(await isSameEntry(client, stored, wanted))) return { status: "id_conflict" };
-      return { status: "replayed", row: stored, balances: await getBalances(client, stored.kassa) };
+      return { status: "replayed", row: stored, balances: await getBalances(client, kassas.currenciesOf(stored.kassa), stored.kassa) };
     },
     "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
   );
@@ -385,8 +411,10 @@ export type ChangeResult =
   | { status: "deleted" }
   /** An income cannot become an expense or the other way round. */
   | { status: "kind_changed" }
-  /** The cash desk of the operation does not keep that currency (Andijan keeps dollars only). */
-  | { status: "currency_not_kept" };
+  /** The cash desk of the operation does not keep that currency (a desk of dollars only). */
+  | { status: "currency_not_kept" }
+  /** The income that an expense moved into this desk: it is corrected and deleted through that expense. */
+  | { status: "transfer_income" };
 
 /**
  * Corrects or deletes one of its author's operations, and writes down what it was.
@@ -402,9 +430,10 @@ export const OWN_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function changeOperation(
   pool: pg.Pool,
-  request: { id: string; actorId: string; actorIsAdmin?: boolean; now: () => Date; change: Change; events?: LedgerEvents },
+  request: { id: string; actorId: string; actorIsAdmin?: boolean; now: () => Date; change: Change; kassas: Kassas; events?: LedgerEvents },
 ): Promise<ChangeResult> {
-  const { id, actorId, now, change } = request;
+  const { id, actorId, now, change, kassas } = request;
+  const balancesOf = (db: pg.ClientBase, kassa: Kassa) => getBalances(db, kassas.currenciesOf(kassa), kassa);
 
   return inTransaction(pool, async (client): Promise<ChangeResult> => {
     // Both currencies, always: a correction may move money from one to the other. Taking
@@ -426,16 +455,20 @@ export async function changeOperation(
     const unchanged = async (): Promise<ChangeResult> => ({
       status: "unchanged",
       row: stored,
-      balances: await getBalances(client, stored.kassa),
+      balances: await balancesOf(client, stored.kassa),
     });
 
     if (stored.deleted_at) return change.action === "delete" ? unchanged() : { status: "deleted" };
+    if (stored.transfer_of !== null) return { status: "transfer_income" };
+    // The other side of money moved between the desks, which follows what is done to this one.
+    const pair = stored.to_kassa === null ? undefined : (await client.query<{ id: string }>("SELECT id FROM operations WHERE transfer_of = $1", [id])).rows[0];
+    if (change.action === "edit" && stored.to_kassa !== null && !kassas.currenciesOf(stored.to_kassa).includes(change.next.currency)) return { status: "currency_not_kept" };
 
     const before = snapshotOf(stored);
     let after = before;
     if (change.action === "edit") {
       if (change.kind !== stored.kind) return { status: "kind_changed" };
-      if (!KASSA_CURRENCIES[stored.kassa].includes(change.next.currency)) return { status: "currency_not_kept" };
+      if (!kassas.currenciesOf(stored.kassa).includes(change.next.currency)) return { status: "currency_not_kept" };
       after = change.next;
       if (sameSnapshot(before, after)) return unchanged();
     }
@@ -477,7 +510,27 @@ export async function changeOperation(
     const changed = await findOperation(client, id);
     if (!changed) throw new Error(`Operation ${id} disappeared while it was being changed`);
     await request.events?.changed?.(client, { action: change.action, before, row: changed, actorId, reason: change.reason, at, byAdmin });
-    return { status: "changed", row: changed, balances: await getBalances(client, changed.kassa) };
+    if (pair) {
+      const income = await findOperation(client, pair.id);
+      if (income && !income.deleted_at) {
+        const was = snapshotOf(income);
+        if (change.action === "delete") {
+          await client.query("UPDATE operations SET deleted_at = $2, deleted_by = $3, revision = revision + 1 WHERE id = $1", [income.id, at, actorId]);
+        } else {
+          await client.query("UPDATE operations SET amount_minor = $2, currency = $3, rate_e4 = $4, revision = revision + 1 WHERE id = $1", [income.id, after.amountMinor, after.currency, after.rateE4]);
+        }
+        await client.query(
+          `INSERT INTO operation_changes (operation_id, revision, action, changed_at, changed_by, reason, state_before)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [income.id, income.revision + 1, change.action, at, actorId, change.reason, JSON.stringify(was)],
+        );
+        const now = await findOperation(client, income.id);
+        if (now && (change.action === "delete" || !sameSnapshot(was, snapshotOf(now)))) {
+          await request.events?.changed?.(client, { action: change.action, before: was, row: now, actorId, reason: change.reason, at, byAdmin });
+        }
+      }
+    }
+    return { status: "changed", row: changed, balances: await balancesOf(client, changed.kassa) };
   });
 }
 

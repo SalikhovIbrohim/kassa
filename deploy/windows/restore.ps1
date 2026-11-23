@@ -66,7 +66,10 @@ Invoke-Main {
     if (-not (Test-Path -LiteralPath $From)) { throw "There is no file $From." }
     $copy = (Resolve-Path -LiteralPath $From).Path
 
-    $service = Get-ServiceOrNull -Name 'KassaApp'
+    # The service of this installation: KassaApp, or KassaApp-<name> for another installation on the machine.
+    $serviceName = $layout.AppService
+    Assert-OwnService -Layout $layout -Name $serviceName
+    $service = Get-ServiceOrNull -Name $serviceName
     $wasRunning = [bool]($service -and $service.Status -ne 'Stopped')
     $mode = if ($Check) { '--check' } else { '--replace' }
 
@@ -75,7 +78,7 @@ Invoke-Main {
     try {
         if (-not $Check -and $wasRunning) {
             Write-Step 'Stopping the application'
-            Stop-Service -Name 'KassaApp' -Force
+            Stop-Service -Name $serviceName -Force
         }
 
         $failed = $null
@@ -90,16 +93,16 @@ Invoke-Main {
         # Whatever happened, a database that was live is still live: the application goes on.
         if ($wasRunning -and (-not $Check) -and ($failed -or -not $NoStart)) {
             Write-Step 'Starting the application'
-            Start-Service -Name 'KassaApp'
+            Start-Service -Name $serviceName
             if (-not (Wait-Application -Layout $layout)) {
-                if (-not $failed) { $failed = "The application does not answer after the restore. Its log: $($layout.Logs)\KassaApp.err.log" }
+                if (-not $failed) { $failed = "The application does not answer after the restore. Its log: $($layout.Logs)\$serviceName.err.log" }
             }
         }
         if ($failed) { throw $failed }
 
         if ($NoStart -and -not $Check -and $service) {
             # A restart of the computer between this step and update.ps1 must not start the new version on the restored data.
-            Invoke-Native -File 'sc.exe' -Arguments @('config', 'KassaApp', 'start=', 'demand')
+            Invoke-Native -File 'sc.exe' -Arguments @('config', $serviceName, 'start=', 'demand')
         }
     }
     finally {
@@ -114,7 +117,7 @@ Invoke-Main {
     elseif ($NoStart) {
         Write-Host 'Restored. The application is not started (-NoStart): go on with update.ps1 -Ref <version>.' -ForegroundColor Green
         if ($service) {
-            Write-Host 'Until then the service does not start with the computer. To start it as it is: Start-Service KassaApp, then  sc.exe config KassaApp start= delayed-auto' -ForegroundColor Yellow
+            Write-Host "Until then the service does not start with the computer. To start it as it is: Start-Service $serviceName, then  sc.exe config $serviceName start= delayed-auto" -ForegroundColor Yellow
         }
     }
     else {

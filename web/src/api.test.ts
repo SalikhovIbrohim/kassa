@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { activeCategories, createOperation, fetchCurrentUser, fetchCategories, NetworkError, SessionExpiredError, type OperationInput } from "./api";
+import { activeCategories, createOperation, fetchCurrentUser, fetchCategories, fetchKassas, keptKassas, NetworkError, SessionExpiredError, type OperationInput } from "./api";
+import { DEFAULT_KASSAS } from "./kassa";
 import { forgetUser, rememberedUser, rememberUser } from "./remembered-user";
 
 /** localStorage as a phone has it, for code that runs in Node. */
@@ -113,6 +114,18 @@ describe("the cashier remembered for opening the app without a connection", () =
     expect(rememberedUser()).toBeNull();
   });
 
+  it("is remembered with the city, which is the cash desk the entries made without a connection belong to", () => {
+    rememberUser({ ...ivan, city: "tashkent" });
+    expect(rememberedUser()).toEqual({ ...ivan, city: "tashkent" });
+
+    // A person of everywhere has none; what is not a city is not taken for one.
+    rememberUser({ ...ivan, city: null });
+    expect(rememberedUser()).toEqual(ivan);
+    const items = stubStorage();
+    items.set("kassa.user", JSON.stringify({ ...ivan, city: 7 }));
+    expect(rememberedUser()).toEqual(ivan);
+  });
+
   it("is nobody when what is kept is not a user", () => {
     const items = stubStorage();
     for (const garbage of ["not json", "{}", '{"login":"x"}', '{"login":"x","displayName":"X","role":"boss"}']) {
@@ -137,6 +150,65 @@ describe("the cashier remembered for opening the app without a connection", () =
     expect(() => rememberUser(ivan)).not.toThrow();
     expect(() => forgetUser()).not.toThrow();
     expect(rememberedUser()).toBeNull();
+  });
+});
+
+describe("the cash desks, which the server names", () => {
+  beforeEach(() => void stubStorage());
+  afterEach(() => vi.unstubAllGlobals());
+
+  const THREE = [
+    { id: "moscow", label: "Москва", short: "МСК", currencies: ["USD"], onec: true },
+    { id: "andijan", label: "Андижан", short: "АНД", currencies: ["USD"], onec: false },
+    { id: "tashkent", label: "Ташкент", short: "ТШК", currencies: ["USD"], onec: false },
+  ];
+  const noConnection = async () => {
+    throw new TypeError("Failed to fetch");
+  };
+
+  it("are the ones the server says, kept on the phone for a visit without a connection", async () => {
+    expect(keptKassas()).toBeNull();
+    vi.stubGlobal("fetch", async () => json(200, { kassas: THREE }));
+    expect(await fetchKassas()).toEqual({ kassas: THREE, fresh: true });
+
+    vi.stubGlobal("fetch", noConnection);
+    expect(await fetchKassas()).toEqual({ kassas: THREE, fresh: false });
+    expect(keptKassas()).toEqual(THREE);
+  });
+
+  it("are Moscow and Andijan for a server that does not know the question, and for a phone that could never ask", async () => {
+    vi.stubGlobal("fetch", noConnection);
+    expect(await fetchKassas()).toEqual({ kassas: DEFAULT_KASSAS, fresh: false });
+
+    // An older server: what a newer one left on the phone is not its desks.
+    vi.stubGlobal("fetch", async () => json(200, { kassas: THREE }));
+    await fetchKassas();
+    vi.stubGlobal("fetch", async () => json(404, { error: "not_found" }));
+    expect(await fetchKassas()).toEqual({ kassas: DEFAULT_KASSAS, fresh: true });
+    expect(keptKassas()).toBeNull();
+  });
+
+  it("are not taken from an answer that is not a list of desks, nor from a session that has ended", async () => {
+    vi.stubGlobal("fetch", async () => json(200, { kassas: THREE }));
+    await fetchKassas();
+
+    for (const body of [{}, { kassas: [] }, { kassas: "moscow" }, { kassas: [{ id: "moscow" }] }, { kassas: [{ id: "moscow", label: "Москва", currencies: ["EUR"] }] }, { kassas: [null] }]) {
+      vi.stubGlobal("fetch", async () => json(200, body));
+      expect(await fetchKassas(), JSON.stringify(body)).toEqual({ kassas: THREE, fresh: false });
+    }
+    vi.stubGlobal("fetch", async () => json(401, {}));
+    expect(await fetchKassas()).toEqual({ kassas: THREE, fresh: false });
+    // What the phone keeps is read with the same care.
+    const items = stubStorage();
+    items.set("kassa.kassas", '[{"id":"moscow","label":"Москва","currencies":"USD"}]');
+    expect(keptKassas()).toBeNull();
+    items.set("kassa.kassas", "not json");
+    expect(keptKassas()).toBeNull();
+  });
+
+  it("keep a desk whose answer says no mark, and only the money the screens know", async () => {
+    vi.stubGlobal("fetch", async () => json(200, { kassas: [{ id: "fergana", label: "Фергана", currencies: ["USD", "RUB", "EUR"] }] }));
+    expect((await fetchKassas()).kassas).toEqual([{ id: "fergana", label: "Фергана", short: "ФЕР", currencies: ["RUB", "USD"], onec: false }]);
   });
 });
 

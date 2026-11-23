@@ -2,7 +2,7 @@ import type pg from "pg";
 import { DEFAULT_INCOME_CATEGORY, readCategories, type Category } from "./categories.js";
 import { type LedgerEvents, type OperationRow, type Snapshot } from "./ledger.js";
 import { toUsdMinor, type Currency } from "./money.js";
-import type { Outbox } from "./outbox.js";
+import type { Outbox, Topic } from "./outbox.js";
 
 const money = (minor: number, currency: Currency) => new Intl.NumberFormat("ru-RU", { style: "currency", currency }).format(minor / 100);
 
@@ -123,8 +123,8 @@ async function adminChangeText(
   ].join("\n");
 }
 
-/** The topic of the group an entry is told in: Andijan has one topic for all of it; Moscow, one for incomes and one for expenses. */
-const topicOf = (row: OperationRow) => (row.kassa === "andijan" ? "andijan" : row.kind);
+/** What an entry is about, which decides the topic of the group it is told in: its cash desk and its kind (see `threadOf` in outbox.ts). */
+const topicOf = (row: OperationRow): Topic => ({ kind: row.kind, kassa: row.kassa });
 
 /**
  * The messages for the Telegram group: written down, with the operation, when an entry of a category that the owner
@@ -152,7 +152,7 @@ export function groupEvents(outbox: Outbox): LedgerEvents | undefined {
     async changed(db, event) {
       const { before, row, action } = event;
       const categories = await readCategories(db);
-      if (event.byAdmin) await outbox.queue(db, await adminChangeText(db, event, categories), row.id, row.kassa === "andijan" ? "andijan" : "general");
+      if (event.byAdmin) await outbox.queue(db, await adminChangeText(db, event, categories), row.id, { kind: "general", kassa: row.kassa });
       const wasTold = told(categories, row.kind, before.category);
       const isTold = told(categories, row.kind, row.category);
       if (!wasTold && !(action === "edit" && isTold)) return;

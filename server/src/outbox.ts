@@ -1,13 +1,40 @@
 import type pg from "pg";
 import type { Queryable } from "./balances.js";
+import type { Kassa } from "./kassa.js";
 import { sendToGroup, TelegramError, type TelegramSettings } from "./telegram-api.js";
 
 type Logger = { warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void };
+
+/** What a message is about: the cash desk, and whether it is an income, an expense or neither (a count, a correction by the admin). */
+export type Topic = { kind: "income" | "expense" | "general"; kassa: Kassa };
+
+/**
+ * The topic of the group a message goes to; undefined is the main topic ("General"). A cash desk that has a topic of
+ * its own tells everything there. Without one, the main desk tells its incomes in one topic and its expenses in
+ * another (when the group has them) and the rest in the main topic; any other desk tells everything in the main topic.
+ */
+export function threadOf(
+  settings: Pick<TelegramSettings, "incomeThreadId" | "expenseThreadId" | "kassaThreadIds">,
+  primaryKassa: Kassa,
+  topic: Topic,
+): number | undefined {
+  const own = settings.kassaThreadIds;
+  if (own && Object.hasOwn(own, topic.kassa)) return own[topic.kassa];
+  if (topic.kassa !== primaryKassa) return undefined;
+  return topic.kind === "income" ? settings.incomeThreadId : topic.kind === "expense" ? settings.expenseThreadId : undefined;
+}
 
 export type OutboxOptions = {
   pool: pg.Pool;
   /** Where the messages go; undefined when the group is not set up: then nothing is queued. */
   settings: TelegramSettings | undefined;
+  /** The main cash desk of the installation: the one whose incomes and expenses have a topic each. */
+  primaryKassa: Kassa;
+  /**
+   * What a message of a cash desk says about whose it is («Касса: Ташкент»), for a desk that another desk cannot be
+   * told from by its money; nothing for any other desk. It is said only where the topic does not say it already.
+   */
+  kassaNote?: (kassa: Kassa) => string | undefined;
   /** The clock of the waits between tries. The real one unless a test moves it: the application's own clock may stand still. */
   now?: () => Date;
   log: Logger;
@@ -28,10 +55,11 @@ export type Outbox = {
   /** Whether the group is set up: with no group there is nobody to tell, and `queue` does nothing. */
   readonly enabled: boolean;
   /**
-   * Writes a message to the queue, on the connection (the transaction) of the operation it is about. `topic` says whether
-   * it is about an income or an expense, which decides the topic of the group it goes to; `general` is the main topic.
+   * Writes a message to the queue, on the connection (the transaction) of the operation it is about. `topic` says which
+   * cash desk it is about and whether it is about an income or an expense, which decides the topic of the group it goes
+   * to (see `threadOf`).
    */
-  queue(db: Queryable, text: string, operationId: string | null, topic: "income" | "expense" | "general" | "andijan"): Promise<void>;
+  queue(db: Queryable, text: string, operationId: string | null, topic: Topic): Promise<void>;
   /** Asks the worker to look at the queue now. Call it after the transaction has been committed. */
   nudge(): void;
   /** Sends what is due, oldest first, until the queue is empty or the oldest is waiting for its next try. */
@@ -124,11 +152,13 @@ export function createOutbox(options: OutboxOptions): Outbox {
     enabled: settings !== undefined,
     async queue(db, text, operationId, topic) {
       if (!settings) return;
-      const threadId =
-        topic === "income" ? settings.incomeThreadId : topic === "expense" ? settings.expenseThreadId : topic === "andijan" ? settings.andijanThreadId : undefined;
+      const threadId = threadOf(settings, options.primaryKassa, topic);
+      // A desk with a topic of its own is known by the topic; in a topic it shares, the message says whose it is.
+      const ownTopic = settings.kassaThreadIds !== undefined && Object.hasOwn(settings.kassaThreadIds, topic.kassa);
+      const note = ownTopic ? undefined : options.kassaNote?.(topic.kassa);
       await db.query(
         "INSERT INTO telegram_outbox (created_at, operation_id, text, thread_id, next_attempt_at) VALUES ($1, $2, $3, $4, $1)",
-        [now(), operationId, text, threadId ?? null],
+        [now(), operationId, note ? `${text}\n${note}` : text, threadId ?? null],
       );
     },
     nudge() {

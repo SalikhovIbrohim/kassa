@@ -4,11 +4,12 @@ import { hashPassword } from "../passwords.js";
 /**
  * A cashier enters and corrects their own entries; the head cashier also reconciles the cash desk. An admin stands above
  * the owner: he does what a cashier does (but does not reconcile),
- * reconciles the cash desk, and sees and settles what the viewer (the owner, who only looks) does.
+ * reconciles the cash desk, and sees and settles what the viewer (the owner, who only looks) does. The keeper of a
+ * warehouse writes the cargo of the trips, where the business keeps trips, and sees nothing of the cash.
  */
-export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "guest";
+export type Role = "cashier" | "head_cashier" | "admin" | "viewer" | "warehouse" | "guest";
 
-export const ROLES: readonly Role[] = ["cashier", "head_cashier", "admin", "viewer", "guest"];
+export const ROLES: readonly Role[] = ["cashier", "head_cashier", "admin", "viewer", "warehouse", "guest"];
 
 /** A problem the developer can fix by changing the command (bad input, unknown login). */
 export class AdminError extends Error {}
@@ -62,7 +63,7 @@ export async function createUser(pool: pg.Pool, input: CreateUserInput): Promise
 
 function assertRole(role: string): asserts role is Role {
   if (!ROLES.includes(role as Role)) {
-    throw new AdminError('Role must be "cashier", "head_cashier", "admin", "viewer" or "guest"');
+    throw new AdminError('Role must be "cashier", "head_cashier", "admin", "viewer", "warehouse" or "guest"');
   }
 }
 

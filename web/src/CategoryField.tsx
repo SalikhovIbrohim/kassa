@@ -34,7 +34,8 @@ export function CategoryField({ list, kind, label, value, onChange, onReload, ke
       </div>
     );
   }
-  const options = list.filter((item) => item.kind === kind && ((!item.archived && item.offered !== false) || item.code === keep));
+  // Money moved between the desks is entered as an expense of the desk that sends it: the income is written with it.
+  const options = list.filter((item) => item.kind === kind && ((!item.archived && item.offered !== false && !(kind === "income" && item.transfer)) || item.code === keep));
   return (
     <Label>
       {label}

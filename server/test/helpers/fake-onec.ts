@@ -8,7 +8,19 @@ export const KEYS = {
   kassa: "0d2cb474-924a-11f1-8cb7-b8cb29f61f4c",
   currency: "542c581a-49bf-11ef-afed-8c1d965e9add",
 };
-const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430" } as const;
+const ACCOUNTS = { "5010": "acc-5010", "4010": "acc-4010", "6310": "acc-6310", "9430": "acc-9430", "2010": "acc-2010", "9030.1": "acc-9030.1", "9130.1": "acc-9130.1", "6610": "acc-6610", "6010": "acc-6010", "4310": "acc-4310" } as const;
+const SERVICES = "Document_ОказаниеУслуг";
+const RECEIPTS = "Document_ПриходныйКассовыйОрдер";
+const EXPENSES = "Document_РасходныйКассовыйОрдер";
+/** The lists an expense order is filed by, as the base of a business that keeps trips has them. */
+const LISTS: Record<string, string[]> = {
+  Catalog_СтатьиЗатрат: ["Толкач", "Услуги водителя точка Б", "Прочие расходы"],
+  Catalog_ПрочиеДоходыИРасходы: ["Обед", "Прочие внереализационные доходы (расходы)"],
+  Catalog_НоменклатурныеГруппы: ["Основная группа"],
+  Catalog_Номенклатура: ["Рейс"],
+};
+const FLOW_ITEMS = ["Толкач", "обед", "Прочие расходы Москва", "Прочие расходы Андижан", "Выплата дивидендов", "Оплата поставщикам (подрядчикам)", "Внутреннее перемещение денежных средств"];
+export const keyOf = (list: string, name: string) => `${list}:${name}`;
 const PAYMENT_ITEM = "dds-payment-from-buyers";
 
 export type FakeOneC = {
@@ -19,6 +31,12 @@ export type FakeOneC = {
   contracts: Json[];
   /** The receipts in the base. */
   documents: Json[];
+  /** The expense orders in the base. */
+  expenses: Json[];
+  /** The services rendered («Оказание услуг») in the base: one document to a trip. */
+  services: Json[];
+  /** The departments of the base: a trip is one, named by its number. */
+  departments: Json[];
   /** The requests that came, "METHOD /path" with the path decoded, in order. */
   requests: string[];
   /** The next `times` requests whose "METHOD /path" holds `match` are answered with this status. */
@@ -30,8 +48,6 @@ export type FakeOneC = {
   /** Puts right the entries of every posted document, as a person would in 1C. */
   fixPostings(): void;
   addClient(code: string, name: string): { counterpart: string; contract: string };
-  /** A cash payment order (РКО) the accountant made, with its entries (debit accounts by code). */
-  addPayment(document: Json, entries: Array<{ debit: keyof typeof ACCOUNTS; sum: number; analytics?: string[] }>): void;
   close(): Promise<void>;
 };
 
@@ -43,7 +59,6 @@ export async function startFakeOneC(): Promise<FakeOneC> {
   let wrong = false;
   const postings = new Map<string, Json[]>();
   let numbers = 1790;
-  const payments: Json[] = [];
 
   const fake: FakeOneC = {
     url: "",
@@ -52,6 +67,9 @@ export async function startFakeOneC(): Promise<FakeOneC> {
     counterparts: [],
     contracts: [],
     documents: [],
+    expenses: [],
+    services: [],
+    departments: [{ Ref_Key: "dep-240", Description: "240", Owner_Key: KEYS.organization, DeletionMark: false }],
     requests: [],
     failNext(match, status, times = 1) {
       failures = [...failures, ...Array.from({ length: times }, () => ({ match, status }))];
@@ -64,19 +82,6 @@ export async function startFakeOneC(): Promise<FakeOneC> {
     },
     fixPostings() {
       for (const rows of postings.values()) for (const row of rows) row.AccountCr_Key = ACCOUNTS["6310"];
-    },
-    addPayment(document, entries) {
-      const ref = randomUUID();
-      payments.push({ Ref_Key: ref, Posted: true, ...document });
-      postings.set(
-        ref,
-        entries.map((entry) => ({
-          AccountDr_Key: ACCOUNTS[entry.debit],
-          AccountCr_Key: ACCOUNTS["5010"],
-          Сумма: entry.sum,
-          ...Object.fromEntries((entry.analytics ?? []).map((type, index) => [`ExtDimensionDr${index + 1}_Type`, `StandardODATA.Catalog_${type}`])),
-        })),
-      );
     },
     addClient(code, name) {
       const counterpart = randomUUID();
@@ -120,6 +125,7 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return page([
           { Ref_Key: PAYMENT_ITEM, Description: "Оплата от покупателей", DeletionMark: false },
           { Ref_Key: "dds-old", Description: "Оплата от покупателей", DeletionMark: true },
+          ...FLOW_ITEMS.map((name) => ({ Ref_Key: keyOf("dds", name), Description: name, DeletionMark: false })),
         ]);
       }
       const thing = /^\/Catalog_(Организации|КассыОрганизаций|Валюты)\(guid'([^']+)'\)$/.exec(path);
@@ -129,25 +135,43 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return found ? answer(200, { Ref_Key: thing[2], Description: found }) : answer(404, { "odata.error": { message: { value: "Not Found" } } });
       }
       if (request.method === "GET" && path === "/Catalog_Контрагенты") return page(fake.counterparts);
-      if (request.method === "GET" && path === "/Catalog_КассыОрганизаций") return page([{ Ref_Key: KEYS.kassa, Description: "Москва", DeletionMark: false }]);
-      if (request.method === "GET" && path === "/Document_РасходныйКассовыйОрдер") return page(payments.filter((row) => row.Posted === true));
+      const list = LISTS[path.slice(1)];
+      if (request.method === "GET" && list) return page(list.map((name) => ({ Ref_Key: keyOf(path.slice(1), name), Description: name, DeletionMark: false })));
+      if (request.method === "GET" && path === "/Catalog_ПодразделенияОрганизаций") return page(fake.departments);
+      if (request.method === "POST" && path === "/Catalog_ПодразделенияОрганизаций") {
+        const row = { DeletionMark: false, ...(JSON.parse(raw) as Json), Ref_Key: randomUUID() };
+        fake.departments.push(row);
+        return answer(201, row);
+      }
+      // A counterpart or a contract made by the cash desk: kept as it was sent, with a key of its own.
+      if (request.method === "POST" && (path === "/Catalog_Контрагенты" || path === "/Catalog_ДоговорыКонтрагентов")) {
+        const row = { DeletionMark: false, IsFolder: false, ...(JSON.parse(raw) as Json), Ref_Key: randomUUID() };
+        (path === "/Catalog_Контрагенты" ? fake.counterparts : fake.contracts).push(row);
+        return answer(201, row);
+      }
       if (request.method === "GET" && path === "/Catalog_ДоговорыКонтрагентов") {
         const owner = /Owner_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
         return page(fake.contracts.filter((row) => row.Owner_Key === owner));
       }
-      if (request.method === "GET" && path === "/Document_ПриходныйКассовыйОрдер") {
+      const entity = [RECEIPTS, EXPENSES, SERVICES].find((name) => path === `/${name}` || path.startsWith(`/${name}(`));
+      const documents = entity === EXPENSES ? fake.expenses : entity === SERVICES ? fake.services : fake.documents;
+      if (request.method === "GET" && entity && path === `/${entity}`) {
         const at = /Date ge datetime'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
-        return page(fake.documents.filter((row) => row.Date === at));
+        const department = /ПодразделениеОрганизации_Key eq guid'([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        const kind = /ВидОперации eq '([^']+)'/.exec(url.searchParams.get("$filter") ?? "")?.[1];
+        if (kind) return page(documents.filter((row) => row["ВидОперации"] === kind && row.Posted === true));
+        if (department) return page(documents.filter((row) => row["ПодразделениеОрганизации_Key"] === department && row.DeletionMark !== true));
+        return page(documents.filter((row) => row.Date === at));
       }
-      const one = /^\/Document_ПриходныйКассовыйОрдер\(guid'([^']+)'\)(\/Post|\/Unpost)?$/.exec(path);
+      const one = /^\/Document_[^(]+\(guid'([^']+)'\)(\/Post|\/Unpost)?$/.exec(entity ? path : "");
       if (one && request.method === "GET") {
-        const found = fake.documents.find((row) => row.Ref_Key === one[1]);
+        const found = documents.find((row) => row.Ref_Key === one[1]);
         return found ? answer(200, found) : answer(404, {});
       }
-      if (request.method === "POST" && path === "/Document_ПриходныйКассовыйОрдер") {
+      if (request.method === "POST" && entity && path === `/${entity}`) {
         const body = JSON.parse(raw) as Json;
         const document = { ...body, Ref_Key: randomUUID(), Number: `0000-C0${++numbers}`, Posted: false, DeletionMark: false };
-        fake.documents.push(document);
+        documents.push(document);
         if (lost.some((match) => line.includes(match))) {
           lost = lost.filter((match) => !line.includes(match));
           return request.socket.destroy();
@@ -155,14 +179,14 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return answer(201, document);
       }
       if (one && one[2] === "/Unpost" && request.method === "POST") {
-        const document = fake.documents.find((row) => row.Ref_Key === one[1]);
+        const document = documents.find((row) => row.Ref_Key === one[1]);
         if (!document) return answer(404, {});
         document.Posted = false;
         postings.delete(String(document.Ref_Key));
         return answer(200, {});
       }
       if (one && !one[2] && request.method === "PATCH") {
-        const document = fake.documents.find((row) => row.Ref_Key === one[1]);
+        const document = documents.find((row) => row.Ref_Key === one[1]);
         if (!document) return answer(404, {});
         // As 1C: a posted document is not written in the mode «Запись»; it is unposted first.
         if (document.Posted === true) return answer(400, { "odata.error": { message: { value: "Документ проведен: запись в режиме «Запись» невозможна" } } });
@@ -170,11 +194,18 @@ export async function startFakeOneC(): Promise<FakeOneC> {
         return answer(200, document);
       }
       if (one && one[2] === "/Post" && request.method === "POST") {
-        const document = fake.documents.find((row) => row.Ref_Key === one[1]);
+        const document = documents.find((row) => row.Ref_Key === one[1]);
         if (!document) return answer(404, {});
         document.Posted = true;
         const sum = Number(document["СуммаДокумента"]);
-        postings.set(String(document.Ref_Key), [{ AccountDr_Key: ACCOUNTS["5010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["6310"], Сумма: sum }]);
+        postings.set(
+          String(document.Ref_Key),
+          entity === SERVICES
+            ? (document["Контрагенты"] as Json[]).map((line) => ({ AccountDr_Key: ACCOUNTS["4010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["9030.1"], Сумма: line["Сумма"] }))
+            : entity === EXPENSES
+            ? [{ AccountDr_Key: wrong ? ACCOUNTS["4010"] : document["ВидОперации"] === "ОплатаПоставщику" ? ACCOUNTS["4310"] : (document["СчетРасчетовКонтрагентов_Key"] ?? document["СчетУчетаРасчетовСКонтрагентом_Key"]), AccountCr_Key: ACCOUNTS["5010"], Сумма: sum }]
+            : [{ AccountDr_Key: ACCOUNTS["5010"], AccountCr_Key: wrong ? ACCOUNTS["9430"] : ACCOUNTS["6310"], Сумма: sum }],
+        );
         wrong = false;
         if (lost.some((match) => line.includes(match))) {
           lost = lost.filter((match) => !line.includes(match));

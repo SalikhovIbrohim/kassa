@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Browser, BrowserContext, Locator, Page } from "playwright-core";
 import { loginAs, postJson } from "../test/helpers/http.js";
 import { startTestApp, type TestApp } from "../test/helpers/test-app.js";
-import { launchChromium, newPhone, seeVisible, openSection } from "./browser.js";
+import { choose, launchChromium, newPhone, seeGone, seeText, seeVisible, openSection, selectField } from "./browser.js";
 import { withRate } from "../test/helpers/entries.js";
 
 const webDistDir = fileURLToPath(new URL("../../web/dist", import.meta.url));
@@ -145,16 +145,31 @@ describe("the totals of a period, on the viewer's screen", () => {
     await sees(total(page, "Рубли", "income"), "+4 000,00 ₽");
     const before = asked.length;
 
-    await totalsRegion(page).getByLabel("Период: по").fill("2020-01-01");
+    // The two dates are chosen in a sheet that the calendar of the page's name opens, and asked for on «Показать».
+    await page.getByRole("button", { name: "Период" }).click();
+    const sheet = page.getByRole("dialog", { name: "Период" });
+    await sheet.getByLabel("Период: по").fill("2020-01-01");
 
-    await seeVisible(page.getByRole("alert").filter({ hasText: "Начало периода позже конца." }));
+    await seeVisible(sheet.getByRole("alert").filter({ hasText: "Начало периода позже конца." }));
+    expect(await sheet.getByRole("button", { name: "Показать" }).isDisabled()).toBe(true);
     expect(asked.length).toBe(before);
 
     // A period in the past, before anything was recorded: the opening balance is all there is.
-    await totalsRegion(page).getByLabel("Период: с").fill("2020-01-01");
+    await sheet.getByLabel("Период: с").fill("2020-01-01");
+    await sheet.getByRole("button", { name: "Показать" }).click();
     await sees(total(page, "Рубли", "income"), "0,00 ₽");
     await sees(total(page, "Рубли", "closing"), "10 000,00 ₽");
     expect(await page.getByRole("alert").count()).toBe(0);
+    // A period of the person's own is said as a mark under the quick choices; its cross takes it off, back to today.
+    const mark = totalsRegion(page).locator('[data-chip="period"]');
+    await seeText(mark, "01.01.2020");
+    await mark.getByRole("button", { name: "Убрать свой период" }).click();
+    await seeGone(mark);
+    await sees(total(page, "Рубли", "income"), "+4 000,00 ₽");
+    // The four quick choices stand in one row.
+    const tops = await totalsRegion(page).locator("[data-presets] button").evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    expect(await totalsRegion(page).locator("[data-presets] button").allInnerTexts()).toEqual(["Сегодня", "Вчера", "7 дней", "Месяц"]);
   }, 90_000);
 
   it("asks again when the viewer comes back to it or presses Update, and shows what was entered meanwhile", async () => {
@@ -169,7 +184,8 @@ describe("the totals of a period, on the viewer's screen", () => {
     await sees(total(page, "Рубли", "income"), "+4 500,00 ₽");
 
     await record(income({ amountMinor: 20_000, clientCode: "K10" }));
-    await page.getByRole("region", { name: "Итоги" }).getByRole("button", { name: "Обновить" }).click();
+    // «Обновить» is a round button in the row of the page's name.
+    await page.getByRole("button", { name: "Обновить" }).click();
 
     await sees(total(page, "Рубли", "income"), "+4 700,00 ₽");
   }, 90_000);
@@ -185,6 +201,71 @@ describe("the totals of a period, on the viewer's screen", () => {
 
     expect(await page.getByRole("button", { name: "Вчера", exact: true }).getAttribute("aria-pressed")).toBe("true");
     await sees(total(page, "Рубли", "income"), "+1 000,00 ₽");
+  }, 90_000);
+
+  it("filters the journal in a sheet: a row of periods on the page, the filters asked for on «Показать», each one a mark that takes it off", async () => {
+    const { page } = await desk();
+    await openSection(page, "Журнал");
+    // (Found by its tag and not by its role: under an open sheet the page is out of the reach of roles.)
+    const journal = page.locator('section[aria-label="Журнал"]');
+    const rows = journal.locator("tbody tr.income, tbody tr.expense");
+    // Today: three incomes and four expenses (the deleted one is hidden).
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(7);
+    // The quick choices of a period stand in one row, and the folded form of filters is gone.
+    expect(await journal.locator("[data-presets] button").allInnerTexts()).toEqual(["Сегодня", "Вчера", "7 дней", "Месяц"]);
+    const tops = await journal.locator("[data-presets] button").evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().top)));
+    expect(new Set(tops).size).toBe(1);
+    expect(await journal.locator("details").count()).toBe(0);
+    await journal.getByRole("button", { name: "Вчера", exact: true }).click();
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(1);
+    await journal.getByRole("button", { name: "Сегодня", exact: true }).click();
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(7);
+
+    // The funnel of the page's name opens the sheet. Nothing is asked for while its fields are being changed.
+    const funnel = page.getByRole("button", { name: "Фильтры" });
+    expect(await funnel.locator("[data-count]").count()).toBe(0);
+    await funnel.click();
+    const sheet = page.getByRole("dialog", { name: "Фильтры" });
+    await choose(selectField(sheet, "type"), "income");
+    await choose(selectField(sheet, "currency"), "USD");
+    expect(await rows.count()).toBe(7);
+    await sheet.getByRole("button", { name: "Показать" }).click();
+    await seeGone(sheet);
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(1);
+
+    // The filters that are on: counted on the funnel, and each a mark with a cross under the row of periods.
+    await seeText(funnel.locator("[data-count]"), "2");
+    expect(await journal.locator("[data-chip]").allInnerTexts()).toEqual(["Приход", "Доллары"]);
+    await seeVisible(journal.getByRole("button", { name: "Сбросить все" }));
+    await journal.getByRole("button", { name: "Убрать фильтр: Доллары" }).click();
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(3);
+    // One mark left: nothing to take off all at once.
+    expect(await journal.getByRole("button", { name: "Сбросить все" }).count()).toBe(0);
+
+    // The sheet opens with what is on; «Сбросить» in it clears its fields, and still nothing is asked for until «Показать».
+    await funnel.click();
+    await seeText(selectField(sheet, "type"), "Приход");
+    await choose(selectField(sheet, "type"), "expense");
+    await choose(selectField(sheet, "currency"), "USD");
+    await sheet.getByRole("button", { name: "Показать" }).click();
+    // Nothing is like that: the list says so in the middle, with the way out.
+    const empty = journal.locator("[data-empty]");
+    await seeText(empty, "По этим условиям записей нет.");
+    await empty.getByRole("button", { name: "Сбросить фильтры" }).click();
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(7);
+    expect(await journal.locator("[data-chip]").count()).toBe(0);
+
+    // A period of the person's own is a mark too; closing the sheet by its cross asks for nothing.
+    await funnel.click();
+    await sheet.getByLabel("Период: с").fill("2020-01-01");
+    await sheet.getByRole("button", { name: "Закрыть" }).click();
+    expect(await journal.locator("[data-chip]").count()).toBe(0);
+    await funnel.click();
+    await sheet.getByLabel("Период: с").fill("2020-01-01");
+    await sheet.getByRole("button", { name: "Показать" }).click();
+    await seeText(journal.locator('[data-chip="period"]'), /01\.01\.2020 – /);
+    await expect.poll(() => rows.count(), { timeout: 20_000 }).toBe(8);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }, 90_000);
 
   it("is not offered to a cashier", async () => {

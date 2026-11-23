@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { useKassa } from "./kassa";
 import { useEffect, useRef, useState, type FormEvent, type MutableRefObject } from "react";
 import type { Balance, Category, Operation } from "./api";
 import { CategoryField } from "./CategoryField";
@@ -10,11 +10,13 @@ import { formatMoney, parseAmountInput, parseRateInput, type Currency } from "./
 import { RateField } from "./RateField";
 import { TripFields, parseTripNumber } from "./TripFields";
 import { useEntry } from "./useEntry";
+import { ofCity, useIntoKassaConfirm } from "./IntoKassaConfirm";
 import { alertVariants } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -54,8 +56,10 @@ export function ExpenseForm({
   const [counterparty, setCounterparty] = useState("");
   const [employee, setEmployee] = useState("");
   const [comment, setComment] = useState("");
+  const [toKassa, setToKassa] = useState("");
   const amountInput = useRef<HTMLInputElement>(null);
-  const { kassa } = useKassa();
+  const { kassa, kassas, currenciesOf, labelOf } = useKassa();
+  const intoKassa = useIntoKassaConfirm();
   const entry = useEntry({ entryId, onSaved, onBalancesStale, onSessionExpired, changed, categories: categories ?? undefined });
   const chosen = categories?.find((item) => item.code === category && item.kind === "expense");
 
@@ -68,6 +72,10 @@ export function ExpenseForm({
   const needsTrip = chosen?.requiresTrip ?? false;
   const needsCounterparty = chosen?.requiresCounterparty ?? false;
   const needsEmployee = chosen?.requiresEmployee ?? false;
+  // Money moved to another desk: which one, among the others that keep this money.
+  const moves = chosen?.transfer ?? false;
+  const others = kassas.filter((item) => item.id !== kassa && item.currencies.includes(currency));
+  const goesTo = others.some((item) => item.id === toKassa) ? toKassa : "";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -108,6 +116,15 @@ export function ExpenseForm({
       return;
     }
 
+    if (moves && goesTo === "") {
+      entry.setError("Выберите, в какую кассу ушли деньги.");
+      return;
+    }
+
+    // A category that sends its money into another desk: the cashier is told so, every time, before it is written.
+    const into = chosen?.intoKassa ?? null;
+    if (into !== null && into !== kassa && !(await intoKassa.ask({ what: `Расход ${formatMoney(amountMinor, currency)}`, into: labelOf(into), own: labelOf(kassa) }))) return;
+
     const saved = await entry.send((id) => ({
       type: "expense",
       id,
@@ -120,9 +137,11 @@ export function ExpenseForm({
       ...(needsTrip && tripNumber !== null ? { tripNumber } : {}),
       ...(needsCounterparty ? { counterparty: party } : {}),
       ...(needsEmployee ? { employee: person } : {}),
+      ...(moves ? { toKassa: goesTo } : {}),
       comment: comment.trim() || undefined,
     }));
     if (saved) {
+      setToKassa("");
       setAmount("");
       setRate("");
       setClientCode("");
@@ -140,12 +159,14 @@ export function ExpenseForm({
   return (
     <Card asChild className="gap-4 p-5">
     <form onSubmit={submit}>
+      {intoKassa.dialog}
       <h2 className="sr-only">Расход</h2>
 
       <EntryStatus note={entry.note}>
         {entry.saved?.type === "expense" && (
           <p className={cn(alertVariants({ variant: "success" }), "success")}>
-            Записано: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.
+            Записано{entry.saved.kassa && entry.saved.kassa !== kassa ? ` в кассу ${ofCity(labelOf(entry.saved.kassa))}` : ""}: {savedLabel ?? "расход"}, {formatMoney(entry.saved.amountMinor, entry.saved.currency)}.
+            {entry.saved.toKassa && ` Деньги уже в кассе ${ofCity(labelOf(entry.saved.toKassa))}.`}
           </p>
         )}
       </EntryStatus>
@@ -159,7 +180,20 @@ export function ExpenseForm({
         onReload={onReloadCategories}
       />
 
-      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside />}
+      {needsClient && <ClientCodeField value={clientCode} onChange={setClientCode} inside debt />}
+
+      {moves && (
+        <Label>
+          В какую кассу
+          <Select
+            name="toKassa"
+            required
+            value={goesTo}
+            onChange={setToKassa}
+            options={[{ value: "", label: "Выберите кассу" }, ...others.map((item) => ({ value: item.id, label: item.label }))]}
+          />
+        </Label>
+      )}
 
       <TripFields
         needsTrip={needsTrip}
@@ -175,7 +209,7 @@ export function ExpenseForm({
       />
 
       {/* Andijan keeps dollars only: nothing to choose. */}
-      {KASSA_CURRENCIES[kassa].length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
+      {currenciesOf(kassa).length > 1 && <CurrencyPicker value={currency} onChange={onCurrencyChange} />}
 
       <Label className="relative">
         <span className="sr-only">Сумма</span>

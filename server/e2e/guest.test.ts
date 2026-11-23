@@ -58,7 +58,7 @@ describe("the guest's screen", () => {
     await seeText(page.getByRole("region", { name: "Остатки" }).locator("visible=true").first(), /100,00\s\$/);
 
     await openSection(page, "Журнал");
-    await seeText(page.locator(".hint:visible").first(), "записей нет");
+    await seeVisible(page.getByText("По этим условиям записей нет.").locator("visible=true").first());
 
     await tabs.getByRole("tab", { name: "Настройки" }).click();
     const sections = page.getByRole("navigation", { name: "Все разделы" });

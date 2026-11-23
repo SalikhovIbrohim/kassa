@@ -1,14 +1,16 @@
-import { KASSA_CURRENCIES, kassaProperty, type Kassa } from "./kassa.js";
+import type { Kassa, Kassas } from "./kassa.js";
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import { cashDayEnd, cashDayOf, cashDayStart } from "./cash-day.js";
 import { readCategories } from "./categories.js";
 import { dayAverageRateSql } from "./ledger.js";
-import { CURRENCIES, type Currency } from "./money.js";
+import type { Currency } from "./money.js";
 
 export type SummaryOptions = {
   pool: pg.Pool;
   now: () => Date;
+  /** The cash desks of the installation. */
+  kassas: Kassas;
 };
 
 export type CurrencySummary = {
@@ -55,7 +57,7 @@ type SummaryQuery = { from?: string; to?: string; kassa?: Kassa };
  * corrected one counts as it says now.
  */
 export async function registerSummary(app: FastifyInstance, options: SummaryOptions) {
-  const { pool, now } = options;
+  const { pool, now, kassas } = options;
 
   app.get<{ Querystring: SummaryQuery }>(
     "/api/summary",
@@ -68,8 +70,8 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
           properties: {
             from: { type: "string", format: "date" },
             to: { type: "string", format: "date" },
-            // One cash desk, or both added up when it is not given (each currency on its own, as always).
-            kassa: kassaProperty,
+            // One cash desk, or all of them added up when it is not given (each currency on its own, as always).
+            kassa: kassas.property,
           },
         },
       },
@@ -89,7 +91,7 @@ export async function registerSummary(app: FastifyInstance, options: SummaryOpti
       const start = cashDayStart(from);
       const end = cashDayEnd(to);
       const kassa = query.kassa ?? null;
-      const values: unknown[] = [start, end, kassa ? [...KASSA_CURRENCIES[kassa]] : [...CURRENCIES], kassa];
+      const values: unknown[] = [start, end, [...(kassa ? kassas.currenciesOf(kassa) : kassas.currencies)], kassa];
       const inPeriod = "op.created_at >= $1 AND op.created_at < $2";
       // The costs are the expense categories that count as costs; the others (the handover to the owner) are on their own.
       const expenseCategories = (await readCategories(pool)).filter((category) => category.kind === "expense");

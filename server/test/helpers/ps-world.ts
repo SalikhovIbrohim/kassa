@@ -11,7 +11,8 @@ import { repoRoot, type Run } from "./run-script.js";
  * npm), the service cmdlets as functions that keep the state of the service in a file, and a stand-in for
  * the application (its admin command, its check) whose behaviour is written into the version itself: a
  * file `fake/crash` in a version means that this version does not answer, `fake/migrate` holds the exit
- * code of its `migrate`.
+ * code of its `migrate`. The machine has one service, KassaApp, unless FAKE_SERVICE names another (the service of an
+ * installation with a name, KassaApp-express): a script that asks for any other name finds no service.
  *
  * What this cannot say: how Windows PowerShell 5.1, a real service, or a real icacls behave. What it can
  * say is what the scripts decide, in what order, and what they print and return.
@@ -101,7 +102,7 @@ const STUBS: Record<string, string> = {
   "sc.exe": lines(
     "#!/bin/sh",
     'echo "sc.exe $*" >> "$FAKE_WORLD/calls.log"',
-    'case "$*" in "config KassaApp start= "*) echo "$*" | sed "s/.*start= //" > "$FAKE_WORLD/startmode";; esac',
+    'case "$*" in "config ${FAKE_SERVICE:-KassaApp} start= "*) echo "$*" | sed "s/.*start= //" > "$FAKE_WORLD/startmode";; esac',
     "exit 0",
   ),
   "icacls.exe": lines("#!/bin/sh", 'echo "icacls.exe $*" >> "$FAKE_WORLD/calls.log"', 'exit "${FAKE_ICACLS_EXIT:-0}"'),
@@ -124,11 +125,13 @@ const PRELUDE = lines(
   "$World = $env:FAKE_WORLD",
   "function Add-Call { param([string]$Text) Add-Content -LiteralPath (Join-Path $World 'calls.log') -Value $Text }",
   "function Get-ServiceState { $file = Join-Path $World 'service.state'; if (Test-Path -LiteralPath $file) { (Get-Content -LiteralPath $file -Raw).Trim() } else { $null } }",
+  "$FakeServiceName = 'KassaApp'",
+  "if ($env:FAKE_SERVICE) { $FakeServiceName = $env:FAKE_SERVICE }",
   "function Get-Service {",
   "    [CmdletBinding()] param([string]$Name)",
-  "    if ($Name -eq 'KassaApp') {",
+  "    if ($Name -eq $FakeServiceName) {",
   "        $state = Get-ServiceState",
-  "        if ($state) { return [pscustomobject]@{ Name = 'KassaApp'; Status = $state } }",
+  "        if ($state) { return [pscustomobject]@{ Name = $FakeServiceName; Status = $state } }",
   "        return $null",
   "    }",
   "    if ($Name -like 'postgresql*') { return [pscustomobject]@{ Name = 'postgresql-x64-16'; Status = 'Running' } }",

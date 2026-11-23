@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import pg from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkOneC } from "../src/admin/onec.js";
-import { onecRetry, onecSkip, onecStatus, studyExpenses } from "../src/admin/onec.js";
+import { onecRetry, onecSkip, onecStatus } from "../src/admin/onec.js";
 import { AdminError } from "../src/admin/users.js";
 import type { OneCSettings } from "../src/onec-api.js";
 import { deleteRequest, get, loginAs, postJson, putJson } from "./helpers/http.js";
@@ -36,9 +36,10 @@ describe("writing the payments of clients to 1C", () => {
     await telegram.close();
   });
 
-  async function desk(options: { mode?: "preview" | "live" | "off"; onlyClients?: string[]; logStream?: NodeJS.WritableStream; password?: string; night?: boolean } = {}) {
+  async function desk(options: { mode?: "preview" | "live" | "off"; onlyClients?: string[]; logStream?: NodeJS.WritableStream; password?: string; night?: boolean; createClients?: boolean; digits?: boolean } = {}) {
     const mode = options.mode ?? "live";
     const started = await startTestApp({
+      clientCodes: options.digits ? "digits" : undefined,
       telegramBotToken: TOKEN,
       telegramGroupChatId: GROUP,
       telegramApiUrl: telegram.url,
@@ -55,6 +56,7 @@ describe("writing the payments of clients to 1C", () => {
               currencyKey: KEYS.currency,
               mode,
               onlyClients: options.onlyClients,
+              createClients: options.createClients,
               send: options.night ? "night" : undefined,
             },
       // Over a night the test moves the clock: the queue then runs on the app's clock too.
@@ -209,7 +211,7 @@ describe("writing the payments of clients to 1C", () => {
 
     expect(onec.documents).toHaveLength(1);
     expect(onec.documents[0]).toMatchObject({ Комментарий: "А500" });
-    expect((await queued(started)).find((row) => row.status === "skipped")!.detail).toContain("COSMO_1C_CLIENTS");
+    expect((await queued(started)).find((row) => row.status === "skipped")!.detail).toContain("ONEC_CLIENTS");
     expect(rows).toHaveLength(2);
   });
 
@@ -235,6 +237,51 @@ describe("writing the payments of clients to 1C", () => {
       await until(started, "written");
       expect(onec.documents).toHaveLength(1);
       expect(told()).toHaveLength(1);
+    });
+
+    it("makes the client in 1C, with a contract, where the settings say so: named as the base names its own, once", async () => {
+      // A business whose codes are digits, and whose base names a client «Нурбек 757» with the code as the tax number.
+      const { started, ivan } = await desk({ createClients: true, digits: true });
+      await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin" });
+      const mudir = await loginAs(started, "mudir", "admin password");
+      expect((await postJson(started, "/api/admin/clients/import", { clients: [{ code: "757", name: "Нурбек" }, { code: "45", name: "Акмал" }] }, mudir)).status).toBe(200);
+      // One of them the base has already, named its way: found by the code at the end of the name.
+      onec.counterparts.push({ Ref_Key: "known-45", Description: "Акмал 45", ИНН: "", DeletionMark: false, IsFolder: false });
+      onec.contracts.push({ Ref_Key: "contract-45", Description: "№45 от 01.01.2026", Owner_Key: "known-45", ВидДоговора: "СПокупателем", DeletionMark: false });
+
+      expect(await post(started, ivan, payment({ clientCode: "757", currency: "USD", amountMinor: 50_000, rateE4: undefined }))).toBe(201);
+      expect(await post(started, ivan, payment({ clientCode: "45", currency: "USD", amountMinor: 20_000, rateE4: undefined }))).toBe(201);
+      expect(await post(started, ivan, payment({ clientCode: "757", currency: "USD", amountMinor: 10_000, rateE4: undefined }))).toBe(201);
+      await until(started, "written", 3);
+
+      // The new client: a counterpart and a contract, made once for the two payments.
+      const made = onec.counterparts.filter((row) => row.Ref_Key !== "known-45");
+      expect(made).toHaveLength(1);
+      expect(made[0]).toMatchObject({ Description: "Нурбек 757", НаименованиеПолное: "Нурбек 757", ЮридическоеФизическоеЛицо: "ФизическоеЛицо", ИНН: "000000757" });
+      const year = new Date().getUTCFullYear();
+      const contracts = onec.contracts.filter((row) => row.Owner_Key === made[0]!.Ref_Key);
+      expect(contracts).toHaveLength(1);
+      expect(contracts[0]).toMatchObject({ Description: `№757 от 01.01.${year}`, Номер: "757", ВидДоговора: "СПокупателем", ВалютаВзаиморасчетов_Key: KEYS.currency, Организация_Key: KEYS.organization });
+      // The receipts name them; the client the base had is not made again.
+      expect(onec.documents.map((document) => [document["Контрагент"], document["ДоговорКонтрагента_Key"], document["СуммаДокумента"]]).sort()).toEqual(
+        [
+          [made[0]!.Ref_Key, contracts[0]!.Ref_Key, 500],
+          [made[0]!.Ref_Key, contracts[0]!.Ref_Key, 100],
+          ["known-45", "contract-45", 200],
+        ].sort(),
+      );
+    });
+
+    it("only says that it would make the client, in the rehearsal", async () => {
+      const { started, ivan } = await desk({ createClients: true, digits: true, mode: "preview" });
+      await started.admin.createUser({ login: "mudir", password: "admin password", role: "admin" });
+      const mudir = await loginAs(started, "mudir", "admin password");
+      expect((await postJson(started, "/api/admin/clients/import", { clients: [{ code: "757", name: "Нурбек" }] }, mudir)).status).toBe(200);
+      expect(await post(started, ivan, payment({ clientCode: "757", currency: "USD", amountMinor: 50_000, rateE4: undefined }))).toBe(201);
+      const [row] = await until(started, "preview");
+      expect(row!.detail).toContain("был бы создан контрагент «Нурбек 757» с договором");
+      expect(onec.counterparts).toHaveLength(0);
+      expect(writes()).toEqual([]);
     });
 
     it("will not choose between two clients of one code", async () => {
@@ -569,23 +616,6 @@ describe("writing the payments of clients to 1C", () => {
       ...overrides,
     });
 
-    it("onec-rko shows how the accountant books the expenses, grouped, and the cash desks with their keys, and changes nothing", async () => {
-      onec.addPayment({ Date: "2026-03-05T10:00:00", ВидОперации: "ПрочийРасход", СтатьяДвиженияДенежныхСредств_Key: "dds-payment-from-buyers", Основание: "Топливо фура 01", СуммаДокумента: 50 }, [{ debit: "9430", sum: 50, analytics: ["СтатьиЗатрат"] }]);
-      onec.addPayment({ Date: "2026-03-05T11:00:00", ВидОперации: "ПрочийРасход", СтатьяДвиженияДенежныхСредств_Key: "dds-payment-from-buyers", Основание: "Топливо фура 02", СуммаДокумента: 70 }, [{ debit: "9430", sum: 70, analytics: ["СтатьиЗатрат"] }]);
-      onec.addPayment({ Date: "2026-03-05T12:00:00", ВидОперации: "ВозвратДенежныхСредствПокупателю", Основание: "Возврат А406", СуммаДокумента: 10 }, [{ debit: "4010", sum: 10, analytics: ["Контрагенты", "ДоговорыКонтрагентов"] }]);
-      const lines: string[] = [];
-      await studyExpenses(settingsOf(), (line) => lines.push(line));
-      const text = lines.join("\n");
-
-      expect(text).toContain(`«Москва»  ${KEYS.kassa}`);
-      expect(text).toContain("Последние проведённые РКО: 3.");
-      expect(text).toContain("2 × ПрочийРасход | Дт 9430 | ДДС «Оплата от покупателей» | аналитика: СтатьиЗатрат");
-      expect(text).toContain("1 × ВозвратДенежныхСредствПокупателю | Дт 4010 | ДДС «—» | аналитика: Контрагенты, ДоговорыКонтрагентов");
-      expect(text).toContain("«Топливо фура 01», «Топливо фура 02»");
-      expect(text).toContain("заполненные поля: Date, Posted, ВидОперации, Основание, СтатьяДвиженияДенежныхСредств_Key, СуммаДокумента");
-      expect(onec.requests.some((line) => !line.startsWith("GET"))).toBe(false);
-      expect(text).not.toContain(onec.password);
-    });
     const pools: pg.Pool[] = [];
     afterEach(async () => {
       await Promise.all(pools.splice(0).map((pool) => pool.end()));

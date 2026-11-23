@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES } from "./kassa";
+import { useKassa } from "./kassa";
 import { useRef, useState, type FormEvent } from "react";
 import {
   DEFAULT_INCOME_CATEGORY,
@@ -50,6 +50,7 @@ export function OperationEditor({
   onReloadCategories,
 }: Props) {
   const isIncome = operation.type === "income";
+  const { currenciesOf } = useKassa();
   const [currency, setCurrency] = useState<Currency>(operation.currency);
   const [amount, setAmount] = useState(formatAmountInput(operation.amountMinor));
   const [rate, setRate] = useState(operation.rateE4 === null ? "" : formatRateInput(operation.rateE4));
@@ -168,8 +169,8 @@ export function OperationEditor({
         Изменить запись
       </h3>
 
-      {/* Andijan keeps dollars only: its entries stay in dollars. */}
-      {KASSA_CURRENCIES[operation.kassa ?? "moscow"].length > 1 && <CurrencyPicker value={currency} onChange={setCurrency} />}
+      {/* A desk that keeps one currency only (Andijan: dollars): its entries stay in it. */}
+      {currenciesOf(operation.kassa).length > 1 && <CurrencyPicker value={currency} onChange={setCurrency} />}
 
       <Label>
         Сумма

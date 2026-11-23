@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { GROUPS, Icon, SECTIONS, type SectionKey } from "./sections";
+import { PageActionsContext } from "./page-actions";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -43,8 +44,30 @@ export function Shell(props: Props) {
   const title = SECTIONS[active].label;
   // The tab under the lens: the section itself, or «Настройки» for a section opened from there.
   const activeTab = tabs.includes(active) ? active : "settings";
+  // The name of the page is said in the row of Telegram's buttons only once the page's own name has gone up under
+  // them: two names of one page are not read at once. A form has no name of its own on the page: there it is always said.
+  // Where a page puts the buttons of the row of its name (see page-actions.tsx): one place on a phone, one on a computer.
+  const [phoneActions, setPhoneActions] = useState<HTMLElement | null>(null);
+  const [computerActions, setComputerActions] = useState<HTMLElement | null>(null);
+  const pageTitle = useRef<HTMLDivElement>(null);
+  const fade = useRef<HTMLDivElement>(null);
+  const [titleGone, setTitleGone] = useState(compact);
+  useEffect(() => {
+    const look = () => {
+      const own = pageTitle.current;
+      setTitleGone(!own || own.getBoundingClientRect().bottom <= (fade.current?.offsetHeight ?? 0) - 12);
+    };
+    look();
+    window.addEventListener("scroll", look, { passive: true });
+    window.addEventListener("resize", look);
+    return () => {
+      window.removeEventListener("scroll", look);
+      window.removeEventListener("resize", look);
+    };
+  }, [active, compact]);
 
   return (
+    <PageActionsContext.Provider value={{ phone: phoneActions, computer: computerActions }}>
     <div className="min-h-dvh min-[960px]:grid min-[960px]:grid-cols-[264px_minmax(0,1fr)]" data-signed-in data-section={active}>
       <aside className="glass-card sticky top-4 m-4 mr-0 hidden h-[calc(100dvh-2rem)] flex-col overflow-y-auto rounded-xl px-3 py-4 min-[960px]:flex">
         <div className="mb-3 flex items-center gap-2.5 px-2">
@@ -104,6 +127,7 @@ export function Shell(props: Props) {
         <header className="sticky top-0 z-10 hidden min-h-16 items-center justify-between gap-4 bg-background/75 px-6 pt-3 pb-3 backdrop-blur-xl min-[960px]:flex">
           <h2 className="truncate text-2xl font-bold tracking-tight">{title}</h2>
           <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2" ref={setComputerActions} data-page-actions />
             {props.headerExtra}
             <Button ref={props.leaveButton} type="button" variant="outline" size="sm" onClick={props.onLeave}>
               <Icon name="logout" size={18} />
@@ -127,11 +151,12 @@ export function Shell(props: Props) {
             </button>
           )}
           {!compact && (
-            <div className="flex items-center gap-3 min-[960px]:hidden">
+            <div className="flex items-center gap-3 min-[960px]:hidden" ref={pageTitle}>
               <span aria-hidden="true" className="grid size-10 flex-none place-items-center rounded-[12px] bg-primary text-[19px] font-extrabold text-primary-foreground">
                 К
               </span>
-              <h2 className="truncate text-[28px] leading-tight font-extrabold tracking-tight">{title}</h2>
+              <h2 className="min-w-0 flex-1 truncate text-[28px] leading-tight font-extrabold tracking-tight">{title}</h2>
+              <div className="flex flex-none items-center gap-2" ref={setPhoneActions} data-page-actions />
             </div>
           )}
           {compact && <h2 className="sr-only min-[960px]:hidden">{title}</h2>}
@@ -139,12 +164,13 @@ export function Shell(props: Props) {
         </div>
       </div>
 
-      <div className="tg-fade" aria-hidden="true" />
-      <div className="tg-title" aria-hidden="true">
+      <div className="tg-fade" aria-hidden="true" ref={fade} />
+      <div className="tg-title" aria-hidden="true" data-shown={titleGone || undefined}>
         {title}
       </div>
       <TabBar tabs={tabs} active={activeTab} onOpen={onOpen} />
     </div>
+    </PageActionsContext.Provider>
   );
 }
 
@@ -227,6 +253,7 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
       )}
       data-keyboard-up={keyboardUp || undefined}
     >
+      <div className="tb-fade" aria-hidden="true" />
       <div
         ref={bar}
         role="tablist"
@@ -257,7 +284,7 @@ function TabBar({ tabs, active, onOpen }: { tabs: readonly SectionKey[]; active:
             onClick={() => onOpen(key)}
           >
             <Icon name={SECTIONS[key].icon as never} size={23} />
-            <span className="max-w-full truncate px-0.5">{SECTIONS[key].label}</span>
+            <span className="max-w-full truncate px-0.5">{SECTIONS[key].tab ?? SECTIONS[key].label}</span>
           </button>
         ))}
       </div>

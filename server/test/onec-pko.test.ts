@@ -21,6 +21,13 @@ describe("the code of a client out of what the cashier typed", () => {
   it("is none for a missing text", () => {
     expect(clientCodeOf(null)).toBeNull();
   });
+
+  it("is the digits, and no letter, where the codes are digits alone", () => {
+    expect(clientCodeOf("245", "digits")).toEqual({ code: "245", name: "" });
+    expect(clientCodeOf(" 406 Жавид Хасанов", "digits")).toEqual({ code: "406", name: "Жавид Хасанов" });
+    expect(clientCodeOf("А245", "digits")).toBeNull();
+    expect(clientCodeOf("Москва", "digits")).toBeNull();
+  });
 });
 
 describe("finding the counterpart in 1C", () => {
@@ -31,6 +38,12 @@ describe("finding the counterpart in 1C", () => {
     // The second is written with a latin A.
     expect(pickCounterpart([row("А245 Исмоил"), row("A300 Другой")], client("А245"))).toEqual({ found: true, counterpart: { key: "key-А245 Исмоил", name: "А245 Исмоил" } });
     expect(pickCounterpart([row("A300 Другой")], client("А300"))).toMatchObject({ found: true });
+  });
+
+  it("finds it by the digits at the start of the name where the codes are digits alone, and not by a near number", () => {
+    expect(pickCounterpart([row("245 Исмоил"), row("2450 Другой")], client("245"), "digits")).toEqual({ found: true, counterpart: { key: "key-245 Исмоил", name: "245 Исмоил" } });
+    expect(pickCounterpart([row("ООО Ромашка", { ИНН: "339" })], client("339"), "digits")).toMatchObject({ found: true });
+    expect(pickCounterpart([row("А245 Исмоил")], client("245"), "digits")).toMatchObject({ found: false });
   });
 
   it("finds it by the tax number that holds the code", () => {
@@ -158,6 +171,45 @@ describe("the settings of the writing to 1C", () => {
     });
     expect(loadConfig({ ...full, COSMO_1C_MODE: "Preview", COSMO_1C_CLIENTS: "a339, А-406" }).onec).toMatchObject({ mode: "preview", onlyClients: ["А339", "А406"] });
     expect(loadConfig({ ...full, COSMO_1C_SEND: "Now" }).onec).toMatchObject({ send: "now" });
+  });
+
+  it("reads the settings under their own names, ONEC_*, and prefers them to the earlier names", () => {
+    const renamed = {
+      ...base,
+      ONEC_MODE: "live",
+      ONEC_ODATA_URL: "http://1c.example/Express",
+      ONEC_ODATA_USER: "robot",
+      ONEC_ODATA_PASSWORD: "s3cret",
+      ONEC_ORGANIZATION_KEY: KEY,
+      ONEC_KASSA_KEY: KEY.toUpperCase(),
+      ONEC_CURRENCY_KEY: KEY,
+      ONEC_CLIENTS: "a339",
+      ONEC_SEND: "Now",
+    };
+    expect(loadConfig(renamed).onec).toEqual({
+      url: "http://1c.example/Express",
+      user: "robot",
+      password: "s3cret",
+      organizationKey: KEY,
+      kassaKey: KEY,
+      currencyKey: KEY,
+      mode: "live",
+      onlyClients: ["А339"],
+      send: "now",
+    });
+    // A settings file of before the names changed goes on working, and a setting under its own name wins.
+    expect(loadConfig({ ...full, ONEC_MODE: "preview", ONEC_ODATA_URL: "http://1c.example/new" }).onec).toMatchObject({ mode: "preview", url: "http://1c.example/new", user: "robot" });
+    expect(loadConfig({ ...full, ONEC_MODE: "off" }).onec).toBeUndefined();
+  });
+
+  it("names a wrong or missing setting the way the settings file names it", () => {
+    expect(() => loadConfig({ ...base, ONEC_MODE: "yes" })).toThrow(/ONEC_MODE must be off, preview or live/);
+    expect(() => loadConfig({ ...base, ONEC_MODE: "live" })).toThrow(/ONEC_ODATA_URL is required when ONEC_MODE is live/);
+    expect(() => loadConfig({ ...base, ONEC_MODE: "live", ONEC_ODATA_URL: "http://1c.example", ONEC_ODATA_USER: "robot", ONEC_ODATA_PASSWORD: "s3cret", ONEC_ORGANIZATION_KEY: "x" })).toThrow(
+      /ONEC_ORGANIZATION_KEY must be a key/,
+    );
+    expect(() => loadConfig({ ...base, COSMO_1C_MODE: "live" })).toThrow(/COSMO_ODATA_URL is required when COSMO_1C_MODE is live/);
+    expect(() => loadConfig({ ...full, ONEC_SEND: "hourly" })).toThrow(/ONEC_SEND must be night or now/);
   });
 
   it("refuses a setting that is missing or wrong, without saying the password", () => {

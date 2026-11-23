@@ -158,25 +158,53 @@ export function tellTelegramReady() {
   post("web_app_expand", {});
 }
 
-/** Telegram's own back button (at the top left), while a section opened from «Настройки» is shown. */
+/**
+ * Who Telegram's back button belongs to, the last to ask on top: a section opened from «Настройки», and over it every
+ * window that is open, the newest last. A press goes to the one on top; when that one is gone the button is the one's
+ * below again, and with nobody left it is hidden.
+ */
+export type BackOwner = { back: () => void };
+const backOwners: BackOwner[] = [];
+let backShownBy: WebApp | null = null;
+const backPressed = () => backOwners[backOwners.length - 1]?.back();
+
+/** Puts the button in step with the stack: shown, with the one handler, while somebody owns it. */
+function syncBackButton(app: WebApp | null) {
+  if (!app) return;
+  if (backOwners.length > 0 && backShownBy !== app) {
+    app.BackButton.onClick(backPressed);
+    app.BackButton.show();
+    backShownBy = app;
+  } else if (backOwners.length === 0 && backShownBy === app) {
+    app.BackButton.offClick(backPressed);
+    app.BackButton.hide();
+    backShownBy = null;
+  }
+}
+
+/** Takes the back button (on top of whoever has it); the answer gives it back. For the tests of the stack too. */
+export function ownBackButton(owner: BackOwner, app: WebApp | null = webApp): () => void {
+  backOwners.push(owner);
+  syncBackButton(app);
+  return () => {
+    const at = backOwners.lastIndexOf(owner);
+    if (at >= 0) backOwners.splice(at, 1);
+    syncBackButton(app);
+  };
+}
+
+/**
+ * Telegram's own back button (at the top left) is this one's while `onBack` is given: a section opened from
+ * «Настройки», a window that is open. Several may ask at once: the last to ask has it (see `ownBackButton`).
+ */
 export function useTelegramBackButton(onBack: (() => void) | undefined) {
   const app = useWebApp();
   const latest = useRef(onBack);
   latest.current = onBack;
   const shown = onBack !== undefined;
   useEffect(() => {
-    if (!app) return;
-    if (!shown) {
-      app.BackButton.hide();
-      return;
-    }
-    const pressed = () => latest.current?.();
-    app.BackButton.onClick(pressed);
-    app.BackButton.show();
-    return () => {
-      app.BackButton.offClick(pressed);
-      app.BackButton.hide();
-    };
+    if (!app || !shown) return;
+    return ownBackButton({ back: () => latest.current?.() }, app);
   }, [app, shown]);
 }
 

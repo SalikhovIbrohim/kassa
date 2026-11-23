@@ -21,26 +21,131 @@ $script:FirewallRules = @(
     @{ Name = 'Kassa HTTPS'; Port = 443 }
 )
 
+# What another installation on the same machine (the cash desk of another company) is told apart by: the INSTANCE
+# line of its settings file, one short lower-case word (setup.ps1 -Instance writes it). The first installation has
+# no such line. When the line is there twice the last one counts, as it does for the application. Whatever the line
+# says is the answer, without quotes and without a comment after it: Get-KassaLayout refuses what is not a name, so
+# that a line written wrongly is never taken for "no name", which is the first installation.
+function Get-KassaInstance {
+    param([Parameter(Mandatory)][string]$Settings)
+    if (-not (Test-Path -LiteralPath $Settings)) { return '' }
+    $found = [regex]::Matches([IO.File]::ReadAllText($Settings), '(?m)^[ \t]*INSTANCE[ \t]*=(.*)$')
+    if ($found.Count -eq 0) { return '' }
+    $value = $found[$found.Count - 1].Groups[1].Value
+    $value = ($value -replace '\s+#.*$', '').Trim()
+    $value.Trim('"', "'")
+}
+
 # Where everything lives. $Root is the folder that holds the app, the settings, the logs and the tools.
+# The names of the services and of the tasks follow the name of the installation: the first one on a machine has
+# KassaApp and "Kassa backup", another one (INSTANCE=express) has KassaApp-express and "Kassa backup (express)".
+# -Instance is for setup.ps1 only, which runs before there is a settings file to read the name from. -Other is for
+# a look at another installation than the one these scripts belong to (the one whose proxy serves this one).
 function Get-KassaLayout {
-    param([string]$Root = 'C:\kassa')
+    param([string]$Root = 'C:\kassa', [string]$Instance = '', [switch]$Other)
     # A full path: the scripts change folders, and a path like .\kassa would then mean something else.
     if (-not [IO.Path]::IsPathRooted($Root)) {
         $Root = [IO.Path]::GetFullPath([IO.Path]::Combine((Get-Location).ProviderPath, $Root))
     }
     $app = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, '..', '..'))
-    [pscustomobject]@{
-        Root      = $Root
-        App       = $app                                                  # the repository this script belongs to
-        Config    = [IO.Path]::Combine($Root, 'config')
-        Settings  = [IO.Path]::Combine($Root, 'config', 'kassa.env')      # holds the database password, not in git
-        Caddyfile = [IO.Path]::Combine($Root, 'config', 'Caddyfile')
-        Logs      = [IO.Path]::Combine($Root, 'logs')
-        Services  = [IO.Path]::Combine($Root, 'services')
-        Tools     = [IO.Path]::Combine($Root, 'tools')
-        CaddyData = [IO.Path]::Combine($Root, 'caddy')
-        Backups   = [IO.Path]::Combine($Root, 'backups')
+    $settings = [IO.Path]::Combine($Root, 'config', 'kassa.env')
+
+    # Every installation has its own copy of the code, in the folder "app" of its root. Run with the root of another
+    # installation (-Root left out, so the default), these scripts would build this copy and then stop, migrate and
+    # start the service and the database of the other one. Refused, both ways round: this copy has a root of its own
+    # with settings in it, or the root that was asked for has a copy of the code of its own.
+    if (-not $Other) {
+        $asked = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
+        $ownRoot = [IO.Path]::GetDirectoryName($app)
+        if ($ownRoot) {
+            $ownSettings = [IO.Path]::Combine($ownRoot, 'config', 'kassa.env')
+            $sameRoot = [string]::Equals($ownRoot.TrimEnd('\', '/'), $asked, [StringComparison]::OrdinalIgnoreCase)
+            if ((-not $sameRoot) -and (Test-Path -LiteralPath $ownSettings)) {
+                throw "These scripts belong to the installation in $ownRoot (its settings file is $ownSettings), and were asked to work on the one in $Root. Run the command again with: -Root `"$ownRoot`""
+            }
+        }
+        $rootApp = [IO.Path]::Combine($asked, 'app')
+        $sameApp = [string]::Equals($rootApp, $app.TrimEnd('\', '/'), [StringComparison]::OrdinalIgnoreCase)
+        if ((-not $sameApp) -and (Test-Path -LiteralPath ([IO.Path]::Combine($rootApp, 'deploy', 'windows', 'common.ps1')))) {
+            throw "The installation in $Root has a copy of the code of its own ($rootApp), and these scripts are another copy ($app). Run the scripts of that copy; or, if this copy belongs to another installation, give the command its folder with -Root."
+        }
     }
+
+    $written = Get-KassaInstance -Settings $settings
+    # A settings file that is there says whose it is: with no INSTANCE line, the first installation's.
+    if ($Instance -and (Test-Path -LiteralPath $settings) -and ($Instance -cne $written)) {
+        $whose = 'the first installation (it has no INSTANCE line)'
+        if ($written) { $whose = "the installation '$written'" }
+        throw "The settings file $settings belongs to $whose, not to '$Instance'. Give -Root the folder of the installation '$Instance'."
+    }
+    if (-not $Instance) { $Instance = $written }
+    # Lower-case letters and digits only: the name goes into the names of a service, of a task and of a database role.
+    if ($Instance -and ($Instance -cnotmatch '^[a-z][a-z0-9]{0,15}$')) {
+        throw "The name of an installation must be one short lower-case word of letters and digits, like express, got '$Instance' (-Instance, or the INSTANCE line of $settings)."
+    }
+    $suffix = ''
+    $label = ''
+    if ($Instance) {
+        $suffix = '-' + $Instance
+        $label = ' (' + $Instance + ')'
+    }
+    [pscustomobject]@{
+        Root         = $Root
+        App          = $app                                                  # the repository this script belongs to
+        Config       = [IO.Path]::Combine($Root, 'config')
+        Settings     = $settings                                             # holds the database password, not in git
+        Caddyfile    = [IO.Path]::Combine($Root, 'config', 'Caddyfile')
+        Sites        = [IO.Path]::Combine($Root, 'config', 'sites')          # the sites of other installations, for the proxy of this one
+        Logs         = [IO.Path]::Combine($Root, 'logs')
+        Services     = [IO.Path]::Combine($Root, 'services')
+        Tools        = [IO.Path]::Combine($Root, 'tools')
+        CaddyData    = [IO.Path]::Combine($Root, 'caddy')
+        Backups      = [IO.Path]::Combine($Root, 'backups')
+        Instance     = $Instance                                             # '' for the first installation on the machine
+        Label        = $label
+        AppService   = 'KassaApp' + $suffix
+        ProxyService = 'KassaProxy' + $suffix
+        BackupTask   = 'Kassa backup' + $label
+        UpdateTask   = 'Kassa update' + $label
+    }
+}
+
+# The program a Windows service runs (the copy of WinSW in the folder "services" of its installation), or nothing
+# when there is no such service, or when it cannot be found out (not Windows, as in a rehearsal of the scripts).
+function Get-ServiceProgram {
+    param([Parameter(Mandatory)][string]$Name)
+    if (-not (Get-Command -Name Get-CimInstance -ErrorAction SilentlyContinue)) { return $null }
+    try {
+        $found = @(Get-CimInstance -ClassName Win32_Service -Filter ("Name='" + $Name + "'") -ErrorAction Stop)
+        if ($found.Count -eq 0) { return $null }
+        $program = ([string]$found[0].PathName).Trim()
+        if ($program.StartsWith('"')) {
+            $end = $program.IndexOf('"', 1)
+            if ($end -gt 1) { $program = $program.Substring(1, $end - 1) }
+        }
+        else {
+            $at = $program.IndexOf('.exe', [StringComparison]::OrdinalIgnoreCase)
+            if ($at -gt 0) { $program = $program.Substring(0, $at + 4) }
+        }
+        if (-not [IO.Path]::IsPathRooted($program)) { return $null }
+        return $program
+    }
+    catch {
+        return $null
+    }
+}
+
+# A service that has the name this installation gives its own, with its program in the folder of another
+# installation, is the service of that other one: this installation was set up without a name of its own, or its
+# settings file lost the INSTANCE line. Nothing is done to such a service from here, nor in its name (its task, its
+# database role). Said only when it is certain; when the program of the service cannot be found out, nothing is said.
+function Assert-OwnService {
+    param([Parameter(Mandatory)]$Layout, [Parameter(Mandatory)][string]$Name)
+    $program = Get-ServiceProgram -Name $Name
+    if (-not $program) { return }
+    $own = [IO.Path]::GetFullPath($Layout.Services).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if ($program.StartsWith($own, [StringComparison]::OrdinalIgnoreCase)) { return }
+    throw "The service $Name on this machine belongs to another installation (its program is $program), not to the one in $($Layout.Root). Another installation on the same machine needs a name of its own (setup.ps1 -Instance <name> -Port <port>), and the settings file of one that has a name must keep its INSTANCE line. Nothing was changed."
 }
 
 function Assert-Administrator {

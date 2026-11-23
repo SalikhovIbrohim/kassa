@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { clientLabel, fetchClientCodes, fetchClients } from "./api";
+import { clientLabel, fetchClientCodes, fetchClients, type Client } from "./api";
+import { debtWords } from "./cargo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,22 @@ type Props = {
   required?: boolean;
   /** The name stands inside the empty field instead of above it (the entry forms). */
   inside?: boolean;
+  /**
+   * Told which client of the directory the field names, once it names one exactly (by the code, or as the list writes
+   * them), and null when it names none: the form of the cargo takes the price of the client from it.
+   */
+  onClient?: (client: Client | null) => void;
+  /** Say under the field what the client owes, where the business keeps trips (elsewhere a client has no debt to say). */
+  debt?: boolean;
 };
+
+/** The client that what is typed names exactly: «132», «132 Иброхим», and with the letter left out, «707» for А707. */
+function namedClient(typed: string, clients: readonly Client[]): Client | null {
+  const text = typed.trim().toLowerCase();
+  if (text === "") return null;
+  const bare = (code: string) => code.toLowerCase().replace(/^[aа]\s*-?\s*/, "");
+  return clients.find((client) => clientLabel(client).toLowerCase() === text || bare(client.code) === bare(text)) ?? null;
+}
 
 /** A narrow screen: there the keyboard takes half of it, and the field goes up to leave the suggestions room. */
 const onPhone = () => typeof window !== "undefined" && window.matchMedia?.("(max-width: 640px)").matches;
@@ -21,10 +37,14 @@ const onPhone = () => typeof window !== "undefined" && window.matchMedia?.("(max
  * Карим»); while the directory is empty, the codes typed before are. The list is drawn by the page (not the browser's),
  * a few lines high, so it never covers the form.
  */
-export function ClientCodeField({ value, onChange, required = true, inside = false }: Props) {
+export function ClientCodeField({ value, onChange, required = true, inside = false, onClient, debt = false }: Props) {
   const listId = useId();
   const wrapper = useRef<HTMLDivElement>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  // The client of the directory that the field names now, if it names one.
+  const [named, setNamed] = useState<Client | null>(null);
+  const tellClient = useRef(onClient);
+  tellClient.current = onClient;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
 
@@ -33,16 +53,21 @@ export function ClientCodeField({ value, onChange, required = true, inside = fal
     const timer = setTimeout(async () => {
       const typed = value.trim();
       let found: string[];
+      let client: Client | null = null;
       try {
         const clients = await fetchClients(typed, { limit: 8 });
+        client = namedClient(typed, clients);
         // An empty answer to an empty search means no directory yet: the codes of the journal then.
         found = clients.length === 0 && typed === "" ? await fetchClientCodes("") : clients.map(clientLabel);
       } catch {
-        found = await fetchClientCodes(typed);
+        // The form of the cargo has no codes of the journal to fall back on: nothing to offer, then.
+        found = await fetchClientCodes(typed).catch(() => []);
       }
       if (current) {
         setSuggestions(found);
         setActive(-1);
+        setNamed(client);
+        tellClient.current?.(client);
       }
     }, 150);
     return () => {
@@ -137,6 +162,17 @@ export function ClientCodeField({ value, onChange, required = true, inside = fal
           </li>
         ))}
       </ul>
+      {debt && named && named.debtMinor !== undefined && (
+        <p
+          className={cn(
+            "mt-1.5 px-1 text-sm font-medium",
+            debtWords(named.debtMinor).tone === "debt" ? "text-destructive" : debtWords(named.debtMinor).tone === "ahead" ? "text-success" : "text-muted-foreground",
+          )}
+          data-client-debt={named.code}
+        >
+          {named.name || named.code}: {debtWords(named.debtMinor).text}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { Icon, SECTIONS, TAB_SLOTS, type SectionKey } from "./sections";
-import { KASSA_LABEL, useKassa, type Scope } from "./kassa";
+import { useKassa, type Scope } from "./kassa";
 import { THEME_CHOICES, THEME_LABEL, useTheme } from "./theme";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
+import { Select } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -17,6 +18,11 @@ type Props = {
   tabs: readonly SectionKey[];
   onTabsChange: (keys: SectionKey[] | null) => void;
   onOpen: (key: SectionKey) => void;
+  /**
+   * The person keeps a warehouse: what it is called («Коканд», or «Все склады»). Said where a cashier's cash desk is:
+   * the keeper of a warehouse has no cash desk.
+   */
+  warehouse?: string;
   /** Linking Telegram (inside Telegram only). */
   telegram?: ReactNode;
   onLeave: () => void;
@@ -29,7 +35,7 @@ const sectionTitle = "mx-1 mt-2 -mb-1 text-[12px] font-semibold tracking-[.06em]
 /** «Настройки»: who is signed in, every section (on a phone), the tab bar, the theme, the desk, Telegram, «Выйти». */
 export function Settings(props: Props) {
   const [theme, setTheme] = useTheme();
-  const { choosable, kassa, scope, setScope } = useKassa();
+  const { kassas, choosable, kassa, scope, setScope, labelOf } = useKassa();
   const [editingTabs, setEditingTabs] = useState(false);
   const others = props.sections.filter((key) => key !== "settings");
 
@@ -42,7 +48,7 @@ export function Settings(props: Props) {
         <span className="grid min-w-0 gap-0.5">
           <span className="truncate text-[17px] font-semibold">{props.displayName}</span>
           <span className="truncate text-[13px] text-muted-foreground">
-            {props.roleLabel} · {choosable ? "Везде" : KASSA_LABEL[kassa]} · {props.login}
+            {props.roleLabel} · {props.warehouse ?? (choosable ? "Везде" : labelOf(kassa))} · {props.login}
           </span>
         </span>
       </div>
@@ -89,20 +95,34 @@ export function Settings(props: Props) {
             options={THEME_CHOICES.map((choice) => ({ value: choice, label: choice === "system" ? "Авто" : THEME_LABEL[choice] }))}
           />
         </div>
-        {choosable ? (
+        {props.warehouse !== undefined ? (
+          <div className={cn(row, "justify-between")}>
+            <span className="grid gap-0.5">
+              <span className="font-semibold">Склад</span>
+              <span className="text-[12.5px] text-muted-foreground">Грузы какого склада вы вносите</span>
+            </span>
+            <span className="rounded-full bg-accent px-2.5 py-0.5 text-[12px] font-semibold text-muted-foreground">{props.warehouse}</span>
+          </div>
+        ) : choosable ? (
           <div className={cn(row, "flex-col items-stretch gap-2")}>
             <span className="font-semibold">Касса в журнале и итогах</span>
-            <Segmented<Scope>
-              label="Касса в журнале и итогах"
-              size="sm"
-              value={scope}
-              onChange={setScope}
-              options={[
-                { value: "both", label: "Обе" },
-                { value: "moscow", label: "Москва" },
-                { value: "andijan", label: "Андижан" },
-              ]}
-            />
+            {kassas.length > 3 ? (
+              <Select
+                aria-label="Касса в журнале и итогах"
+                value={scope}
+                onChange={setScope}
+                options={[{ value: "both", label: "Все" }, ...kassas.map((item) => ({ value: item.id, label: item.label }))]}
+              />
+            ) : (
+              <Segmented<Scope>
+                label="Касса в журнале и итогах"
+                size="sm"
+                fit={kassas.length > 2 ? "content" : "equal"}
+                value={scope}
+                onChange={setScope}
+                options={[{ value: "both", label: kassas.length > 2 ? "Все" : "Обе" }, ...kassas.map((item) => ({ value: item.id, label: item.label }))]}
+              />
+            )}
           </div>
         ) : (
           <div className={cn(row, "justify-between")}>
@@ -110,7 +130,7 @@ export function Settings(props: Props) {
               <span className="font-semibold">Касса</span>
               <span className="text-[12.5px] text-muted-foreground">Только своя касса</span>
             </span>
-            <span className="rounded-full bg-accent px-2.5 py-0.5 text-[12px] font-semibold text-muted-foreground">{KASSA_LABEL[kassa]}</span>
+            <span className="rounded-full bg-accent px-2.5 py-0.5 text-[12px] font-semibold text-muted-foreground">{labelOf(kassa)}</span>
           </div>
         )}
         {props.telegram && <div className={row}>{props.telegram}</div>}

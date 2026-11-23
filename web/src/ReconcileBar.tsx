@@ -1,4 +1,4 @@
-import { KASSA_CURRENCIES, useKassa } from "./kassa";
+import { useKassa } from "./kassa";
 import { useRef, useState, type FormEvent } from "react";
 import { AmountInput } from "./AmountInput";
 import { Label } from "@/components/ui/label";
@@ -28,8 +28,10 @@ type Props = {
 export function ReconcileBar({ login, onBalances, onSessionExpired, startAsking = false }: Props) {
   const [asking, setAsking] = useState(startAsking);
   // The cash desk counted: the cash of each of its currencies (what lies on cards is not asked).
-  const { kassa } = useKassa();
-  const currencies = KASSA_CURRENCIES[kassa];
+  const { kassa, currenciesOf, alike, labelOf } = useKassa();
+  const currencies = currenciesOf(kassa);
+  // Among desks that keep the same money the fields do not say which one is counted: its name does.
+  const whose = alike(kassa) ? ` «${labelOf(kassa)}»` : "";
   const [counts, setCounts] = useState<Record<Currency, string>>({ RUB: "", USD: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export function ReconcileBar({ login, onBalances, onSessionExpired, startAsking 
       {!asking ? (
         <div className="reconcile-line">
           <span>
-            <strong>Сверка кассы</strong>: пересчитать наличные и свести с книгой
+            <strong>Сверка кассы{whose}</strong>: пересчитать наличные и свести с книгой
           </span>
           <Button type="button" size="sm" onClick={() => setAsking(true)}>
             Сверить кассу
@@ -90,10 +92,10 @@ export function ReconcileBar({ login, onBalances, onSessionExpired, startAsking 
       ) : (
         <form className="reconcile-form" onSubmit={submit} noValidate>
           <p>
-            <strong>Сверка кассы.</strong>{" "}
+            <strong>Сверка кассы{whose}.</strong>{" "}
             {currencies.length > 1
               ? "Пересчитайте деньги в кассе и введите остаток рублей и долларов. Разница с книгой запишется на вас."
-              : "Пересчитайте деньги в кассе и введите остаток долларов. Разница с книгой запишется на вас."}
+              : `Пересчитайте деньги в кассе и введите остаток ${currencies[0] === "RUB" ? "рублей" : "долларов"}. Разница с книгой запишется на вас.`}
           </p>
           {unsent > 0 && (
             <p className={cn(alertVariants({ variant: "destructive" }), "error")} role="alert">
@@ -145,10 +147,11 @@ function problemText(reason: "forbidden" | "id-conflict" | "rejected" | "server-
 
 /** How a count came out, per currency: what the book said, what was counted, the difference. */
 function ReconcileResult({ report, onHide }: { report: Reconciliation; onHide: () => void }) {
+  const { alike, labelOf } = useKassa();
   return (
     <div className="reconcile-result rounded-lg bg-secondary" role="status">
       <p>
-        <strong>Касса сверена</strong> в {formatMoscowShort(report.madeAt)} (МСК):
+        <strong>Касса{alike(report.kassa) ? ` «${labelOf(report.kassa)}»` : ""} сверена</strong> в {formatMoscowShort(report.madeAt)} (МСК):
       </p>
       <ul>
         {report.currencies.map((item) => (

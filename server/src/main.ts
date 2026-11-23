@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { assertKassasCoverDatabase } from "./kassa-check.js";
 import { migrateDatabase } from "./migrate.js";
 
 const config = loadConfig();
@@ -9,8 +10,11 @@ const applied = await migrateDatabase(config.databaseUrl, { allowNewerSchema: co
 if (applied.length > 0) {
   console.log(`Applied migrations: ${applied.join(", ")}`);
 }
+// The settings name the cash desks; the money of a desk they do not name would be in no balance.
+await assertKassasCoverDatabase(config.databaseUrl, config.kassas);
 
 if (config.sheetProblem) console.error(`The journal is not copied to the Google spreadsheet: ${config.sheetProblem}`);
+for (const warning of config.warnings) console.error(`Settings: ${warning}`);
 
 const app = await buildApp({
   databaseUrl: config.databaseUrl,
@@ -18,13 +22,17 @@ const app = await buildApp({
   secureCookies: config.secureCookies,
   sessionDays: config.sessionDays,
   trustProxy: config.trustProxy,
+  kassas: config.kassas,
+  clientCodes: config.clientCodes,
+  warehouses: config.warehouses,
   telegramBotToken: config.telegramBotToken,
   telegramGroupChatId: config.telegramGroupChatId,
   telegramIncomeThreadId: config.telegramIncomeThreadId,
   telegramExpenseThreadId: config.telegramExpenseThreadId,
-  telegramAndijanThreadId: config.telegramAndijanThreadId,
+  telegramKassaThreadIds: config.telegramKassaThreadIds,
   telegramApiUrl: config.telegramApiUrl,
   onec: config.onec,
+  onecKassas: config.onecKassas,
   sheet: config.sheet,
   logger: true,
 });
